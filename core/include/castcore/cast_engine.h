@@ -1,0 +1,73 @@
+#ifndef CASTCORE_CAST_ENGINE_H_
+#define CASTCORE_CAST_ENGINE_H_
+
+#include "castcore/types.h"
+#include "castcore/state_machine.h"
+#include "castcore/config.h"
+#include "castcore/device_discovery.h"
+#include "castcore/display_capture.h"
+#include "castcore/cast_session.h"
+
+#include <memory>
+#include <vector>
+#include <string>
+#include <functional>
+#include <mutex>
+
+namespace castcore {
+
+class CastEngine {
+ public:
+  using DevicesChangedCallback = std::function<void(const std::vector<CastDevice>& devices)>;
+  using StateChangedCallback = std::function<void(SessionState old_state, SessionState new_state, const std::string& message)>;
+  using StatsUpdatedCallback = std::function<void(const StreamStats& stats)>;
+
+  static CastEngine& Instance();
+
+  bool Initialize();
+  void Shutdown();
+
+  void StartDiscovery();
+  void StopDiscovery();
+
+  std::vector<CastDevice> GetDevices() const;
+  std::vector<DisplayInfo> GetDisplays() const;
+
+  bool StartCasting(const std::string& device_id,
+                    int display_id = 0,
+                    QualityPreset preset = QualityPreset::kAuto,
+                    bool audio_enabled = true);
+
+  bool StartCastingLastDevice();
+  void StopCasting();
+
+  SessionState GetState() const;
+  StreamStats GetStats() const;
+  const AppConfig& GetConfig() const;
+
+  void SetOnDevicesChanged(DevicesChangedCallback callback);
+  void SetOnStateChanged(StateChangedCallback callback);
+  void SetOnStatsUpdated(StatsUpdatedCallback callback);
+
+  StateMachine& GetStateMachine() { return state_machine_; }
+  DeviceDiscovery& GetDiscovery() { return discovery_; }
+
+ private:
+  CastEngine();
+  ~CastEngine();
+
+  StateMachine state_machine_;
+  DeviceDiscovery discovery_;
+  std::unique_ptr<CastSession> active_session_;
+  mutable std::recursive_mutex engine_mutex_;
+
+  DevicesChangedCallback devices_cb_;
+  StateChangedCallback state_cb_;
+  StatsUpdatedCallback stats_cb_;
+
+  std::atomic<bool> is_initialized_{false};
+};
+
+} // namespace castcore
+
+#endif // CASTCORE_CAST_ENGINE_H_

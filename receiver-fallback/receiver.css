@@ -1,0 +1,44 @@
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #0b0c10;
+  color: #ffffff;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  overflow: hidden;
+}
+
+#container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+}
+
+#status-overlay {
+  text-align: center;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 4rem;
+  font-weight: 700;
+  color: #66fcf1;
+  margin-bottom: 1rem;
+}
+
+#status-text {
+  font-size: 1.5rem;
+  color: #c5c6c7;
+}
+
+cast-media-player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
