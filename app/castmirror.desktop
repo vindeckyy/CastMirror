@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=CastMirror
+Comment=Native Low-Latency Google Cast Display Mirroring
+Exec=/home/hayden/Desktop/Projects/CastMirror/build/app/castmirror-gui
+Icon=video-display
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;Network;
+StartupNotify=true
