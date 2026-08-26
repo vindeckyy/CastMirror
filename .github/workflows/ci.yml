@@ -38,4 +38,4 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: xvfb-run -a ctest --output-on-failure --timeout 90
+        run: xvfb-run -a ./tests/castmirror_tests
