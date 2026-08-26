@@ -46,6 +46,7 @@ class DeviceDiscovery {
   void DiscoveryLoop();
   void SendMdnsQuery(int socket_fd);
   void ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip);
+  void ProbeLocalSubnets();
 
   std::atomic<bool> running_{false};
   std::thread discovery_thread_;

@@ -1,13 +1,20 @@
 #include "castcore/device_discovery.h"
 #include "castcore/logger.h"
 
+#include <nlohmann/json.hpp>
 #include <cstring>
 #include <chrono>
 #include <algorithm>
+#include <vector>
+#include <thread>
+#include <future>
+#include <sstream>
 
 #if defined(_WIN32)
   #include <winsock2.h>
   #include <ws2tcpip.h>
+  #include <iphlpapi.h>
+  #pragma comment(lib, "iphlpapi.lib")
   typedef int socklen_t;
   #define close closesocket
 #else
@@ -15,6 +22,8 @@
   #include <sys/socket.h>
   #include <netinet/in.h>
   #include <arpa/inet.h>
+  #include <ifaddrs.h>
+  #include <net/if.h>
   #include <unistd.h>
   #include <fcntl.h>
   #include <poll.h>
@@ -27,6 +36,125 @@ namespace {
 constexpr const char* kCastServiceType = "_googlecast._tcp.local";
 constexpr const char* kMdnsMulticastGroup = "224.0.0.251";
 constexpr uint16_t kMdnsPort = 5353;
+
+// Helper: Attempt non-blocking TCP connect with timeout in milliseconds
+bool CheckTcpPort(const std::string& ip, uint16_t port, int timeout_ms) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return false;
+
+#if defined(_WIN32)
+  u_long mode = 1;
+  ioctlsocket(fd, FIONBIO, &mode);
+#else
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+  struct sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(port);
+  inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+
+  int res = connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
+  if (res == 0) {
+    close(fd);
+    return true;
+  }
+
+#if defined(_WIN32)
+  fd_set setW, setE;
+  FD_ZERO(&setW);
+  FD_ZERO(&setE);
+  FD_SET(fd, &setW);
+  FD_SET(fd, &setE);
+  struct timeval tv;
+  tv.tv_sec = timeout_ms / 1000;
+  tv.tv_usec = (timeout_ms % 1000) * 1000;
+  int sel = select(0, nullptr, &setW, &setE, &tv);
+  bool connected = (sel > 0 && FD_ISSET(fd, &setW) && !FD_ISSET(fd, &setE));
+#else
+  struct pollfd pfd{};
+  pfd.fd = fd;
+  pfd.events = POLLOUT;
+  int poll_res = poll(&pfd, 1, timeout_ms);
+  bool connected = false;
+  if (poll_res > 0 && (pfd.revents & POLLOUT) && !(pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+    int error = 0;
+    socklen_t len = sizeof(error);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+      connected = true;
+    }
+  }
+#endif
+
+  close(fd);
+  return connected;
+}
+
+// Helper: Query Chromecast Eureka Info (HTTP 8008)
+bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* out_model, std::string* out_id) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) return false;
+
+  struct timeval tv{};
+  tv.tv_sec = 0;
+  tv.tv_usec = 400000; // 400ms timeout
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+
+  struct sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(8008);
+  inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+
+  if (connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+    close(fd);
+    return false;
+  }
+
+  std::string req = "GET /setup/eureka_info?params=name,device_info HTTP/1.1\r\n"
+                    "Host: " + ip + ":8008\r\n"
+                    "User-Agent: CastMirror\r\n"
+                    "Connection: close\r\n\r\n";
+
+  send(fd, req.data(), req.size(), 0);
+
+  char buf[4096];
+  std::string resp;
+  while (true) {
+    int r = recv(fd, buf, sizeof(buf) - 1, 0);
+    if (r <= 0) break;
+    buf[r] = '\0';
+    resp += buf;
+  }
+  close(fd);
+
+  size_t body_pos = resp.find("\r\n\r\n");
+  if (body_pos == std::string::npos) return false;
+
+  std::string json_str = resp.substr(body_pos + 4);
+  try {
+    auto j = nlohmann::json::parse(json_str);
+    if (out_name) *out_name = j.value("name", "");
+    if (out_model) {
+      if (j.contains("device_info") && j["device_info"].is_object()) {
+        *out_model = j["device_info"].value("model_name", "Chromecast");
+      } else {
+        *out_model = "Chromecast";
+      }
+    }
+    if (out_id) {
+      if (j.contains("device_info") && j["device_info"].is_object()) {
+        *out_id = j["device_info"].value("cloud_device_id", ip);
+      } else {
+        *out_id = ip;
+      }
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 
 } // namespace
 
@@ -58,7 +186,9 @@ bool DeviceDiscovery::IsRunning() const {
 }
 
 void DeviceDiscovery::TriggerScan() {
-  // Can be called to force an immediate probe
+  std::thread([this]() {
+    ProbeLocalSubnets();
+  }).detach();
 }
 
 std::vector<CastDevice> DeviceDiscovery::GetDevices() const {
@@ -96,11 +226,17 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
     auto it = std::find_if(devices_.begin(), devices_.end(),
                            [&](const CastDevice& d) {
                              return (!device.id.empty() && d.id == device.id) ||
-                                    (device.id.empty() && d.ip_address == device.ip_address);
+                                    (device.id.empty() && d.ip_address == device.ip_address) ||
+                                    (d.ip_address == device.ip_address);
                            });
 
     if (it != devices_.end()) {
-      *it = device;
+      it->name = device.name.empty() ? it->name : device.name;
+      it->model_name = device.model_name.empty() ? it->model_name : device.model_name;
+      it->ip_address = device.ip_address;
+      it->port = device.port;
+      it->status = device.status;
+      it->capabilities = device.capabilities;
       it->last_seen = std::chrono::steady_clock::now();
     } else {
       devices_.push_back(device);
@@ -187,11 +323,9 @@ CastDevice DeviceDiscovery::ParseFromMdnsData(const std::string& name,
 }
 
 void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
-  // Construct standard DNS question for _googlecast._tcp.local PTR
   uint8_t query[512];
   size_t offset = 0;
 
-  // Header: ID=0, Flags=0, QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
   query[offset++] = 0x00; query[offset++] = 0x00; // ID
   query[offset++] = 0x00; query[offset++] = 0x00; // Standard query
   query[offset++] = 0x00; query[offset++] = 0x01; // QDCOUNT = 1
@@ -199,7 +333,6 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
   query[offset++] = 0x00; query[offset++] = 0x00; // NSCOUNT = 0
   query[offset++] = 0x00; query[offset++] = 0x00; // ARCOUNT = 0
 
-  // QNAME: _googlecast._tcp.local
   const char* labels[] = {"_googlecast", "_tcp", "local"};
   for (const char* label : labels) {
     size_t len = std::strlen(label);
@@ -209,10 +342,8 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
   }
   query[offset++] = 0x00; // Root terminator
 
-  // QTYPE: PTR (12)
-  query[offset++] = 0x00; query[offset++] = 0x0C;
-  // QCLASS: IN (1), Unicast-response bit = 0
-  query[offset++] = 0x00; query[offset++] = 0x01;
+  query[offset++] = 0x00; query[offset++] = 0x0C; // QTYPE: PTR (12)
+  query[offset++] = 0x80; query[offset++] = 0x01; // QCLASS: IN (1), QU bit (0x8000) for unicast response
 
   struct sockaddr_in dest_addr{};
   dest_addr.sin_family = AF_INET;
@@ -226,11 +357,7 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
 void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip) {
   if (length < 12) return;
 
-  // Very fast parser for mDNS TXT strings and service info
-  // Search for known TXT keys: "id=", "fn=", "md=", "ca="
   std::vector<std::string> txt_entries;
-  std::string full_str(reinterpret_cast<const char*>(buffer), length);
-
   size_t pos = 0;
   while (pos < length) {
     uint8_t len = buffer[pos++];
@@ -250,82 +377,158 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
   }
 }
 
-void DeviceDiscovery::DiscoveryLoop() {
-  int fd = socket(AF_INET, SOCK_DGRAM, 0);
-  if (fd < 0) {
-    LOG_ERROR << "Failed to create mDNS UDP socket";
-    return;
+void DeviceDiscovery::ProbeLocalSubnets() {
+  std::vector<std::string> target_subnets;
+
+#if !defined(_WIN32)
+  struct ifaddrs* ifaddr = nullptr;
+  if (getifaddrs(&ifaddr) != -1) {
+    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+      if (ifa->ifa_flags & IFF_LOOPBACK) continue;
+      if (!(ifa->ifa_flags & IFF_UP)) continue;
+
+      auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
+      char ip_buf[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, &sa->sin_addr, ip_buf, sizeof(ip_buf));
+      std::string ip_str(ip_buf);
+      size_t last_dot = ip_str.rfind('.');
+      if (last_dot != std::string::npos) {
+        target_subnets.push_back(ip_str.substr(0, last_dot + 1));
+      }
+    }
+    freeifaddrs(ifaddr);
   }
-
-  int reuse = 1;
-#if defined(SO_REUSEPORT)
-  setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-#endif
-  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-
-  struct sockaddr_in bind_addr{};
-  bind_addr.sin_family = AF_INET;
-  bind_addr.sin_port = htons(kMdnsPort);
-  bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-  if (bind(fd, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
-    LOG_WARN << "Failed to bind mDNS port 5353 (will use ephemeral query socket)";
-    close(fd);
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) return;
-  }
-
-  // Join multicast group
-  struct ip_mreq mreq{};
-  inet_pton(AF_INET, kMdnsMulticastGroup, &mreq.imr_multiaddr);
-  mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-  setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
-
-  // Set non-blocking / timeout
-#if defined(_WIN32)
-  DWORD timeout_ms = 1000;
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 #else
-  struct timeval tv{};
-  tv.tv_sec = 1;
-  tv.tv_usec = 0;
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  // Windows fallback default subnets
+  target_subnets.push_back("192.168.0.");
+  target_subnets.push_back("192.168.1.");
 #endif
 
-  auto last_query_time = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+  // Remove duplicates
+  std::sort(target_subnets.begin(), target_subnets.end());
+  target_subnets.erase(std::unique(target_subnets.begin(), target_subnets.end()), target_subnets.end());
 
-  while (running_.load()) {
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_query_time).count() >= 4) {
-      SendMdnsQuery(fd);
-      last_query_time = now;
-    }
+  for (const auto& subnet_base : target_subnets) {
+    // Probe 1..254 in parallel batches
+    const int kBatchSize = 32;
+    for (int start_i = 1; start_i <= 254; start_i += kBatchSize) {
+      if (!running_.load()) break;
+      std::vector<std::future<void>> futures;
 
-    uint8_t buffer[4096];
-    struct sockaddr_in src_addr{};
-    socklen_t addr_len = sizeof(src_addr);
+      for (int i = start_i; i < start_i + kBatchSize && i <= 254; ++i) {
+        std::string ip = subnet_base + std::to_string(i);
+        futures.push_back(std::async(std::launch::async, [this, ip]() {
+          if (CheckTcpPort(ip, 8009, 150)) {
+            std::string name, model, id;
+            if (!FetchEurekaInfo(ip, &name, &model, &id) || name.empty()) {
+              name = "Cast Device (" + ip + ")";
+              model = "Chromecast";
+              id = ip;
+            }
+            CastDevice d;
+            d.id = id;
+            d.name = name;
+            d.model_name = model;
+            d.ip_address = ip;
+            d.port = 8009;
+            d.capabilities = kCapVideoOut | kCapAudioOut;
+            d.status = DeviceStatus::kReady;
+            AddOrUpdateDevice(d);
+          }
+        }));
+      }
 
-    int bytes_read = recvfrom(fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
-                              reinterpret_cast<struct sockaddr*>(&src_addr), &addr_len);
-
-    if (bytes_read > 0) {
-      char ip_str[INET_ADDRSTRLEN];
-      inet_ntop(AF_INET, &src_addr.sin_addr, ip_str, sizeof(ip_str));
-      ProcessMdnsResponse(buffer, static_cast<size_t>(bytes_read), std::string(ip_str));
-    }
-
-    // Check for offline devices (not seen for > 20 seconds)
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      for (auto& d : devices_) {
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - d.last_seen).count() > 20) {
-          d.status = DeviceStatus::kOffline;
-        }
+      for (auto& f : futures) {
+        f.get();
       }
     }
   }
+}
 
-  close(fd);
+void DeviceDiscovery::DiscoveryLoop() {
+  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd >= 0) {
+    int reuse = 1;
+#if defined(SO_REUSEPORT)
+    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+#endif
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
+
+    struct sockaddr_in bind_addr{};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_port = htons(kMdnsPort);
+    bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(fd, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
+      close(fd);
+      fd = socket(AF_INET, SOCK_DGRAM, 0);
+    }
+
+    if (fd >= 0) {
+      struct ip_mreq mreq{};
+      inet_pton(AF_INET, kMdnsMulticastGroup, &mreq.imr_multiaddr);
+      mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+      setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
+
+#if defined(_WIN32)
+      DWORD timeout_ms = 1000;
+      setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
+#else
+      struct timeval tv{};
+      tv.tv_sec = 1;
+      tv.tv_usec = 0;
+      setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+    }
+  }
+
+  // Run initial subnet scan
+  std::thread([this]() {
+    ProbeLocalSubnets();
+  }).detach();
+
+  auto last_mdns_query = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+  auto last_subnet_scan = std::chrono::steady_clock::now();
+
+  while (running_.load()) {
+    auto now = std::chrono::steady_clock::now();
+
+    // Send mDNS query every 4 seconds
+    if (fd >= 0 && std::chrono::duration_cast<std::chrono::seconds>(now - last_mdns_query).count() >= 4) {
+      SendMdnsQuery(fd);
+      last_mdns_query = now;
+    }
+
+    // Periodic subnet scan every 30 seconds
+    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_subnet_scan).count() >= 30) {
+      std::thread([this]() {
+        ProbeLocalSubnets();
+      }).detach();
+      last_subnet_scan = now;
+    }
+
+    if (fd >= 0) {
+      uint8_t buffer[4096];
+      struct sockaddr_in src_addr{};
+      socklen_t addr_len = sizeof(src_addr);
+
+      int bytes_read = recvfrom(fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
+                                reinterpret_cast<struct sockaddr*>(&src_addr), &addr_len);
+
+      if (bytes_read > 0) {
+        char ip_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &src_addr.sin_addr, ip_str, sizeof(ip_str));
+        ProcessMdnsResponse(buffer, static_cast<size_t>(bytes_read), std::string(ip_str));
+      }
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+  }
+
+  if (fd >= 0) {
+    close(fd);
+  }
 }
 
 } // namespace castcore
