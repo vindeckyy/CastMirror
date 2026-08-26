@@ -41,27 +41,28 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
     return false;
   }
 
-  // Connect UDP socket for performance and direct send/recv
-  struct sockaddr_in dest_addr{};
-  dest_addr.sin_family = AF_INET;
-  dest_addr.sin_port = htons(receiver_udp_port);
-  if (inet_pton(AF_INET, receiver_ip.c_str(), &dest_addr.sin_addr) <= 0) {
+  int opt = 1;
+  setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+
+  struct sockaddr_in bind_addr{};
+  bind_addr.sin_family = AF_INET;
+  bind_addr.sin_port = 0;
+  bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  bind(socket_fd_, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr));
+
+  std::memset(&dest_addr_, 0, sizeof(dest_addr_));
+  dest_addr_.sin_family = AF_INET;
+  dest_addr_.sin_port = htons(receiver_udp_port);
+  if (inet_pton(AF_INET, receiver_ip.c_str(), &dest_addr_.sin_addr) <= 0) {
     LOG_ERROR << "Invalid UDP destination IP: " << receiver_ip;
     close(socket_fd_);
     socket_fd_ = -1;
     return false;
   }
 
-  if (connect(socket_fd_, reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr)) < 0) {
-    LOG_ERROR << "Failed to connect UDP socket to " << receiver_ip << ":" << receiver_udp_port;
-    close(socket_fd_);
-    socket_fd_ = -1;
-    return false;
-  }
-
   // Socket buffers for high bitrate streaming
-  int sndbuf = 2 * 1024 * 1024;
-  int rcvbuf = 1024 * 1024;
+  int sndbuf = 4 * 1024 * 1024;
+  int rcvbuf = 2 * 1024 * 1024;
   setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
   setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
 
@@ -126,7 +127,8 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
   }
 
   for (const auto& pkt : packets) {
-    ssize_t sent = send(socket_fd_, reinterpret_cast<const char*>(pkt.data.data()), pkt.data.size(), 0);
+    ssize_t sent = sendto(socket_fd_, reinterpret_cast<const char*>(pkt.data.data()), pkt.data.size(), 0,
+                          reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
     if (sent < 0) {
       LOG_WARN << "UDP send error";
       return false;
@@ -150,7 +152,8 @@ void CastTransport::RetransmitPacket(uint32_t frame_id, uint16_t packet_id) {
     if (pit != fit->second.end()) {
       const auto& pkt = pit->second;
       std::lock_guard<std::mutex> slock(send_mutex_);
-      send(socket_fd_, reinterpret_cast<const char*>(pkt.data.data()), pkt.data.size(), 0);
+      sendto(socket_fd_, reinterpret_cast<const char*>(pkt.data.data()), pkt.data.size(), 0,
+             reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
     }
   }
 }
@@ -159,7 +162,10 @@ void CastTransport::ReceiveLoop() {
   uint8_t buffer[4096];
 
   while (running_.load()) {
-    ssize_t bytes_read = recv(socket_fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+    struct sockaddr_in src_addr{};
+    socklen_t slen = sizeof(src_addr);
+    ssize_t bytes_read = recvfrom(socket_fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
+                                  reinterpret_cast<struct sockaddr*>(&src_addr), &slen);
     if (bytes_read <= 0) {
       if (!running_.load()) break;
       std::this_thread::sleep_for(std::chrono::milliseconds(5));

@@ -43,6 +43,7 @@ class CastChannel {
 
   void SetMessageCallback(MessageCallback callback);
   void SetStatusCallback(StatusCallback callback);
+  void SetAppTransportId(const std::string& transport_id);
 
   std::string GetConnectedIp() const { return ip_address_; }
 
@@ -52,6 +53,7 @@ class CastChannel {
   bool SendRawPacket(const uint8_t* data, size_t length);
 
   std::string ip_address_;
+  std::string app_transport_id_;
   uint16_t port_ = 8009;
   std::atomic<bool> is_connected_{false};
   std::atomic<bool> should_stop_{false};

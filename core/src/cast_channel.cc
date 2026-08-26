@@ -142,13 +142,14 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   return true;
 }
 
-void CastChannel::Disconnect() {
-  if (!is_connected_.exchange(false)) {
-    return;
-  }
+void CastChannel::SetAppTransportId(const std::string& transport_id) {
+  std::lock_guard<std::mutex> lock(send_mutex_);
+  app_transport_id_ = transport_id;
+}
 
+void CastChannel::Disconnect() {
+  bool was_connected = is_connected_.exchange(false);
   should_stop_ = true;
-  LOG_INFO << "Disconnecting Cast Channel from " << ip_address_ << "...";
 
   if (socket_fd_ >= 0) {
 #if defined(_WIN32)
@@ -158,10 +159,10 @@ void CastChannel::Disconnect() {
 #endif
   }
 
-  if (receive_thread_.joinable()) {
+  if (receive_thread_.joinable() && std::this_thread::get_id() != receive_thread_.get_id()) {
     receive_thread_.join();
   }
-  if (heartbeat_thread_.joinable()) {
+  if (heartbeat_thread_.joinable() && std::this_thread::get_id() != heartbeat_thread_.get_id()) {
     heartbeat_thread_.join();
   }
 
@@ -180,15 +181,19 @@ void CastChannel::Disconnect() {
       close(socket_fd_);
       socket_fd_ = -1;
     }
+    app_transport_id_.clear();
   }
 
-  StatusCallback cb;
-  {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
-    cb = status_callback_;
-  }
-  if (cb) {
-    cb(false, "Disconnected");
+  if (was_connected) {
+    LOG_INFO << "Disconnected Cast Channel from " << ip_address_;
+    StatusCallback cb;
+    {
+      std::lock_guard<std::mutex> lock(callback_mutex_);
+      cb = status_callback_;
+    }
+    if (cb) {
+      cb(false, "Disconnected");
+    }
   }
 }
 
@@ -368,13 +373,25 @@ void CastChannel::ReceiveLoop() {
 
 void CastChannel::HeartbeatLoop() {
   while (!should_stop_.load() && is_connected_.load()) {
-    for (int i = 0; i < 80; ++i) {
+    // 40 x 50ms = 2.0 seconds
+    for (int i = 0; i < 40; ++i) {
       if (should_stop_.load() || !is_connected_.load()) return;
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     if (should_stop_.load() || !is_connected_.load()) break;
 
+    // 1. Platform keepalive
     SendCastMessage(kNamespaceHeartbeat, "{\"type\":\"PING\"}", kPlatformReceiverId, kPlatformSenderId);
+
+    // 2. Application keepalive
+    std::string app_tid;
+    {
+      std::lock_guard<std::mutex> lock(send_mutex_);
+      app_tid = app_transport_id_;
+    }
+    if (!app_tid.empty()) {
+      SendCastMessage(kNamespaceHeartbeat, "{\"type\":\"PING\"}", app_tid, kPlatformSenderId);
+    }
   }
 }
 

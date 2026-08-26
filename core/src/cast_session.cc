@@ -109,6 +109,7 @@ bool CastSession::Start(const CastDevice& device,
   state_machine_.TransitionTo(SessionState::kNegotiating, "Negotiating Offer/Answer");
 
   // 6. Connect virtual connection to Mirroring App transportId
+  cast_channel_->SetAppTransportId(app_transport_id_);
   cast_channel_->ConnectVirtual(app_transport_id_, "streaming_sender");
 
   // 7. Send OFFER JSON

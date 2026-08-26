@@ -13,6 +13,14 @@
 #include <map>
 #include <functional>
 
+#if defined(_WIN32)
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+#else
+  #include <netinet/in.h>
+  #include <arpa/inet.h>
+#endif
+
 namespace castcore {
 
 class CastTransport {
@@ -42,6 +50,7 @@ class CastTransport {
   std::string receiver_ip_;
   uint16_t receiver_port_ = 0;
   int socket_fd_ = -1;
+  struct sockaddr_in dest_addr_{};
 
   std::atomic<bool> running_{false};
   std::thread receive_thread_;
