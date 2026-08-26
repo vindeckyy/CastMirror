@@ -17,7 +17,7 @@ struct DeviceCapabilities {
   bool supports_vp8 = true;
   bool supports_vp9 = false;
   bool supports_hevc = false;
-  int default_target_delay_ms = 400;
+  int default_target_delay_ms = 200;
   std::vector<Resolution> supported_resolutions;
 };
 

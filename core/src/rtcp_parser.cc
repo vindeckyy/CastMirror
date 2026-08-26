@@ -1,6 +1,7 @@
 #include "castcore/rtcp_parser.h"
 #include "castcore/logger.h"
 #include <cstring>
+#include <map>
 
 namespace castcore {
 
@@ -28,11 +29,22 @@ uint32_t ExpandFrameId(uint8_t truncated_id, uint32_t reference_id) {
   return candidate;
 }
 
-} // namespace
+uint32_t ReferenceFrameId(uint32_t media_ssrc,
+                          uint32_t fallback,
+                          const std::map<uint32_t, uint32_t>* last_frame_by_ssrc) {
+  if (last_frame_by_ssrc) {
+    auto it = last_frame_by_ssrc->find(media_ssrc);
+    if (it != last_frame_by_ssrc->end()) {
+      return it->second;
+    }
+  }
+  return fallback;
+}
 
-bool RtcpParser::ParseCompoundPacket(const uint8_t* data, size_t length,
-                                    uint32_t last_sent_frame_id,
-                                    RtcpFeedback& out_feedback) {
+bool ParseInternal(const uint8_t* data, size_t length,
+                   uint32_t fallback_last_frame_id,
+                   const std::map<uint32_t, uint32_t>* last_frame_by_ssrc,
+                   RtcpFeedback& out_feedback) {
   if (!data || length < 4) return false;
 
   size_t offset = 0;
@@ -76,10 +88,13 @@ bool RtcpParser::ParseCompoundPacket(const uint8_t* data, size_t length,
         } else if (block_len >= 20) {
           uint32_t magic = ReadUint32BE(&block[12]);
           if (magic == 0x43415354) { // 'CAST'
+            uint32_t media_ssrc = out_feedback.sender_ssrc;
+            uint32_t ref_fid = ReferenceFrameId(media_ssrc, fallback_last_frame_id,
+                                               last_frame_by_ssrc);
             uint8_t ckpt_id_8 = block[16];
             uint8_t loss_fields_count = block[17];
             out_feedback.current_playout_delay_ms = ReadUint16BE(&block[18]);
-            out_feedback.checkpoint_frame_id = ExpandFrameId(ckpt_id_8, last_sent_frame_id);
+            out_feedback.checkpoint_frame_id = ExpandFrameId(ckpt_id_8, ref_fid);
 
             size_t loss_offset = 20;
             for (int i = 0; i < loss_fields_count && loss_offset + 4 <= block_len; ++i) {
@@ -87,7 +102,7 @@ bool RtcpParser::ParseCompoundPacket(const uint8_t* data, size_t length,
               uint16_t pid = ReadUint16BE(&block[loss_offset + 1]);
               uint8_t bit_vector = block[loss_offset + 3];
 
-              uint32_t full_fid = ExpandFrameId(fid_8, last_sent_frame_id);
+              uint32_t full_fid = ExpandFrameId(fid_8, ref_fid);
               out_feedback.nacks.push_back({full_fid, pid});
 
               // Check PID bit vector for subsequent missing packets
@@ -131,6 +146,20 @@ bool RtcpParser::ParseCompoundPacket(const uint8_t* data, size_t length,
   }
 
   return parsed_any;
+}
+
+} // namespace
+
+bool RtcpParser::ParseCompoundPacket(const uint8_t* data, size_t length,
+                                    uint32_t last_sent_frame_id,
+                                    RtcpFeedback& out_feedback) {
+  return ParseInternal(data, length, last_sent_frame_id, nullptr, out_feedback);
+}
+
+bool RtcpParser::ParseCompoundPacket(const uint8_t* data, size_t length,
+                                    const std::map<uint32_t, uint32_t>& last_frame_by_ssrc,
+                                    RtcpFeedback& out_feedback) {
+  return ParseInternal(data, length, 0, &last_frame_by_ssrc, out_feedback);
 }
 
 } // namespace castcore

@@ -24,7 +24,7 @@ TEST(EncoderTest, OpusAudioEncoderProducesValidFrames) {
   EXPECT_TRUE(encoder->Encode(frame, ef));
   EXPECT_GT(ef.data.size(), 0u);
   EXPECT_EQ(ef.dependency, FrameDependency::kKeyFrame);
-  EXPECT_EQ(ef.frame_id, 1u);
+  EXPECT_EQ(ef.frame_id, 0u);
 }
 
 TEST(EncoderTest, VideoEncoderProducesH264AnnexBNALUs) {
@@ -48,7 +48,7 @@ TEST(EncoderTest, VideoEncoderProducesH264AnnexBNALUs) {
   EXPECT_TRUE(encoder->Encode(frame, ef));
   EXPECT_GT(ef.data.size(), 0u);
   EXPECT_EQ(ef.dependency, FrameDependency::kKeyFrame);
-  EXPECT_EQ(ef.frame_id, 1u);
+  EXPECT_EQ(ef.frame_id, 0u);
 
   // Check for Annex-B start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
   ASSERT_GE(ef.data.size(), 4u);

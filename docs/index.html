@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CastMirror — Native Chromecast display mirroring</title>
+  <meta name="description" content="Native Chromecast display mirroring for Linux. Low latency. No Chrome.">
+  <meta property="og:title" content="CastMirror">
+  <meta property="og:description" content="Native Chromecast display mirroring. Low latency. No Chrome.">
+  <meta property="og:image" content="assets/og-image.png">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <a class="brand" href="#top"><img src="assets/logo.svg" alt="">CastMirror</a>
+      <div class="nav-links">
+        <a href="#product">Product</a>
+        <a href="#protocol">Protocol</a>
+        <a data-repo-href="/blob/master/docs/building.md">Docs</a>
+        <a data-repo-href="">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="wrap hero" id="top">
+    <div>
+      <p class="section-kicker">Linux · C++20 · Cast Streaming</p>
+      <h1>Native Chromecast display mirroring. Low latency. No Chrome.</h1>
+      <p class="lede">CastMirror is a GTK sender that discovers Cast devices on your LAN, captures the desktop and system audio, and streams H.264 + Opus over the same Cast RTP/RTCP path Chrome uses for “Cast screen”.</p>
+      <div class="cta">
+        <a class="btn btn-primary" data-repo-href="">View on GitHub</a>
+        <a class="btn btn-ghost" href="#start">Build from source</a>
+      </div>
+    </div>
+    <div class="bezel">
+      <img src="assets/screenshot-ready.png" alt="CastMirror GTK app in the Ready state">
+    </div>
+  </header>
+
+  <section id="product">
+    <div class="wrap">
+      <p class="section-kicker">Product</p>
+      <h2>One-click Cast. Honest latency.</h2>
+      <p class="lede">Target playout delay is about 200 ms — Chrome-class mirroring, not game streaming. Host speakers mute while audio is on the TV, then restore on Stop.</p>
+      <div class="grid">
+        <article class="card">
+          <h3>Discover and Cast</h3>
+          <p>mDNS for nearby Chromecast / Google TV / Cast TVs, or add a device by IP. GTK UI plus a CLI.</p>
+        </article>
+        <article class="card">
+          <h3>Quality you can see</h3>
+          <p>Auto, High, Balanced, Smooth. Per-profile bitrate slider (1–25 Mbps), locked while the session is live.</p>
+        </article>
+        <article class="card">
+          <h3>Host audio stays off the PC</h3>
+          <p>Capture is the default sink monitor. The sink is muted for the session so you do not hear the stream twice.</p>
+        </article>
+        <article class="card">
+          <h3>Adaptive on RTCP</h3>
+          <p>CAST checkpoints, NACK / CST2, and PLI drive bitrate and keyframes. Hard Stop under 500 ms.</p>
+        </article>
+        <article class="card">
+          <h3>Protocol crypto</h3>
+          <p>TLS on port 8009. Media uses Cast Streaming AES-128-CTR with per-frame IVs — as Chrome mirroring does.</p>
+        </article>
+        <article class="card">
+          <h3>Not a Chrome wrapper</h3>
+          <p>No embedded browser. Not HLS fling. Windows WinUI in-tree is a blueprint, not the shipping Linux UI.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="protocol">
+    <div class="wrap">
+      <p class="section-kicker">Pipeline</p>
+      <h2>Capture to Cast UDP</h2>
+      <img class="pipeline" src="assets/pipeline.svg" alt="X11 and Pulse capture into x264 and Opus, AES-128-CTR, Cast RTP, Cast device">
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="section-kicker">Compatibility</p>
+      <h2>Cast video devices Chrome can mirror to</h2>
+      <p class="lede">Chromecast 3rd gen, Ultra, Google TV, and built-in Cast TVs. Nest Hub is 720p-class.</p>
+      <div class="strip">
+        <span class="chip">Chromecast (3rd gen)</span>
+        <span class="chip">Chromecast Ultra</span>
+        <span class="chip">Google TV / Streamer</span>
+        <span class="chip">Cast TVs</span>
+        <span class="chip">Nest Hub (720p)</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="start">
+    <div class="wrap">
+      <p class="section-kicker">Quick start</p>
+      <h2>Build on Linux</h2>
+      <pre><button class="copy" type="button">Copy</button>sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxinerama-dev \
+    libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev libgtk-3-dev
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j"$(nproc)"
+./build/app/castmirror-gui</pre>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div>
+        Apache-2.0 source. Binaries linked to GPL libx264 may need to be treated as GPL.
+        See LICENSE and NOTICE.
+      </div>
+      <div>
+        Not affiliated with Google. Chromecast and Google Cast are trademarks of Google LLC.
+        <a data-repo-href="/blob/master/SECURITY.md">Security</a>
+        ·
+        <a data-repo-href="/blob/master/docs/protocol.md">Protocol</a>
+      </div>
+    </div>
+  </footer>
+  <script src="site.js"></script>
+</body>
+</html>

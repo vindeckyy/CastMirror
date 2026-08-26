@@ -19,6 +19,7 @@ struct VideoEncoderConfig {
   std::string profile = "high";
   std::string level = "4.2";
   int gop_size = 60; // 1 second keyframe interval
+  int playout_delay_ms = 200;
 };
 
 class IVideoEncoder {

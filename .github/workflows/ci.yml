@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build-test:
+    name: Ubuntu Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxinerama-dev \
+            libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
+            libgtk-3-dev
+
+      - name: Install GoogleTest (Ubuntu source package)
+        run: |
+          if [ -d /usr/src/googletest ]; then
+            cmake -S /usr/src/googletest -B /tmp/gtest-build
+            cmake --build /tmp/gtest-build -j"$(nproc)"
+            sudo cmake --install /tmp/gtest-build
+          fi
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure

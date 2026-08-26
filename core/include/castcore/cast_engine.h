@@ -36,7 +36,8 @@ class CastEngine {
   bool StartCasting(const std::string& device_id,
                     int display_id = 0,
                     QualityPreset preset = QualityPreset::kAuto,
-                    bool audio_enabled = true);
+                    bool audio_enabled = true,
+                    uint32_t bitrate_kbps = 0);
 
   bool StartCastingLastDevice();
   void StopCasting();

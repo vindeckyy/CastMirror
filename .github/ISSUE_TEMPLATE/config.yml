@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/vindeckyy/CastMirror/security/advisories/new
+    about: Privately report a vulnerability in CastMirror (not Cast device attacks).
+  - name: Build and protocol docs
+    url: https://github.com/vindeckyy/CastMirror/blob/master/docs/building.md
+    about: Install, CMake, GUI vs CLI, and LAN/firewall notes.

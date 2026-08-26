@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CastMirror">
+  <rect width="64" height="64" rx="14" fill="#1a1d24"/>
+  <rect x="17" y="16" width="30" height="20" rx="3" fill="#121417" stroke="#e1e3e6" stroke-width="2"/>
+  <rect x="28" y="36" width="8" height="2" rx="1" fill="#8c93a0"/>
+  <path d="M14 50c11 8 25 8 36 0" fill="none" stroke="#00d2ff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="32" cy="53" r="2" fill="#00d2ff"/>
+</svg>

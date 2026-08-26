@@ -12,6 +12,7 @@
 #include <deque>
 #include <map>
 #include <functional>
+#include <chrono>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -44,13 +45,23 @@ class CastTransport {
   StreamStats GetStats() const;
 
  private:
+  struct SenderReportState {
+    uint32_t last_rtp_timestamp = 0;
+    uint32_t packets = 0;
+    uint32_t octets = 0;
+    std::chrono::steady_clock::time_point last_sr{};
+  };
+
   void ReceiveLoop();
-  void RetransmitPacket(uint32_t frame_id, uint16_t packet_id);
+  void RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t packet_id);
+  void MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
+                             uint32_t packets_just_sent, uint32_t octets_just_sent);
 
   std::string receiver_ip_;
   uint16_t receiver_port_ = 0;
   int socket_fd_ = -1;
   struct sockaddr_in dest_addr_{};
+  std::map<uint32_t, SenderReportState> sr_state_;
 
   std::atomic<bool> running_{false};
   std::thread receive_thread_;
@@ -59,9 +70,9 @@ class CastTransport {
   mutable std::mutex stats_mutex_;
   mutable std::mutex cache_mutex_;
 
-  // Retransmission cache: frame_id -> map of packet_id -> RtpPacket
-  std::map<uint32_t, std::map<uint16_t, RtpPacket>> packet_cache_;
-  uint32_t last_sent_frame_id_ = 0;
+  // Retransmission cache: ssrc -> frame_id -> packet_id -> RtpPacket
+  std::map<uint32_t, std::map<uint32_t, std::map<uint16_t, RtpPacket>>> packet_cache_;
+  std::map<uint32_t, uint32_t> last_sent_frame_id_;
 
   PliCallback pli_callback_;
   FeedbackCallback feedback_callback_;

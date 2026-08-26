@@ -37,6 +37,18 @@ inline QualityPreset QualityPresetFromString(const std::string& str) {
   return QualityPreset::kAuto;
 }
 
+// Nominal video bitrate for each quality preset (kbps). Used as the slider
+// default until the user customizes that profile.
+inline uint32_t QualityPresetDefaultBitrateKbps(QualityPreset preset) {
+  switch (preset) {
+    case QualityPreset::kHigh: return 12000;
+    case QualityPreset::kSmooth: return 5000;
+    case QualityPreset::kBalanced:
+    case QualityPreset::kAuto:
+    default: return 8000;
+  }
+}
+
 // Application and session states
 enum class SessionState {
   kIdle,
@@ -181,7 +193,7 @@ struct EncodedFrame {
   uint32_t referenced_frame_id = 0;
   uint32_t rtp_timestamp = 0;
   std::chrono::steady_clock::time_point capture_time;
-  std::chrono::milliseconds playout_delay{400};
+  std::chrono::milliseconds playout_delay{200};
   std::vector<uint8_t> data;
 };
 
@@ -213,7 +225,7 @@ struct StreamStats {
   uint32_t frames_sent = 0;
   uint32_t nacks_received = 0;
   uint32_t pli_received = 0;
-  int target_delay_ms = 400;
+  int target_delay_ms = 200;
   Resolution current_resolution{1920, 1080};
   int current_framerate = 60;
   std::string active_codec = "h264";

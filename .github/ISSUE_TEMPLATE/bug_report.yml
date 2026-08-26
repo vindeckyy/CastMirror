@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in CastMirror does not work as documented.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for CastMirror itself (GUI, CLI, capture, encode, Cast session).
+        Do not file issues that are primarily attacks on Chromecast hardware.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      placeholder: Expected vs actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start castmirror-gui
+        2. Select device…
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Debian / Ubuntu / Kali
+        - Fedora / RHEL
+        - Arch
+        - Other Linux
+        - Windows (blueprint / not shipping)
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Cast device
+      placeholder: e.g. Chromecast 3, Google TV, built-in Cast TV, model string if known
+  - type: dropdown
+    id: preset
+    attributes:
+      label: Quality preset
+      options:
+        - Auto
+        - High
+        - Balanced
+        - Smooth
+        - Not applicable
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from `~/.config/castmirror/castmirror.log` (redact LAN details you do not want public).
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I built from this repository (not a random binary).
+          required: true
+        - label: I searched existing issues.
+          required: true

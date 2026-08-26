@@ -21,6 +21,11 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   cfg.quality_preset = QualityPreset::kHigh;
   cfg.target_delay_ms = 200;
   cfg.max_bitrate_kbps = 12000;
+  cfg.bitrate_kbps_high = 15000;
+  cfg.bitrate_kbps_smooth = 0;
+
+  EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kHigh), 15000u);
+  EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kSmooth), 5000u);
 
   EXPECT_TRUE(store.Save(temp_path));
   EXPECT_TRUE(std::filesystem::exists(temp_path));
@@ -29,6 +34,7 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   cfg.last_device_id = "";
   cfg.last_device_name = "";
   cfg.quality_preset = QualityPreset::kSmooth;
+  cfg.bitrate_kbps_high = 0;
 
   EXPECT_TRUE(store.Load(temp_path));
   EXPECT_EQ(cfg.last_device_id, "test-device-uuid-1234");
@@ -38,6 +44,9 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   EXPECT_EQ(cfg.quality_preset, QualityPreset::kHigh);
   EXPECT_EQ(cfg.target_delay_ms, 200);
   EXPECT_EQ(cfg.max_bitrate_kbps, 12000u);
+  EXPECT_EQ(cfg.bitrate_kbps_high, 15000u);
+  EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kHigh), 15000u);
+  EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kSmooth), 5000u);
 
   std::filesystem::remove(temp_path);
 }

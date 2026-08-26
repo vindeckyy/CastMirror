@@ -38,7 +38,9 @@ class AdaptiveController {
   std::vector<LadderRung> ladder_;
   int current_rung_idx_ = 0;
   uint32_t current_bitrate_kbps_ = 6000;
-  int current_target_delay_ms_ = 400;
+  int current_target_delay_ms_ = 200;
+  int max_encode_width_ = 1920;
+  int max_encode_height_ = 1080;
 
   double recent_loss_fraction_ = 0.0;
   double recent_rtt_ms_ = 0.0;

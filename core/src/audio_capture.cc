@@ -6,10 +6,12 @@
 #include <cmath>
 #include <chrono>
 #include <cstring>
+#include <string>
 
 #if !defined(_WIN32)
   #include <pulse/simple.h>
   #include <pulse/error.h>
+  #include <pulse/pulseaudio.h>
 #endif
 
 namespace castcore {
@@ -102,6 +104,128 @@ class SyntheticAudioCapture : public IAudioCapture {
 };
 
 #if !defined(_WIN32)
+
+namespace {
+
+struct PulseSession {
+  pa_mainloop* ml = nullptr;
+  pa_context* ctx = nullptr;
+  int phase = 0;  // 0 connecting, 1 ready, -1 fail
+
+  bool Connect(const char* app_name) {
+    ml = pa_mainloop_new();
+    if (!ml) return false;
+    ctx = pa_context_new(pa_mainloop_get_api(ml), app_name);
+    if (!ctx) return false;
+    pa_context_set_state_callback(ctx, [](pa_context* c, void* userdata) {
+      auto* s = static_cast<PulseSession*>(userdata);
+      switch (pa_context_get_state(c)) {
+        case PA_CONTEXT_READY: s->phase = 1; break;
+        case PA_CONTEXT_FAILED:
+        case PA_CONTEXT_TERMINATED: s->phase = -1; break;
+        default: break;
+      }
+    }, this);
+    if (pa_context_connect(ctx, nullptr, PA_CONTEXT_NOFLAGS, nullptr) < 0) {
+      phase = -1;
+      return false;
+    }
+    while (phase == 0) {
+      if (pa_mainloop_iterate(ml, 1, nullptr) < 0) {
+        phase = -1;
+        break;
+      }
+    }
+    return phase == 1;
+  }
+
+  void Wait(int* done) {
+    while (*done == 0 && phase == 1) {
+      if (pa_mainloop_iterate(ml, 1, nullptr) < 0) break;
+    }
+  }
+
+  ~PulseSession() {
+    if (ctx) {
+      pa_context_disconnect(ctx);
+      pa_context_unref(ctx);
+    }
+    if (ml) pa_mainloop_free(ml);
+  }
+};
+
+std::string PulseDefaultSinkName() {
+  PulseSession s;
+  if (!s.Connect("CastMirror-probe")) return {};
+  struct Probe {
+    std::string name;
+    int done = 0;
+  } probe;
+  pa_operation* op = pa_context_get_server_info(s.ctx, [](pa_context*, const pa_server_info* info, void* userdata) {
+    auto* p = static_cast<Probe*>(userdata);
+    if (info && info->default_sink_name && info->default_sink_name[0]) {
+      p->name = info->default_sink_name;
+    }
+    p->done = 1;
+  }, &probe);
+  if (op) {
+    s.Wait(&probe.done);
+    pa_operation_unref(op);
+  }
+  return probe.name;
+}
+
+bool PulseGetSinkMute(const std::string& sink, int* mute_out) {
+  if (sink.empty() || !mute_out) return false;
+  PulseSession s;
+  if (!s.Connect("CastMirror-mute-get")) return false;
+  struct Probe {
+    int mute = 0;
+    int done = 0;
+    bool ok = false;
+  } probe;
+  pa_operation* op = pa_context_get_sink_info_by_name(s.ctx, sink.c_str(),
+      [](pa_context*, const pa_sink_info* info, int eol, void* userdata) {
+        auto* p = static_cast<Probe*>(userdata);
+        if (eol || !info) {
+          p->done = 1;
+          return;
+        }
+        p->mute = info->mute;
+        p->ok = true;
+      }, &probe);
+  if (op) {
+    s.Wait(&probe.done);
+    pa_operation_unref(op);
+  }
+  if (!probe.ok) return false;
+  *mute_out = probe.mute;
+  return true;
+}
+
+bool PulseSetSinkMute(const std::string& sink, int mute) {
+  if (sink.empty()) return false;
+  PulseSession s;
+  if (!s.Connect("CastMirror-mute-set")) return false;
+  struct Result {
+    int done = 0;
+    int success = 0;
+  } result;
+  pa_operation* op = pa_context_set_sink_mute_by_name(s.ctx, sink.c_str(), mute,
+      [](pa_context*, int success, void* userdata) {
+        auto* r = static_cast<Result*>(userdata);
+        r->success = success;
+        r->done = 1;
+      }, &result);
+  if (op) {
+    s.Wait(&result.done);
+    pa_operation_unref(op);
+  }
+  return result.done == 1 && result.success != 0;
+}
+
+} // namespace
+
 class PulseAudioCapture : public IAudioCapture {
  public:
   PulseAudioCapture() = default;
@@ -117,38 +241,79 @@ class PulseAudioCapture : public IAudioCapture {
     ss.rate = sample_rate_;
     ss.channels = channels_;
 
+    uint32_t frag = static_cast<uint32_t>((sample_rate_ / 100) * channels_ * sizeof(int16_t)); // 10ms
     pa_buffer_attr ba;
-    ba.maxlength = static_cast<uint32_t>(-1);
+    ba.fragsize = frag;
+    ba.maxlength = frag * 3; // cap capture queue to ~30ms
     ba.tlength = static_cast<uint32_t>(-1);
     ba.prebuf = static_cast<uint32_t>(-1);
     ba.minreq = static_cast<uint32_t>(-1);
-    ba.fragsize = static_cast<uint32_t>((sample_rate_ / 100) * channels_ * sizeof(int16_t)); // 10ms frame size
+
+    std::string sink_name = PulseDefaultSinkName();
+    std::string sink_monitor;
+    if (!sink_name.empty()) {
+      sink_monitor = sink_name + ".monitor";
+    }
+    const char* try_devs[2];
+    int n_devs = 0;
+    if (!sink_monitor.empty()) {
+      try_devs[n_devs++] = sink_monitor.c_str();
+    }
 
     int error = 0;
-    pa_simple_ = pa_simple_new(nullptr, "CastMirror", PA_STREAM_RECORD, nullptr,
-                               "System Audio Loopback", &ss, nullptr, &ba, &error);
+    const char* used_dev = nullptr;
+    for (int i = 0; i < n_devs; ++i) {
+      error = 0;
+      pa_simple_ = pa_simple_new(nullptr, "CastMirror", PA_STREAM_RECORD, try_devs[i],
+                                 "System Audio Loopback", &ss, nullptr, &ba, &error);
+      if (pa_simple_) {
+        used_dev = try_devs[i];
+        break;
+      }
+    }
     if (!pa_simple_) {
       LOG_WARN << "PulseAudio record failed (" << pa_strerror(error) << "), falling back to Synthetic Audio";
       return false;
     }
 
+    // Mute local speakers while capturing the sink monitor so audio is heard
+    // on the Cast receiver only. Restore the previous mute state on Stop().
+    if (!sink_name.empty()) {
+      int prev_mute = 0;
+      if (PulseGetSinkMute(sink_name, &prev_mute) && PulseSetSinkMute(sink_name, 1)) {
+        muted_sink_ = sink_name;
+        saved_sink_mute_ = prev_mute;
+        LOG_INFO << "Muted local playback on " << sink_name << " while casting";
+      } else {
+        LOG_WARN << "Could not mute local sink " << sink_name << "; host speakers may still play";
+      }
+    }
+
     running_ = true;
     capture_thread_ = std::thread(&PulseAudioCapture::CaptureLoop, this);
-    LOG_INFO << "Started PulseAudio Loopback Capture (" << sample_rate_ << " Hz, " << channels_ << " channels)";
+    LOG_INFO << "Started PulseAudio Loopback Capture (" << sample_rate_ << " Hz, " << channels_
+             << " channels, device=" << (used_dev ? used_dev : "unknown") << ")";
     return true;
   }
 
   void Stop() override {
-    if (!running_.exchange(false)) return;
-    if (pa_simple_) {
-      pa_simple_flush(pa_simple_, nullptr);
+    bool was_running = running_.exchange(false);
+    if (was_running) {
+      if (pa_simple_) {
+        pa_simple_flush(pa_simple_, nullptr);
+      }
+      if (capture_thread_.joinable()) {
+        capture_thread_.join();
+      }
+      if (pa_simple_) {
+        pa_simple_free(pa_simple_);
+        pa_simple_ = nullptr;
+      }
     }
-    if (capture_thread_.joinable()) {
-      capture_thread_.join();
-    }
-    if (pa_simple_) {
-      pa_simple_free(pa_simple_);
-      pa_simple_ = nullptr;
+    if (!muted_sink_.empty()) {
+      PulseSetSinkMute(muted_sink_, saved_sink_mute_);
+      LOG_INFO << "Restored local playback on " << muted_sink_;
+      muted_sink_.clear();
     }
   }
 
@@ -200,17 +365,17 @@ class PulseAudioCapture : public IAudioCapture {
   std::thread capture_thread_;
   std::mutex mutex_;
   AudioCallback callback_;
+  std::string muted_sink_;
+  int saved_sink_mute_ = 0;
 };
 #endif
 
 std::unique_ptr<IAudioCapture> AudioCaptureFactory::Create() {
 #if !defined(_WIN32)
-  auto pa = std::make_unique<PulseAudioCapture>();
-  if (pa->Start(48000, 2)) {
-    return pa;
-  }
-#endif
+  return std::make_unique<PulseAudioCapture>();
+#else
   return std::make_unique<SyntheticAudioCapture>();
+#endif
 }
 
 std::unique_ptr<IAudioCapture> AudioCaptureFactory::CreateSynthetic() {

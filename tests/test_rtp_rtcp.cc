@@ -1,8 +1,30 @@
 #include <gtest/gtest.h>
 #include "castcore/rtp_packetizer.h"
 #include "castcore/rtcp_parser.h"
+#include <map>
 
 using namespace castcore;
+
+TEST(RtpPacketizerTest, KeyframesIncludeReferenceFrameIdLikeOpenscreen) {
+  RtpPacketizer packetizer(96, 2, 1460);
+
+  EncodedFrame frame;
+  frame.dependency = FrameDependency::kKeyFrame;
+  frame.frame_id = 1;
+  frame.referenced_frame_id = 1;
+  frame.rtp_timestamp = 1500;
+  frame.playout_delay = std::chrono::milliseconds(400);
+  frame.data.resize(64, 0x55);
+
+  auto packets = packetizer.PacketizeFrame(frame);
+  ASSERT_FALSE(packets.empty());
+  const auto& pkt = packets[0];
+  ASSERT_GE(pkt.data.size(), 23u);
+  // K=1, R=1, EXT=1 -> 0xC1
+  EXPECT_EQ(pkt.data[12], 0xC1);
+  EXPECT_EQ(pkt.data[13], 1u);   // frame id
+  EXPECT_EQ(pkt.data[18], 1u);   // referenced frame id always present
+}
 
 TEST(RtpPacketizerTest, SplitsLargeFramesAcrossPackets) {
   RtpPacketizer packetizer(96, 2, 1000); // 1000 byte MTU
@@ -73,4 +95,25 @@ TEST(RtcpParserTest, ParseCastFeedbackAndLossFields) {
   ASSERT_EQ(fb.nacks.size(), 1u);
   EXPECT_EQ(fb.nacks[0].frame_id, 16u);
   EXPECT_EQ(fb.nacks[0].packet_id, 3u);
+}
+
+TEST(RtcpParserTest, ExpandsCheckpointAgainstMatchingSsrc) {
+  std::vector<uint8_t> rtcp(36, 0);
+  rtcp[0] = 0x8F;
+  rtcp[1] = 206;
+  rtcp[2] = 0x00; rtcp[3] = 0x08;
+  rtcp[8] = 0x00; rtcp[9] = 0x00; rtcp[10] = 0x00; rtcp[11] = 0x02; // media SSRC 2
+  rtcp[12] = 'C'; rtcp[13] = 'A'; rtcp[14] = 'S'; rtcp[15] = 'T';
+  rtcp[16] = 20; // truncated checkpoint
+  rtcp[17] = 0;
+  rtcp[18] = 0x00; rtcp[19] = 0xC8;
+
+  std::map<uint32_t, uint32_t> last_by_ssrc;
+  last_by_ssrc[1] = 2000; // audio far ahead
+  last_by_ssrc[2] = 50;   // video
+
+  RtcpFeedback fb;
+  EXPECT_TRUE(RtcpParser::ParseCompoundPacket(rtcp.data(), rtcp.size(), last_by_ssrc, fb));
+  EXPECT_EQ(fb.sender_ssrc, 2u);
+  EXPECT_EQ(fb.checkpoint_frame_id, 20u);
 }

@@ -34,7 +34,8 @@ class CastSession {
              int display_id,
              QualityPreset preset,
              bool enable_audio = true,
-             VideoCodec video_codec = VideoCodec::kH264);
+             VideoCodec video_codec = VideoCodec::kH264,
+             uint32_t bitrate_kbps = 0);
 
   void Stop();
   bool IsActive() const;
@@ -65,6 +66,7 @@ class CastSession {
   QualityPreset preset_ = QualityPreset::kAuto;
   bool enable_audio_ = true;
   VideoCodec video_codec_ = VideoCodec::kH264;
+  uint32_t bitrate_override_kbps_ = 0;
 
   std::unique_ptr<CastChannel> cast_channel_;
   std::unique_ptr<CastTransport> transport_;
@@ -91,6 +93,7 @@ class CastSession {
 
   std::atomic<bool> is_streaming_{false};
   std::atomic<bool> stop_requested_{false};
+  std::atomic<bool> video_encode_busy_{false};
 
   mutable std::recursive_mutex session_mutex_;
   std::mutex cv_mutex_;

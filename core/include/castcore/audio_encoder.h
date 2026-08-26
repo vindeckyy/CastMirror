@@ -12,6 +12,7 @@ struct AudioEncoderConfig {
   int channels = 2;
   int bitrate_bps = 192000;
   AudioCodec codec = AudioCodec::kOpus;
+  int playout_delay_ms = 200;
 };
 
 class IAudioEncoder {

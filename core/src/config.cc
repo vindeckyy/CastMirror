@@ -26,6 +26,31 @@ AppConfig& ConfigStore::Mutable() {
   return config_;
 }
 
+uint32_t AppConfig::GetPresetBitrateOverrideKbps(QualityPreset preset) const {
+  switch (preset) {
+    case QualityPreset::kHigh: return bitrate_kbps_high;
+    case QualityPreset::kBalanced: return bitrate_kbps_balanced;
+    case QualityPreset::kSmooth: return bitrate_kbps_smooth;
+    case QualityPreset::kAuto:
+    default: return bitrate_kbps_auto;
+  }
+}
+
+uint32_t AppConfig::GetPresetBitrateKbps(QualityPreset preset) const {
+  uint32_t override_kbps = GetPresetBitrateOverrideKbps(preset);
+  return override_kbps > 0 ? override_kbps : QualityPresetDefaultBitrateKbps(preset);
+}
+
+void AppConfig::SetPresetBitrateKbps(QualityPreset preset, uint32_t kbps) {
+  switch (preset) {
+    case QualityPreset::kHigh: bitrate_kbps_high = kbps; break;
+    case QualityPreset::kBalanced: bitrate_kbps_balanced = kbps; break;
+    case QualityPreset::kSmooth: bitrate_kbps_smooth = kbps; break;
+    case QualityPreset::kAuto:
+    default: bitrate_kbps_auto = kbps; break;
+  }
+}
+
 std::string ConfigStore::GetDefaultConfigPath() {
 #if defined(_WIN32)
   const char* appdata = std::getenv("APPDATA");
@@ -64,6 +89,10 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("quality_preset")) config_.quality_preset = QualityPresetFromString(j["quality_preset"].get<std::string>());
     if (j.contains("target_delay_ms")) config_.target_delay_ms = j["target_delay_ms"].get<int>();
     if (j.contains("max_bitrate_kbps")) config_.max_bitrate_kbps = j["max_bitrate_kbps"].get<uint32_t>();
+    if (j.contains("bitrate_kbps_auto")) config_.bitrate_kbps_auto = j["bitrate_kbps_auto"].get<uint32_t>();
+    if (j.contains("bitrate_kbps_high")) config_.bitrate_kbps_high = j["bitrate_kbps_high"].get<uint32_t>();
+    if (j.contains("bitrate_kbps_balanced")) config_.bitrate_kbps_balanced = j["bitrate_kbps_balanced"].get<uint32_t>();
+    if (j.contains("bitrate_kbps_smooth")) config_.bitrate_kbps_smooth = j["bitrate_kbps_smooth"].get<uint32_t>();
     if (j.contains("enable_tray_on_startup")) config_.enable_tray_on_startup = j["enable_tray_on_startup"].get<bool>();
     if (j.contains("low_latency_mode")) config_.low_latency_mode = j["low_latency_mode"].get<bool>();
     if (j.contains("capture_border_hint")) config_.capture_border_hint = j["capture_border_hint"].get<bool>();
@@ -94,6 +123,10 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["quality_preset"] = QualityPresetToString(config_.quality_preset);
     j["target_delay_ms"] = config_.target_delay_ms;
     j["max_bitrate_kbps"] = config_.max_bitrate_kbps;
+    j["bitrate_kbps_auto"] = config_.bitrate_kbps_auto;
+    j["bitrate_kbps_high"] = config_.bitrate_kbps_high;
+    j["bitrate_kbps_balanced"] = config_.bitrate_kbps_balanced;
+    j["bitrate_kbps_smooth"] = config_.bitrate_kbps_smooth;
     j["enable_tray_on_startup"] = config_.enable_tray_on_startup;
     j["low_latency_mode"] = config_.low_latency_mode;
     j["capture_border_hint"] = config_.capture_border_hint;

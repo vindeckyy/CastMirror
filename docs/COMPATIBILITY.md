@@ -13,6 +13,23 @@
 | **Google Nest Hub Max** | `Nest Hub Max` | `0x00000005` | Level 4.1 | 1080p30, 720p60 | Opus 48kHz stereo | 400 ms |
 | **Vizio / Sony / Philips Smart TV (Built-in)** | `Cast TV` | `0x00000005` | Level 4.2 | 1080p60, 720p60 | Opus 48kHz stereo | 400 ms |
 
+Nest Hub class devices are **720p-class**. Do not expect 1080p60 there.
+
+---
+
+## Quality presets (current sender)
+
+These are the user-visible profiles in the GTK GUI and CLI. Resolution is still bounded by the device capability model. Video bitrate defaults below are the slider starting points (1–25 Mbps, remembered per profile once changed). The slider is **locked while connecting or live**.
+
+| Preset | Encode size (typical) | Default video bitrate | Target delay |
+|---|---|---|---|
+| **Auto** | Up to 1080p60, then adapts | 8 Mbps | 200 ms |
+| **High** | Capture size up to device max (1080p60 / 4K when allowed) | 12 Mbps | 200 ms |
+| **Balanced** | 1080p | 8 Mbps | 200 ms |
+| **Smooth** | 720p60 | 5 Mbps | 200 ms |
+
+**Host audio:** while a session captures the default sink monitor, CastMirror mutes that sink so the PC speakers do not double the TV. Mute is restored on Stop.
+
 ---
 
 ## Adaptation Ladder Profiles

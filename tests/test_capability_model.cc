@@ -40,4 +40,9 @@ TEST(CapabilityModelTest, PresetRecommendations) {
   EXPECT_EQ(stats_smooth.current_resolution.width, 1280);
   EXPECT_EQ(stats_smooth.current_resolution.height, 720);
   EXPECT_EQ(stats_smooth.target_delay_ms, 200);
+
+  auto stats_auto = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kAuto, 1920, 1080, 60);
+  EXPECT_EQ(stats_auto.target_delay_ms, 200);
+  EXPECT_EQ(stats_auto.current_resolution.width, 1920);
+  EXPECT_GE(stats_auto.bitrate_kbps, 8000u);
 }

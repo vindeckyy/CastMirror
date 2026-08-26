@@ -2,6 +2,7 @@
 #include "castcore/logger.h"
 #include <opus/opus.h>
 #include <cstring>
+#include <chrono>
 
 namespace castcore {
 
@@ -30,7 +31,7 @@ class OpusAudioEncoder : public IAudioEncoder {
     opus_encoder_ctl(encoder_, OPUS_SET_COMPLEXITY(5));
     opus_encoder_ctl(encoder_, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
 
-    next_frame_id_ = 1;
+    next_frame_id_ = 0;
 
     LOG_INFO << "Initialized Opus Audio Encoder (" << config_.sample_rate
              << " Hz, " << config_.channels << " ch, " << (config_.bitrate_bps / 1000) << " kbps)";
@@ -63,7 +64,8 @@ class OpusAudioEncoder : public IAudioEncoder {
     out_encoded_frame.referenced_frame_id = current_fid;
     out_encoded_frame.rtp_timestamp = rtp_ts;
     out_encoded_frame.capture_time = frame.timestamp;
-    out_encoded_frame.playout_delay = std::chrono::milliseconds(400);
+    int delay_ms = config_.playout_delay_ms > 0 ? config_.playout_delay_ms : 200;
+    out_encoded_frame.playout_delay = std::chrono::milliseconds(delay_ms);
 
     out_encoded_frame.data.assign(encoded_buffer.data(), encoded_buffer.data() + bytes_encoded);
 
@@ -84,7 +86,7 @@ class OpusAudioEncoder : public IAudioEncoder {
 
   AudioEncoderConfig config_;
   OpusEncoder* encoder_ = nullptr;
-  uint32_t next_frame_id_ = 1;
+  uint32_t next_frame_id_ = 0;
 };
 
 std::unique_ptr<IAudioEncoder> AudioEncoderFactory::Create(AudioCodec codec) {

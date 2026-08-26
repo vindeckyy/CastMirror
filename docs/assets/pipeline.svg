@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 280" role="img" aria-label="CastMirror media pipeline">
+  <style>
+    .box { fill: #1a1d24; stroke: #2a2e39; stroke-width: 1.25; }
+    .t { font-family: ui-sans-serif, system-ui, sans-serif; fill: #e1e3e6; font-size: 13px; }
+    .s { font-family: ui-sans-serif, system-ui, sans-serif; fill: #8c93a0; font-size: 11px; }
+    .a { stroke: #00d2ff; stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+  </style>
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#00d2ff"/>
+    </marker>
+  </defs>
+  <rect class="box" x="16" y="36" width="150" height="64" rx="10"/>
+  <text class="t" x="91" y="62" text-anchor="middle">X11 capture</text>
+  <text class="s" x="91" y="80" text-anchor="middle">BGRA 1080p60</text>
+  <rect class="box" x="16" y="180" width="150" height="64" rx="10"/>
+  <text class="t" x="91" y="206" text-anchor="middle">Pulse monitor</text>
+  <text class="s" x="91" y="224" text-anchor="middle">48 kHz stereo</text>
+  <rect class="box" x="230" y="36" width="150" height="64" rx="10"/>
+  <text class="t" x="305" y="62" text-anchor="middle">libx264</text>
+  <text class="s" x="305" y="80" text-anchor="middle">superfast / High</text>
+  <rect class="box" x="230" y="180" width="150" height="64" rx="10"/>
+  <text class="t" x="305" y="206" text-anchor="middle">Opus</text>
+  <text class="s" x="305" y="224" text-anchor="middle">10 ms frames</text>
+  <rect class="box" x="444" y="108" width="150" height="64" rx="10"/>
+  <text class="t" x="519" y="134" text-anchor="middle">AES-128-CTR</text>
+  <text class="s" x="519" y="152" text-anchor="middle">per-frame IV</text>
+  <rect class="box" x="658" y="108" width="150" height="64" rx="10"/>
+  <text class="t" x="733" y="134" text-anchor="middle">Cast RTP</text>
+  <text class="s" x="733" y="152" text-anchor="middle">UDP + RTCP</text>
+  <rect class="box" x="872" y="108" width="216" height="64" rx="10"/>
+  <text class="t" x="980" y="134" text-anchor="middle">Cast device</text>
+  <text class="s" x="980" y="152" text-anchor="middle">TLS 8009 + media UDP</text>
+  <path class="a" d="M166 68 H230"/>
+  <path class="a" d="M166 212 H230"/>
+  <path class="a" d="M380 68 H444 68 140"/>
+  <path class="a" d="M380 68 C410 68 420 140 444 140"/>
+  <path class="a" d="M380 212 C410 212 420 140 444 140"/>
+  <path class="a" d="M594 140 H658"/>
+  <path class="a" d="M808 140 H872"/>
+</svg>

@@ -2,6 +2,8 @@
 #include "castcore/capability_model.h"
 #include "castcore/logger.h"
 #include <nlohmann/json.hpp>
+#include <cstdint>
+#include <chrono>
 
 namespace castcore {
 
@@ -26,7 +28,8 @@ bool CastSession::Start(const CastDevice& device,
                        int display_id,
                        QualityPreset preset,
                        bool enable_audio,
-                       VideoCodec video_codec) {
+                       VideoCodec video_codec,
+                       uint32_t bitrate_kbps) {
   std::lock_guard<std::recursive_mutex> lock(session_mutex_);
 
   if (state_machine_.IsActive()) {
@@ -39,8 +42,10 @@ bool CastSession::Start(const CastDevice& device,
   preset_ = preset;
   enable_audio_ = enable_audio;
   video_codec_ = video_codec;
+  bitrate_override_kbps_ = bitrate_kbps;
   stop_requested_ = false;
   is_streaming_ = false;
+  video_encode_busy_ = false;
   answer_received_ = false;
   launch_received_ = false;
 
@@ -63,6 +68,11 @@ bool CastSession::Start(const CastDevice& device,
 
   // 2. Recommend initial stats based on Device Capability Model
   current_stats_ = CapabilityModel::GetRecommendedSettings(device, preset, disp_w, disp_h, disp_fps);
+  if (bitrate_override_kbps_ > 0) {
+    current_stats_.bitrate_kbps = bitrate_override_kbps_;
+    LOG_INFO << "Using custom video bitrate " << bitrate_override_kbps_ << " kbps for "
+             << QualityPresetToString(preset);
+  }
   adaptive_controller_.Initialize(current_stats_, preset);
 
   // 3. Generate AES Keys
@@ -186,6 +196,8 @@ void CastSession::StartStreamingMedia() {
   venc_cfg.framerate = current_stats_.current_framerate;
   venc_cfg.bitrate_kbps = current_stats_.bitrate_kbps;
   venc_cfg.codec = video_codec_;
+  venc_cfg.playout_delay_ms = current_stats_.target_delay_ms > 0
+                                 ? current_stats_.target_delay_ms : 200;
 
   video_encoder_ = VideoEncoderFactory::Create(video_codec_);
   video_encoder_->Initialize(venc_cfg);
@@ -197,6 +209,8 @@ void CastSession::StartStreamingMedia() {
     aenc_cfg.channels = 2;
     aenc_cfg.bitrate_bps = 192000;
     aenc_cfg.codec = AudioCodec::kOpus;
+    aenc_cfg.playout_delay_ms = current_stats_.target_delay_ms > 0
+                                   ? current_stats_.target_delay_ms : 200;
 
     audio_encoder_ = AudioEncoderFactory::Create(AudioCodec::kOpus);
     audio_encoder_->Initialize(aenc_cfg);
@@ -205,7 +219,20 @@ void CastSession::StartStreamingMedia() {
     audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
       ProcessAudioFrame(af);
     });
-    audio_capture_->Start(48000, 2);
+  }
+
+  // Accept frames before capture threads start so the first keyframe is not dropped.
+  is_streaming_ = true;
+
+  if (enable_audio_ && audio_capture_) {
+    if (!audio_capture_->Start(48000, 2)) {
+      LOG_WARN << "PulseAudio capture failed, falling back to synthetic audio";
+      audio_capture_ = AudioCaptureFactory::CreateSynthetic();
+      audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
+        ProcessAudioFrame(af);
+      });
+      audio_capture_->Start(48000, 2);
+    }
   }
 
   // Hook Display Capture callback and start
@@ -213,8 +240,6 @@ void CastSession::StartStreamingMedia() {
     ProcessVideoFrame(vf);
   });
   display_capture_->Start(display_id_, current_stats_.current_framerate);
-
-  is_streaming_ = true;
 
   // Start background adaptation thread
   adapt_thread_ = std::thread(&CastSession::AdaptationLoop, this);
@@ -225,19 +250,24 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     return;
   }
 
+  bool expected_busy = false;
+  if (!video_encode_busy_.compare_exchange_strong(expected_busy, true)) {
+    return;
+  }
+  struct BusyGuard {
+    std::atomic<bool>& flag;
+    ~BusyGuard() { flag.store(false, std::memory_order_release); }
+  } busy_guard{video_encode_busy_};
+
   EncodedFrame raw_frame;
   if (!video_encoder_->Encode(vf, raw_frame)) {
     return;
   }
 
-  // Encrypt payload in-place
   std::vector<uint8_t> encrypted_payload = video_crypto_->Encrypt(raw_frame.frame_id, raw_frame.data);
   raw_frame.data = std::move(encrypted_payload);
 
-  // Packetize into Cast RTP packets
   auto packets = video_packetizer_->PacketizeFrame(raw_frame);
-
-  // Send over UDP
   transport_->SendPackets(packets);
 }
 
@@ -285,6 +315,7 @@ void CastSession::Stop() {
 
     // 1. Immediately stop capture and media threads
     is_streaming_ = false;
+    video_encode_busy_ = false;
     {
       std::lock_guard<std::mutex> lk(cv_mutex_);
       cv_.notify_all();

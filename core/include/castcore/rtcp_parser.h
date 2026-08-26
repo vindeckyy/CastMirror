@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstdint>
 #include <chrono>
+#include <map>
 
 namespace castcore {
 
@@ -31,6 +32,10 @@ class RtcpParser {
  public:
   static bool ParseCompoundPacket(const uint8_t* data, size_t length,
                                   uint32_t last_sent_frame_id,
+                                  RtcpFeedback& out_feedback);
+
+  static bool ParseCompoundPacket(const uint8_t* data, size_t length,
+                                  const std::map<uint32_t, uint32_t>& last_frame_by_ssrc,
                                   RtcpFeedback& out_feedback);
 };
 

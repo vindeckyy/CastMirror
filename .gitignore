@@ -12,3 +12,10 @@ obj/
 .vs/
 .idea/
 .vscode/
+.cursor/
+compile_commands.json
+CMakeUserPresets.json
+.DS_Store
+*.user
+*.swp
+*~

@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include "castcore/cast_engine.h"
+#include "castcore/config.h"
 #include "castcore/logger.h"
 #include <iostream>
 #include <vector>
@@ -7,6 +8,8 @@
 #include <sstream>
 #include <iomanip>
 #include <mutex>
+#include <thread>
+#include <fstream>
 
 using namespace castcore;
 
@@ -17,6 +20,8 @@ struct AppWidgets {
   GtkWidget* device_combo;
   GtkWidget* display_combo;
   GtkWidget* preset_combo;
+  GtkWidget* bitrate_scale;
+  GtkWidget* bitrate_value_label;
   GtkWidget* audio_switch;
   GtkWidget* cast_button;
   GtkWidget* cast_button_label;
@@ -36,6 +41,7 @@ struct AppWidgets {
   std::string selected_device_id;
   int selected_display_id = 0;
   bool is_casting = false;
+  bool updating_bitrate_slider = false;
   std::mutex data_mutex;
 };
 
@@ -139,6 +145,12 @@ const char* kCustomCss = R"(
     border-radius: 6px;
     padding: 4px;
   }
+  scale highlight {
+    background-color: #0078d4;
+  }
+  scale trough {
+    background-color: #262c36;
+  }
 )";
 
 static void ApplyCustomCss() {
@@ -149,6 +161,66 @@ static void ApplyCustomCss() {
       GTK_STYLE_PROVIDER(provider),
       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   g_object_unref(provider);
+}
+
+static QualityPreset PresetFromCombo() {
+  int preset_idx = gtk_combo_box_get_active(GTK_COMBO_BOX(g_app.preset_combo));
+  if (preset_idx == 1) return QualityPreset::kHigh;
+  if (preset_idx == 2) return QualityPreset::kBalanced;
+  if (preset_idx == 3) return QualityPreset::kSmooth;
+  return QualityPreset::kAuto;
+}
+
+static int ComboIndexFromPreset(QualityPreset preset) {
+  switch (preset) {
+    case QualityPreset::kHigh: return 1;
+    case QualityPreset::kBalanced: return 2;
+    case QualityPreset::kSmooth: return 3;
+    case QualityPreset::kAuto:
+    default: return 0;
+  }
+}
+
+static void UpdateBitrateValueLabel(uint32_t kbps) {
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(1) << (kbps / 1000.0) << " Mbps";
+  gtk_label_set_text(GTK_LABEL(g_app.bitrate_value_label), ss.str().c_str());
+}
+
+static void SyncBitrateSliderToPreset() {
+  if (!g_app.bitrate_scale) return;
+  QualityPreset preset = PresetFromCombo();
+  uint32_t kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(preset);
+  g_app.updating_bitrate_slider = true;
+  gtk_range_set_value(GTK_RANGE(g_app.bitrate_scale), kbps / 1000.0);
+  UpdateBitrateValueLabel(kbps);
+  g_app.updating_bitrate_slider = false;
+}
+
+static void OnPresetChanged(GtkComboBox* combo, gpointer user_data) {
+  (void)combo;
+  (void)user_data;
+  if (g_app.is_casting) return;
+  SyncBitrateSliderToPreset();
+}
+
+static void OnBitrateSliderChanged(GtkRange* range, gpointer user_data) {
+  (void)user_data;
+  if (g_app.updating_bitrate_slider || g_app.is_casting) return;
+  double mbps = gtk_range_get_value(range);
+  uint32_t kbps = static_cast<uint32_t>(mbps * 1000.0 + 0.5);
+  if (kbps < 1000) kbps = 1000;
+  ConfigStore::Instance().Mutable().SetPresetBitrateKbps(PresetFromCombo(), kbps);
+  UpdateBitrateValueLabel(kbps);
+}
+
+static void SetBitrateControlsLocked(bool locked) {
+  if (g_app.bitrate_scale) {
+    gtk_widget_set_sensitive(g_app.bitrate_scale, !locked);
+  }
+  if (g_app.preset_combo) {
+    gtk_widget_set_sensitive(g_app.preset_combo, !locked);
+  }
 }
 
 static void UpdateDeviceComboUI() {
@@ -238,6 +310,7 @@ static gboolean UpdateStateUIIdle(gpointer data) {
       gtk_widget_set_visible(g_app.spinner, FALSE);
       gtk_widget_set_sensitive(g_app.device_combo, FALSE);
       gtk_widget_set_sensitive(g_app.display_combo, FALSE);
+      SetBitrateControlsLocked(true);
       g_app.is_casting = true;
       break;
 
@@ -250,6 +323,10 @@ static gboolean UpdateStateUIIdle(gpointer data) {
       gtk_label_set_text(GTK_LABEL(g_app.cast_button_label), "CANCEL");
       gtk_widget_set_visible(g_app.spinner, TRUE);
       gtk_spinner_start(GTK_SPINNER(g_app.spinner));
+      gtk_widget_set_sensitive(g_app.device_combo, FALSE);
+      gtk_widget_set_sensitive(g_app.display_combo, FALSE);
+      SetBitrateControlsLocked(true);
+      g_app.is_casting = true;
       break;
 
     case SessionState::kIdle:
@@ -262,6 +339,7 @@ static gboolean UpdateStateUIIdle(gpointer data) {
       gtk_widget_set_visible(g_app.spinner, FALSE);
       gtk_widget_set_sensitive(g_app.device_combo, TRUE);
       gtk_widget_set_sensitive(g_app.display_combo, TRUE);
+      SetBitrateControlsLocked(false);
       gtk_widget_set_visible(g_app.stats_box, FALSE);
       g_app.is_casting = false;
       break;
@@ -296,19 +374,15 @@ static void OnCastButtonClicked(GtkButton* button, gpointer user_data) {
                        ? g_app.current_displays[active_disp].id
                        : 0;
 
-  int preset_idx = gtk_combo_box_get_active(GTK_COMBO_BOX(g_app.preset_combo));
-  QualityPreset preset = QualityPreset::kAuto;
-  if (preset_idx == 1) preset = QualityPreset::kHigh;
-  else if (preset_idx == 2) preset = QualityPreset::kBalanced;
-  else if (preset_idx == 3) preset = QualityPreset::kSmooth;
-
+  QualityPreset preset = PresetFromCombo();
   gboolean audio_on = gtk_switch_get_active(GTK_SWITCH(g_app.audio_switch));
+  uint32_t bitrate_kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(preset);
 
   LOG_INFO << "[UI] Starting Cast to " << dev.name << " (" << dev.ip_address << ")...";
 
   // Run connect in background thread so GTK main loop stays completely responsive
-  std::thread([dev_id = dev.id, display_id, preset, audio_on]() {
-    bool ok = CastEngine::Instance().StartCasting(dev_id, display_id, preset, audio_on);
+  std::thread([dev_id = dev.id, display_id, preset, audio_on, bitrate_kbps]() {
+    bool ok = CastEngine::Instance().StartCasting(dev_id, display_id, preset, audio_on, bitrate_kbps);
     if (!ok) {
       g_idle_add([](gpointer) -> gboolean {
         GtkWidget* dialog = gtk_message_dialog_new(
@@ -502,6 +576,7 @@ int main(int argc, char** argv) {
   GtkWidget* grid = gtk_grid_new();
   gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
   gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+  gtk_widget_set_hexpand(grid, TRUE);
 
   GtkWidget* lbl_disp = gtk_label_new("Display Source:");
   gtk_widget_set_halign(lbl_disp, GTK_ALIGN_START);
@@ -517,9 +592,27 @@ int main(int argc, char** argv) {
   gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(g_app.preset_combo), "High (1080p60 / 4K)");
   gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(g_app.preset_combo), "Balanced (1080p30)");
   gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(g_app.preset_combo), "Smooth (720p60 Low-Latency)");
-  gtk_combo_box_set_active(GTK_COMBO_BOX(g_app.preset_combo), 0);
+  gtk_combo_box_set_active(GTK_COMBO_BOX(g_app.preset_combo),
+                          ComboIndexFromPreset(ConfigStore::Instance().Get().quality_preset));
   gtk_grid_attach(GTK_GRID(grid), lbl_preset, 0, 1, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), g_app.preset_combo, 1, 1, 1, 1);
+
+  GtkWidget* lbl_bitrate = gtk_label_new("Video bitrate:");
+  gtk_widget_set_halign(lbl_bitrate, GTK_ALIGN_START);
+  GtkWidget* bitrate_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  g_app.bitrate_scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 1.0, 25.0, 0.5);
+  gtk_scale_set_digits(GTK_SCALE(g_app.bitrate_scale), 1);
+  gtk_scale_set_draw_value(GTK_SCALE(g_app.bitrate_scale), FALSE);
+  gtk_widget_set_hexpand(g_app.bitrate_scale, TRUE);
+  gtk_widget_set_tooltip_text(g_app.bitrate_scale,
+      "Video bitrate for the selected quality preset. Defaults to that profile's normal bitrate until you change it. Locked while casting.");
+  g_app.bitrate_value_label = gtk_label_new("8.0 Mbps");
+  gtk_widget_set_size_request(g_app.bitrate_value_label, 84, -1);
+  gtk_widget_set_halign(g_app.bitrate_value_label, GTK_ALIGN_END);
+  gtk_box_pack_start(GTK_BOX(bitrate_row), g_app.bitrate_scale, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(bitrate_row), g_app.bitrate_value_label, FALSE, FALSE, 0);
+  gtk_grid_attach(GTK_GRID(grid), lbl_bitrate, 0, 2, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), bitrate_row, 1, 2, 1, 1);
 
   // Audio Row
   GtkWidget* lbl_audio = gtk_label_new("Audio Mirroring:");
@@ -527,8 +620,12 @@ int main(int argc, char** argv) {
   g_app.audio_switch = gtk_switch_new();
   gtk_switch_set_active(GTK_SWITCH(g_app.audio_switch), TRUE);
   gtk_widget_set_halign(g_app.audio_switch, GTK_ALIGN_START);
-  gtk_grid_attach(GTK_GRID(grid), lbl_audio, 0, 2, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), g_app.audio_switch, 1, 2, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), lbl_audio, 0, 3, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), g_app.audio_switch, 1, 3, 1, 1);
+
+  g_signal_connect(g_app.preset_combo, "changed", G_CALLBACK(OnPresetChanged), nullptr);
+  g_signal_connect(g_app.bitrate_scale, "value-changed", G_CALLBACK(OnBitrateSliderChanged), nullptr);
+  SyncBitrateSliderToPreset();
 
   gtk_box_pack_start(GTK_BOX(set_card), grid, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(content_box), set_card, FALSE, FALSE, 0);

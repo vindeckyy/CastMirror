@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: CastMirror
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - name: Hayden
+license: Apache-2.0
+repository-code: https://github.com/vindeckyy/CastMirror
+abstract: Native Chromecast display mirroring for Linux (C++20 Cast Streaming sender).

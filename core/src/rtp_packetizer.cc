@@ -26,7 +26,10 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
   std::vector<RtpPacket> packets;
 
   bool is_key_frame = (encrypted_frame.dependency == FrameDependency::kKeyFrame);
-  int base_hdr_size = is_key_frame ? 18 : 19;
+  // Open Screen always sets the RFID bit and always writes the 1-byte
+  // referenced_frame_id, including on keyframes (base Cast header = 19 bytes).
+  constexpr int kBaseHdrSize = 19;
+  int base_hdr_size = kBaseHdrSize;
   bool include_adaptive_latency = (encrypted_frame.playout_delay.count() > 0);
 
   int header_size_pkt0 = base_hdr_size + (include_adaptive_latency ? kAdaptiveLatencyHeaderSize : 0);
@@ -83,9 +86,12 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
     p[10] = static_cast<uint8_t>((sender_ssrc_ >> 8) & 0xFF);
     p[11] = static_cast<uint8_t>(sender_ssrc_ & 0xFF);
 
-    // Cast Header:
-    // Byte 12: Flags (Keyframe: 0x80, Dependent frame: 0x40) | (Extension count: 0 or 1)
-    uint8_t flags = (is_key_frame ? 0x80 : 0x40);
+    // Cast Header (matches openscreen rtp_packetizer.cc):
+    // Byte 12: K | R=1 (RFID always present) | EXT count
+    uint8_t flags = 0x40;  // kRtpHasReferenceFrameIdBitMask — always set
+    if (is_key_frame) {
+      flags |= 0x80;
+    }
     if (pkt_adaptive) {
       flags |= 0x01;
     }
@@ -99,13 +105,10 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
     // Bytes 16-17: Max Packet ID
     p[16] = static_cast<uint8_t>((max_packet_id >> 8) & 0xFF);
     p[17] = static_cast<uint8_t>(max_packet_id & 0xFF);
+    // Byte 18: Reference Frame ID (always present when R=1)
+    p[18] = static_cast<uint8_t>(encrypted_frame.referenced_frame_id & 0xFF);
 
-    size_t payload_write_pos = 18;
-    if (!is_key_frame) {
-      // Byte 18: Reference Frame ID (lower 8 bits) - only present when has_reference_frame_id (0x40) is set
-      p[18] = static_cast<uint8_t>(encrypted_frame.referenced_frame_id & 0xFF);
-      payload_write_pos = 19;
-    }
+    size_t payload_write_pos = 19;
 
     if (pkt_adaptive) {
       // Extension: Type 1, Size 2

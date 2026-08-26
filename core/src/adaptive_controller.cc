@@ -29,6 +29,8 @@ void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPr
   preset_ = preset;
   current_target_delay_ms_ = initial_target.target_delay_ms;
   current_bitrate_kbps_ = initial_target.bitrate_kbps;
+  max_encode_width_ = initial_target.current_resolution.width;
+  max_encode_height_ = initial_target.current_resolution.height;
 
   // Find closest rung in ladder
   current_rung_idx_ = 3; // Default 1080p60
@@ -76,11 +78,6 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
       last_downshift_time_ = now;
       changed = true;
 
-      // Raise target delay on noisy link
-      if (current_target_delay_ms_ < 400) {
-        current_target_delay_ms_ = 400;
-      }
-
       LOG_WARN << "Adaptive Downshift -> Rung " << current_rung_idx_
                << " (" << ladder_[current_rung_idx_].resolution.width << "x"
                << ladder_[current_rung_idx_].resolution.height << " @ "
@@ -96,16 +93,22 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
     auto time_since_downshift = std::chrono::duration_cast<std::chrono::seconds>(now - last_downshift_time_).count();
     if (consecutive_clean_seconds_ >= 8 && time_since_downshift >= 12 && current_rung_idx_ > 0) {
       if (preset_ == QualityPreset::kAuto || preset_ == QualityPreset::kHigh) {
-        current_rung_idx_--;
-        current_bitrate_kbps_ = ladder_[current_rung_idx_].bitrate_kbps;
-        consecutive_clean_seconds_ = 0;
-        changed = true;
+        int next = current_rung_idx_ - 1;
+        if (ladder_[next].resolution.width > max_encode_width_ ||
+            ladder_[next].resolution.height > max_encode_height_) {
+          consecutive_clean_seconds_ = 0;
+        } else {
+          current_rung_idx_--;
+          current_bitrate_kbps_ = ladder_[current_rung_idx_].bitrate_kbps;
+          consecutive_clean_seconds_ = 0;
+          changed = true;
 
-        LOG_INFO << "Adaptive Upshift -> Rung " << current_rung_idx_
-                 << " (" << ladder_[current_rung_idx_].resolution.width << "x"
-                 << ladder_[current_rung_idx_].resolution.height << " @ "
-                 << ladder_[current_rung_idx_].framerate << "fps, "
-                 << current_bitrate_kbps_ << " kbps)";
+          LOG_INFO << "Adaptive Upshift -> Rung " << current_rung_idx_
+                   << " (" << ladder_[current_rung_idx_].resolution.width << "x"
+                   << ladder_[current_rung_idx_].resolution.height << " @ "
+                   << ladder_[current_rung_idx_].framerate << "fps, "
+                   << current_bitrate_kbps_ << " kbps)";
+        }
       }
     }
   }

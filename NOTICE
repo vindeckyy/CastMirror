@@ -1,0 +1,52 @@
+CastMirror
+Copyright 2026 Hayden
+
+This product includes software developed for native Chromecast display
+mirroring. CastMirror is not affiliated with, endorsed by, or sponsored
+by Google LLC. Chromecast, Google Cast, and Google TV are trademarks of
+Google LLC.
+
+This product's source code is licensed under the Apache License,
+Version 2.0. See the LICENSE file.
+
+-----------------------------------------------------------------------------
+Third-party components (build / runtime)
+
+OpenSSL
+  https://www.openssl.org/
+  Apache License 2.0
+
+Protocol Buffers (protobuf)
+  https://github.com/protocolbuffers/protobuf
+  BSD-3-Clause
+
+Opus
+  https://opus-codec.org/
+  BSD-3-Clause
+
+nlohmann/json
+  https://github.com/nlohmann/json
+  MIT License
+
+GTK 3
+  https://www.gtk.org/
+  GNU Lesser General Public License v2.1 or later
+
+FFmpeg (libavcodec, libswscale, libavutil) and libx264
+  https://ffmpeg.org/
+  https://www.videolan.org/developers/x264.html
+
+  FFmpeg and x264 are typically licensed under the GNU GPL (x264 is GPL).
+  CastMirror links these libraries for H.264 encoding.
+
+  IMPORTANT: The Apache-2.0 license applies to CastMirror *source* in this
+  repository. Distributing a compiled CastMirror binary that is linked
+  against GPL-licensed libx264 generally requires treating that binary
+  as GPL. If you ship binaries, review FFmpeg/x264 licensing for your
+  configuration (GPL vs LGPL FFmpeg builds, GPL x264) and comply fully.
+
+PulseAudio / PipeWire (libpulse)
+  LGPL-2.1
+
+X11 / Xinerama
+  MIT / X11 licenses

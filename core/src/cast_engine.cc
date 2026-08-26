@@ -100,7 +100,8 @@ std::vector<DisplayInfo> CastEngine::GetDisplays() const {
 bool CastEngine::StartCasting(const std::string& device_id,
                              int display_id,
                              QualityPreset preset,
-                             bool audio_enabled) {
+                             bool audio_enabled,
+                             uint32_t bitrate_kbps) {
   std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
 
   auto dev_opt = discovery_.FindDeviceById(device_id);
@@ -123,10 +124,14 @@ bool CastEngine::StartCasting(const std::string& device_id,
   cfg.last_display_id = display_id;
   cfg.quality_preset = preset;
   cfg.audio_enabled = audio_enabled;
+  if (bitrate_kbps > 0) {
+    cfg.SetPresetBitrateKbps(preset, bitrate_kbps);
+    cfg.max_bitrate_kbps = bitrate_kbps;
+  }
   ConfigStore::Instance().Save();
 
   active_session_ = std::make_unique<CastSession>(state_machine_);
-  return active_session_->Start(dev, display_id, preset, audio_enabled);
+  return active_session_->Start(dev, display_id, preset, audio_enabled, VideoCodec::kH264, bitrate_kbps);
 }
 
 bool CastEngine::StartCastingLastDevice() {
@@ -137,7 +142,8 @@ bool CastEngine::StartCastingLastDevice() {
   }
 
   std::string target = !cfg.last_device_id.empty() ? cfg.last_device_id : cfg.last_device_ip;
-  return StartCasting(target, cfg.last_display_id, cfg.quality_preset, cfg.audio_enabled);
+  return StartCasting(target, cfg.last_display_id, cfg.quality_preset, cfg.audio_enabled,
+                      cfg.GetPresetBitrateKbps(cfg.quality_preset));
 }
 
 void CastEngine::StopCasting() {

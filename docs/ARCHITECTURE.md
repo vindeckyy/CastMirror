@@ -1,7 +1,7 @@
 # CastMirror: Native Chromecast Display Mirroring
 
-**Date:** 2026-08-25  
-**Status:** Engineering blueprint — do not write application code until Phase 0 PoCs pass.  
+**Date:** 2026-08-26  
+**Status:** Implemented — Linux GTK sender (`castmirror-gui`) and CLI (`castmirror`) on `castcore`. Windows WinUI remains a shell blueprint.  
 **Working project name:** CastMirror
 
 ---
@@ -22,7 +22,9 @@
 
 **Honest latency ceiling:** this product should feel like Chrome’s “Cast screen”, not Sunshine/Moonlight (~20–50 ms). Cast receivers keep a **target playout delay** (Chrome default **400 ms**) so Wi-Fi retransmits do not freeze the picture. Do not promise game-streaming latency.
 
-**Default user-visible quality control:** Auto / High / Balanced / Smooth (not codecs, ports, or encoder names).
+**Default user-visible quality control:** Auto / High / Balanced / Smooth, plus a per-preset video bitrate slider (locked while a session is live).
+
+**Shipping v1 surface:** Linux **GTK 3** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** + **PulseAudio/PipeWire** monitor; video is **libx264** (`superfast`, `zerolatency`, High profile). `app/winui/` is a UI blueprint, not the Linux runtime.
 
 ---
 

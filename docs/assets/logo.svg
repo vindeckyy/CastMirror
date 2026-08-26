@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="CastMirror">
+  <rect width="128" height="128" rx="28" fill="#1a1d24"/>
+  <rect x="0.75" y="0.75" width="126.5" height="126.5" rx="27.25" fill="none" stroke="#2a2e39" stroke-width="1.5"/>
+  <!-- display -->
+  <rect x="34" y="36" width="60" height="38" rx="5" fill="#121417" stroke="#e1e3e6" stroke-width="2.5"/>
+  <rect x="40" y="42" width="48" height="26" rx="2" fill="#0078d4" opacity="0.35"/>
+  <rect x="56" y="74" width="16" height="4" rx="1" fill="#8c93a0"/>
+  <rect x="48" y="78" width="32" height="3" rx="1.5" fill="#2a2e39"/>
+  <!-- cast arc -->
+  <path d="M28 98c22 16 50 16 72 0" fill="none" stroke="#00d2ff" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M40 90c14 10 34 10 48 0" fill="none" stroke="#00d2ff" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>
+  <circle cx="64" cy="104" r="3.5" fill="#00d2ff"/>
+</svg>

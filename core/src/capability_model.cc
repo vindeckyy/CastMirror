@@ -88,21 +88,21 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
     case QualityPreset::kHigh:
       stats.current_resolution = {target_w, target_h};
       stats.current_framerate = target_fps;
-      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, target_w >= 3840 ? 20000u : (target_fps >= 60 ? 10000u : 6000u));
-      stats.target_delay_ms = 400;
+      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, target_w >= 3840 ? 20000u : (target_fps >= 60 ? 12000u : 8000u));
+      stats.target_delay_ms = 200;
       break;
 
     case QualityPreset::kBalanced:
       stats.current_resolution = {std::min(target_w, 1920), std::min(target_h, 1080)};
       stats.current_framerate = std::min(target_fps, 60);
-      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 6000u);
-      stats.target_delay_ms = 400;
+      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 8000u);
+      stats.target_delay_ms = 200;
       break;
 
     case QualityPreset::kSmooth:
       stats.current_resolution = {std::min(target_w, 1280), std::min(target_h, 720)};
       stats.current_framerate = std::min(target_fps, 60);
-      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 3500u);
+      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 5000u);
       stats.target_delay_ms = 200; // Low latency mode
       break;
 
@@ -111,8 +111,8 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
       // Auto defaults to Balanced initially, then adapts dynamically
       stats.current_resolution = {std::min(target_w, 1920), std::min(target_h, 1080)};
       stats.current_framerate = std::min(target_fps, 60);
-      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 5000u);
-      stats.target_delay_ms = 400;
+      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 8000u);
+      stats.target_delay_ms = 200;
       break;
   }
 

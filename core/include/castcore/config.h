@@ -14,12 +14,21 @@ struct AppConfig {
   int last_display_id = 0;
   bool audio_enabled = true;
   QualityPreset quality_preset = QualityPreset::kAuto;
-  int target_delay_ms = 400;
+  int target_delay_ms = 200;
   VideoCodec preferred_video_codec = VideoCodec::kH264;
   uint32_t max_bitrate_kbps = 8000;
+  // Per-preset video bitrate overrides in kbps. 0 = use the profile default.
+  uint32_t bitrate_kbps_auto = 0;
+  uint32_t bitrate_kbps_high = 0;
+  uint32_t bitrate_kbps_balanced = 0;
+  uint32_t bitrate_kbps_smooth = 0;
   bool enable_tray_on_startup = false;
   bool low_latency_mode = false;
   bool capture_border_hint = true;
+
+  uint32_t GetPresetBitrateOverrideKbps(QualityPreset preset) const;
+  uint32_t GetPresetBitrateKbps(QualityPreset preset) const;
+  void SetPresetBitrateKbps(QualityPreset preset, uint32_t kbps);
 };
 
 class ConfigStore {
