@@ -246,6 +246,7 @@ bool CastChannel::SendCastMessage(const std::string& namespace_,
   packet.insert(packet.end(), header, header + 4);
   packet.insert(packet.end(), serialized.begin(), serialized.end());
 
+  LOG_DEBUG << "[CastChannel SEND] ns=" << namespace_ << " src=" << source_id << " dst=" << destination_id << " payload=" << payload_utf8;
   return SendRawPacket(packet.data(), packet.size());
 }
 
@@ -348,6 +349,8 @@ void CastChannel::ReceiveLoop() {
       if (msg.payload_type() == proto::CastMessage::STRING && msg.has_payload_utf8()) {
         payload_str = msg.payload_utf8();
       }
+
+      LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id() << " dst=" << msg.destination_id() << " payload=" << payload_str;
 
       // Automatically answer PING with PONG
       if (msg.namespace_() == kNamespaceHeartbeat) {

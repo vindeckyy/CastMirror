@@ -1,6 +1,8 @@
 #include "castcore/cast_engine.h"
 #include "castcore/logger.h"
 #include <csignal>
+#include <filesystem>
+#include <cstdlib>
 
 namespace castcore {
 
@@ -43,7 +45,27 @@ bool CastEngine::Initialize() {
 #endif
   if (is_initialized_.exchange(true)) return true;
 
-  LOG_INFO << "Initializing CastEngine...";
+  std::string home_dir;
+#if defined(_WIN32)
+  const char* appdata = std::getenv("APPDATA");
+  home_dir = appdata ? appdata : "C:\\ProgramData";
+  std::string dir_path = home_dir + "\\CastMirror";
+  std::string log_file = dir_path + "\\castmirror.log";
+#else
+  const char* home = std::getenv("HOME");
+  home_dir = home ? home : "/tmp";
+  std::string dir_path = home_dir + "/.config/castmirror";
+  std::string log_file = dir_path + "/castmirror.log";
+#endif
+
+  try {
+    std::filesystem::create_directories(dir_path);
+  } catch (...) {}
+
+  Logger::Instance().SetFileLogging(log_file);
+  Logger::Instance().SetMinLevel(LogLevel::kDebug);
+
+  LOG_INFO << "Initializing CastEngine (Logging to " << log_file << ")...";
   ConfigStore::Instance().Load();
   discovery_.Start();
   return true;

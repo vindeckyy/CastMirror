@@ -83,8 +83,8 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
     p[11] = static_cast<uint8_t>(sender_ssrc_ & 0xFF);
 
     // Cast Header:
-    // Byte 12: KeyFrame (0x80) | RefFrame (0x40) | Extension count (pkt_adaptive ? 1 : 0)
-    p[12] = (is_key_frame ? 0x80 : 0x00) | 0x40 | (pkt_adaptive ? 0x01 : 0x00);
+    // Byte 12: KeyFrame (0x80) OR RefFrame (0x40) | Extension count (pkt_adaptive ? 1 : 0)
+    p[12] = (is_key_frame ? 0x80 : 0x40) | (pkt_adaptive ? 0x01 : 0x00);
     // Byte 13: Frame ID (lower 8 bits)
     p[13] = static_cast<uint8_t>(encrypted_frame.frame_id & 0xFF);
     // Bytes 14-15: Packet ID

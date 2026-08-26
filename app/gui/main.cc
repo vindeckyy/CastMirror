@@ -367,6 +367,48 @@ static void OnAddIpClicked(GtkButton* button, gpointer user_data) {
   gtk_widget_destroy(dialog);
 }
 
+static void OnViewLogsClicked(GtkButton* button, gpointer user_data) {
+  GtkWidget* dialog = gtk_dialog_new_with_buttons(
+      "CastMirror Debug Logs", GTK_WINDOW(g_app.window),
+      static_cast<GtkDialogFlags>(GTK_DIALOG_DESTROY_WITH_PARENT),
+      "_Close", GTK_RESPONSE_CLOSE, nullptr);
+  gtk_window_set_default_size(GTK_WINDOW(dialog), 750, 480);
+
+  GtkWidget* content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+  GtkWidget* scrolled = gtk_scrolled_window_new(nullptr, nullptr);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+
+  GtkWidget* text_view = gtk_text_view_new();
+  gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view), FALSE);
+  gtk_text_view_set_monospace(GTK_TEXT_VIEW(text_view), TRUE);
+
+  const char* home = std::getenv("HOME");
+  std::string log_file = (home ? std::string(home) : "/tmp") + "/.config/castmirror/castmirror.log";
+  std::ifstream f(log_file);
+  std::string log_contents;
+  if (f.is_open()) {
+    std::stringstream ss;
+    ss << f.rdbuf();
+    log_contents = ss.str();
+  } else {
+    log_contents = "No log file found at " + log_file;
+  }
+
+  GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
+  gtk_text_buffer_set_text(buffer, log_contents.c_str(), -1);
+
+  GtkTextIter end_iter;
+  gtk_text_buffer_get_end_iter(buffer, &end_iter);
+  gtk_text_buffer_place_cursor(buffer, &end_iter);
+
+  gtk_container_add(GTK_CONTAINER(scrolled), text_view);
+  gtk_box_pack_start(GTK_BOX(content_area), scrolled, TRUE, TRUE, 0);
+  gtk_widget_show_all(dialog);
+
+  gtk_dialog_run(GTK_DIALOG(dialog));
+  gtk_widget_destroy(dialog);
+}
+
 int main(int argc, char** argv) {
   gtk_init(&argc, &argv);
   ApplyCustomCss();
@@ -408,6 +450,12 @@ int main(int argc, char** argv) {
   gtk_style_context_add_class(gtk_widget_get_style_context(g_app.status_badge), "status-idle");
   g_app.status_label = gtk_label_new("○ READY");
   gtk_box_pack_start(GTK_BOX(g_app.status_badge), g_app.status_label, TRUE, TRUE, 0);
+
+  GtkWidget* logs_btn = gtk_button_new_with_label("📋 Logs");
+  gtk_widget_set_tooltip_text(logs_btn, "View live CastMirror debug logs");
+  g_signal_connect(logs_btn, "clicked", G_CALLBACK(OnViewLogsClicked), nullptr);
+
+  gtk_box_pack_end(GTK_BOX(header_box), logs_btn, FALSE, FALSE, 0);
   gtk_box_pack_end(GTK_BOX(header_box), g_app.status_badge, FALSE, FALSE, 0);
 
   gtk_box_pack_start(GTK_BOX(main_vbox), header_box, FALSE, FALSE, 0);
