@@ -67,6 +67,14 @@ TEST(StateMachineTest, CanTransitionToFailedFromAnyState) {
   EXPECT_EQ(sm.GetState(), SessionState::kIdle);
 }
 
+TEST(StateMachineTest, FailedCanReconnect) {
+  StateMachine sm;
+  sm.TransitionTo(SessionState::kConnecting);
+  EXPECT_TRUE(sm.TransitionTo(SessionState::kFailed, "lost"));
+  EXPECT_TRUE(sm.TransitionTo(SessionState::kConnecting, "retry"));
+  EXPECT_EQ(sm.GetState(), SessionState::kConnecting);
+}
+
 TEST(StateMachineTest, CallbackNotification) {
   StateMachine sm;
   SessionState observed_old = SessionState::kIdle;

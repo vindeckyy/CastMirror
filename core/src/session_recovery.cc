@@ -27,7 +27,8 @@ void SessionRecovery::Reset() {
 
 bool SessionRecovery::HasTimedOut() const {
   if (!is_recovering_) return false;
-  return GetElapsedSeconds() >= max_timeout_seconds_;
+  return (std::chrono::steady_clock::now() - recovery_start_time_) >=
+         std::chrono::seconds(max_timeout_seconds_);
 }
 
 int SessionRecovery::GetElapsedSeconds() const {

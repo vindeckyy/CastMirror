@@ -13,6 +13,7 @@
 #include <string>
 #include <functional>
 #include <mutex>
+#include <atomic>
 
 namespace castcore {
 
@@ -39,12 +40,18 @@ class CastEngine {
                     bool audio_enabled = true,
                     uint32_t bitrate_kbps = 0);
 
+  bool StartCasting(const std::string& device_id, int display_id, const SessionOptions& options);
+
   bool StartCastingLastDevice();
   void StopCasting();
+
+  void SetLiveVideoBitrateKbps(uint32_t kbps);
+  void SetLiveAudioBitrateBps(uint32_t bps);
 
   SessionState GetState() const;
   StreamStats GetStats() const;
   const AppConfig& GetConfig() const;
+  std::string GetLastError() const;
 
   void SetOnDevicesChanged(DevicesChangedCallback callback);
   void SetOnStateChanged(StateChangedCallback callback);
@@ -66,6 +73,7 @@ class CastEngine {
   StateChangedCallback state_cb_;
   StatsUpdatedCallback stats_cb_;
 
+  std::string last_error_;
   std::atomic<bool> is_initialized_{false};
 };
 

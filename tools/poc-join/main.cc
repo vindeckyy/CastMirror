@@ -20,8 +20,10 @@ int main(int argc, char** argv) {
   });
 
   std::string target_device_ip = "127.0.0.1";
-  uint16_t target_device_port = (argc > 2) ? static_cast<uint16_t>(std::stoi(argv[2])) : 8009;
-
+  uint16_t target_device_port = 8009;
+  if (argc > 2) {
+    try { target_device_port = static_cast<uint16_t>(std::stoi(argv[2])); } catch (...) {}
+  }
   if (argc > 1) {
     target_device_ip = argv[1];
     CastDevice d;
@@ -54,9 +56,13 @@ int main(int argc, char** argv) {
   LOG_INFO << "Initiating End-to-End Display Cast to " << target_device_ip << "...";
   bool started = engine.StartCasting(target_device_ip, 0, QualityPreset::kBalanced, true);
 
+  int duration_sec = 5;
+  if (argc > 3) {
+    try { duration_sec = std::stoi(argv[3]); } catch (...) {}
+  }
   if (started) {
-    LOG_INFO << "Cast Session Active! Streaming live display for 5 seconds...";
-    for (int i = 0; i < 5; ++i) {
+    LOG_INFO << "Cast Session Active! Streaming live display for " << duration_sec << " seconds...";
+    for (int i = 0; (duration_sec <= 0 || i < duration_sec) && engine.GetState() == SessionState::kStreaming; ++i) {
       std::this_thread::sleep_for(std::chrono::seconds(1));
       auto stats = engine.GetStats();
       LOG_INFO << "[LIVE STATS] FPS: " << stats.current_fps

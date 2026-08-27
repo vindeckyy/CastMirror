@@ -17,6 +17,7 @@ class IAudioCapture {
   virtual bool Start(int sample_rate = 48000, int channels = 2) = 0;
   virtual void Stop() = 0;
   virtual bool IsCapturing() const = 0;
+  virtual void SetHostSilence(bool silence) { (void)silence; }
 
   virtual void SetAudioCallback(AudioCallback callback) = 0;
 };

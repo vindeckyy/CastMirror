@@ -7,8 +7,8 @@ Linux is the supported v1 platform. You need a C++20 compiler, CMake 3.20+, Ninj
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
-    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxinerama-dev \
-    libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
+    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+    libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
     libgtk-3-dev
 ```
 
@@ -52,6 +52,11 @@ ctest --output-on-failure
 ```
 
 Config and logs: `~/.config/castmirror/config.json` and `~/.config/castmirror/castmirror.log`.
+
+## Environment variables
+
+- `CASTMIRROR_FORCE_SOFTWARE_ENCODE=1`: Force FFmpeg `libx264` software encoding even on systems where VAAPI hardware encoding is available.
+- `CASTMIRROR_FORCE_X11=1`: Force X11 display capture instead of the PipeWire portal when running under a Wayland compositor via XWayland.
 
 ## Network
 

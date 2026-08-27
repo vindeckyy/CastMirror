@@ -1,0 +1,439 @@
+/* CastMirror Modern Refined Dark Theme */
+
+window, .window-bg {
+  background-color: #0e1116;
+  color: #e8ecf1;
+  font-family: Cantarell, "Ubuntu", "Noto Sans", sans-serif;
+}
+
+/* Header */
+.header-box {
+  background-color: #171b22;
+  border-bottom: 1px solid #2c3440;
+  padding: 14px 20px;
+}
+
+.title-label {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.subtitle-label {
+  font-size: 12px;
+  color: #8b93a1;
+}
+
+/* Status Badge */
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+
+.status-idle {
+  background-color: #1e242e;
+  color: #8b93a1;
+  border-color: #2c3440;
+}
+
+.status-connecting {
+  background-color: #3b2c12;
+  color: #f5c542;
+  border-color: #6b4d1b;
+}
+
+.status-live {
+  background-color: #103322;
+  color: #3dd68c;
+  border-color: #1b593b;
+}
+
+.status-failed {
+  background-color: #3b1414;
+  color: #ff6b6b;
+  border-color: #6b2424;
+}
+
+/* Notebook & Tab Navigation */
+notebook {
+  background-color: #0e1116;
+}
+
+notebook header {
+  background-color: #171b22;
+  border-bottom: 1px solid #2c3440;
+  padding: 0 16px;
+}
+
+notebook tab {
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #8b93a1;
+  border: none;
+  background-color: transparent;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+notebook tab:hover {
+  color: #e8ecf1;
+}
+
+notebook tab:checked {
+  color: #4aa3f0;
+  border-bottom: 2px solid #4aa3f0;
+  background-color: transparent;
+}
+
+/* Footer Box */
+.footer-box {
+  background-color: #171b22;
+  border-top: 1px solid #2c3440;
+  padding: 14px 20px;
+}
+
+/* Primary Action Buttons */
+button.btn-cast-start {
+  background-image: none;
+  background-color: #4aa3f0;
+  color: #0e1116;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 10px;
+  padding: 12px 24px;
+  border: none;
+  min-height: 46px;
+  box-shadow: 0 2px 8px rgba(74, 163, 240, 0.25);
+}
+
+button.btn-cast-start:hover {
+  background-color: #6bb4f4;
+  box-shadow: 0 4px 14px rgba(74, 163, 240, 0.4);
+}
+
+button.btn-cast-start:active {
+  background-color: #358cd4;
+}
+
+button.btn-cast-stop {
+  background-image: none;
+  background-color: #c23b3b;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 10px;
+  padding: 12px 24px;
+  border: none;
+  min-height: 46px;
+  box-shadow: 0 2px 8px rgba(194, 59, 59, 0.3);
+}
+
+button.btn-cast-stop:hover {
+  background-color: #d94a4a;
+  box-shadow: 0 4px 14px rgba(194, 59, 59, 0.45);
+}
+
+button.btn-cast-stop:active {
+  background-color: #a32d2d;
+}
+
+/* Card Boxes */
+.card-box {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 6px 0;
+}
+
+.card-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.card-desc {
+  font-size: 12px;
+  color: #8b93a1;
+  margin-bottom: 8px;
+}
+
+/* Setting Rows */
+.setting-row {
+  padding: 8px 0;
+}
+
+.setting-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8ecf1;
+}
+
+.setting-help {
+  font-size: 12px;
+  color: #8b93a1;
+}
+
+/* Info Icon Button */
+button.btn-info {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: #8b93a1;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+button.btn-info:hover {
+  color: #4aa3f0;
+  background-color: #1e242e;
+}
+
+/* List Boxes & Device Cards */
+list {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+row {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 4px 0;
+  color: #e8ecf1;
+  outline: none;
+  box-shadow: none;
+  transition: none;
+}
+
+row:hover {
+  background-color: #1e242e;
+  border-color: #3b4556;
+}
+
+row:selected,
+row:selected:focus,
+row:focus {
+  background-color: #1b2636;
+  border-color: #4aa3f0;
+  color: #ffffff;
+  outline: none;
+  box-shadow: none;
+}
+/* Device Card Elements */
+.device-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.device-meta {
+  font-size: 12px;
+  color: #8b93a1;
+}
+
+.device-caps {
+  font-size: 11px;
+  color: #4aa3f0;
+}
+
+/* Radio Cards (Quality Presets) */
+.preset-card {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 10px;
+  padding: 12px;
+  margin: 4px;
+}
+
+.preset-card:hover {
+  border-color: #3b4556;
+  background-color: #1e242e;
+}
+
+.preset-card-active {
+  border-color: #4aa3f0;
+  background-color: #162438;
+}
+
+.preset-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.preset-desc {
+  font-size: 11px;
+  color: #8b93a1;
+  line-height: 1.3;
+}
+
+/* Stat Tiles (Telemetry Grid) */
+.stat-card {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.stat-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b93a1;
+  letter-spacing: 0.05em;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #4aa3f0;
+  margin: 2px 0;
+}
+
+/* Pipeline Diagram */
+.pipe-container {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.pipe-node {
+  background-color: #1e242e;
+  border: 1px solid #2c3440;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #8b93a1;
+}
+
+.pipe-node-active {
+  background-color: #102e20;
+  border-color: #3dd68c;
+  color: #3dd68c;
+}
+
+.pipe-node-warn {
+  background-color: #33260f;
+  border-color: #f5c542;
+  color: #f5c542;
+}
+
+.pipe-arrow {
+  color: #4aa3f0;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.pipe-node-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.pipe-node-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e8ecf1;
+}
+
+/* Health Banner */
+.health-banner {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #3dd68c;
+}
+
+.health-banner-warn {
+  background-color: #2b200b;
+  border-color: #6b4d1b;
+  color: #f5c542;
+}
+
+.health-banner-error {
+  background-color: #2e0f0f;
+  border-color: #6b2424;
+  color: #ff6b6b;
+}
+
+/* Adaptive Ladder */
+.ladder-rung {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8b93a1;
+  margin: 2px;
+}
+
+.ladder-rung-active {
+  background-color: #1b2f48;
+  border-color: #4aa3f0;
+  color: #ffffff;
+}
+
+.ladder-rung-disabled {
+  opacity: 0.35;
+}
+
+/* Activity Timeline */
+.timeline-row {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #1e242e;
+}
+
+.timeline-time {
+  color: #4aa3f0;
+  margin-right: 8px;
+}
+
+.timeline-msg {
+  color: #e8ecf1;
+}
+
+/* Inputs & Controls */
+entry, spinbutton, combobox button {
+  background-color: #171b22;
+  border: 1px solid #2c3440;
+  border-radius: 8px;
+  color: #e8ecf1;
+  padding: 6px 10px;
+}
+
+entry:focus, spinbutton:focus, combobox button:focus {
+  border-color: #4aa3f0;
+}
+
+scale highlight {
+  background-color: #4aa3f0;
+  border-radius: 4px;
+}
+
+scale trough {
+  background-color: #1e242e;
+  border-radius: 4px;
+  min-height: 6px;
+}
+
+/* Monospace Log Viewer */
+textview.log-view text {
+  background-color: #0e1116;
+  color: #e8ecf1;
+  font-family: monospace;
+  font-size: 12px;
+}

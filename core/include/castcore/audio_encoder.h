@@ -21,6 +21,7 @@ class IAudioEncoder {
 
   virtual bool Initialize(const AudioEncoderConfig& config) = 0;
   virtual bool Encode(const CapturedAudioFrame& frame, EncodedFrame& out_encoded_frame) = 0;
+  virtual void SetBitrate(int bitrate_bps) = 0;
 
   virtual const AudioEncoderConfig& GetConfig() const = 0;
 };

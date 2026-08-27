@@ -96,6 +96,19 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("enable_tray_on_startup")) config_.enable_tray_on_startup = j["enable_tray_on_startup"].get<bool>();
     if (j.contains("low_latency_mode")) config_.low_latency_mode = j["low_latency_mode"].get<bool>();
     if (j.contains("capture_border_hint")) config_.capture_border_hint = j["capture_border_hint"].get<bool>();
+    if (j.contains("capture_fps")) config_.capture_fps = j["capture_fps"].get<int>();
+    if (j.contains("audio_bitrate_bps")) config_.audio_bitrate_bps = j["audio_bitrate_bps"].get<uint32_t>();
+    if (j.contains("silence_host_speakers")) config_.silence_host_speakers = j["silence_host_speakers"].get<bool>();
+    if (j.contains("adaptive_enabled")) config_.adaptive_enabled = j["adaptive_enabled"].get<bool>();
+    if (j.contains("subnet_scan_enabled")) config_.subnet_scan_enabled = j["subnet_scan_enabled"].get<bool>();
+    if (j.contains("portal_restore_token")) config_.portal_restore_token = j["portal_restore_token"].get<std::string>();
+    if (j.contains("first_run_complete")) config_.first_run_complete = j["first_run_complete"].get<bool>();
+    if (j.contains("window_width")) config_.window_width = j["window_width"].get<int>();
+    if (j.contains("window_height")) config_.window_height = j["window_height"].get<int>();
+    if (j.contains("notify_on_events")) config_.notify_on_events = j["notify_on_events"].get<bool>();
+    if (j.contains("force_software_encode")) config_.force_software_encode = j["force_software_encode"].get<bool>();
+    if (j.contains("force_x11_capture")) config_.force_x11_capture = j["force_x11_capture"].get<bool>();
+    if (j.contains("close_to_tray")) config_.close_to_tray = j["close_to_tray"].get<bool>();
 
     LOG_INFO << "Loaded configuration from " << path_to_load;
     return true;
@@ -130,6 +143,19 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["enable_tray_on_startup"] = config_.enable_tray_on_startup;
     j["low_latency_mode"] = config_.low_latency_mode;
     j["capture_border_hint"] = config_.capture_border_hint;
+    j["capture_fps"] = config_.capture_fps;
+    j["audio_bitrate_bps"] = config_.audio_bitrate_bps;
+    j["silence_host_speakers"] = config_.silence_host_speakers;
+    j["adaptive_enabled"] = config_.adaptive_enabled;
+    j["subnet_scan_enabled"] = config_.subnet_scan_enabled;
+    j["portal_restore_token"] = config_.portal_restore_token;
+    j["first_run_complete"] = config_.first_run_complete;
+    j["window_width"] = config_.window_width;
+    j["window_height"] = config_.window_height;
+    j["notify_on_events"] = config_.notify_on_events;
+    j["force_software_encode"] = config_.force_software_encode;
+    j["force_x11_capture"] = config_.force_x11_capture;
+    j["close_to_tray"] = config_.close_to_tray;
 
     std::ofstream file(path_to_save);
     if (!file.is_open()) return false;

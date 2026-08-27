@@ -39,7 +39,8 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
                                                 const StreamEncryptionKeys& video_keys,
                                                 const StreamEncryptionKeys& audio_keys,
                                                 VideoCodec video_codec,
-                                                int target_delay_ms) {
+                                                int target_delay_ms,
+                                                int audio_bitrate_bps) {
   nlohmann::json offer_root;
   offer_root["type"] = "OFFER";
   offer_root["seqNum"] = seq_num;
@@ -59,7 +60,7 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
     audio_stream["rtpProfile"] = "cast";
     audio_stream["rtpPayloadType"] = 127; // AndroidTV / standard hack
     audio_stream["ssrc"] = 1;
-    audio_stream["bitRate"] = 192000;
+    audio_stream["bitRate"] = audio_bitrate_bps > 0 ? audio_bitrate_bps : 192000;
     audio_stream["timeBase"] = "1/48000";
     audio_stream["channels"] = 2;
     audio_stream["samplingRate"] = 48000;
@@ -101,6 +102,27 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
   offer_root["offer"] = offer_body;
 
   return offer_root.dump();
+}
+
+std::string MirroringNegotiator::CreateStatusJson(int seq_num, const StreamStats& stats) {
+  nlohmann::json root;
+  root["type"] = "STATUS";
+  root["seqNum"] = seq_num;
+  root["result"] = "ok";
+
+  nlohmann::json status = nlohmann::json::array();
+  nlohmann::json video;
+  video["ssrc"] = 2;
+  video["type"] = "video";
+  video["fps"] = stats.current_fps > 0 ? stats.current_fps : stats.current_framerate;
+  video["bitRate"] = static_cast<int>(stats.bitrate_kbps * 1000);
+  video["rtt"] = stats.round_trip_time_ms;
+  video["loss"] = stats.packet_loss_fraction;
+  video["width"] = stats.current_resolution.width;
+  video["height"] = stats.current_resolution.height;
+  status.push_back(video);
+  root["status"] = status;
+  return root.dump();
 }
 
 bool MirroringNegotiator::ParseAnswerJson(const std::string& answer_json,

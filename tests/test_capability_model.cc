@@ -24,9 +24,16 @@ TEST(CapabilityModelTest, ClassifyChromecastDevices) {
   auto caps_nest = CapabilityModel::Evaluate(nesthub);
   EXPECT_EQ(caps_nest.device_family, "Nest Hub");
   EXPECT_EQ(caps_nest.max_resolution.width, 1280);
-  EXPECT_EQ(caps_nest.max_fps, 30);
-}
+  EXPECT_EQ(caps_nest.max_fps, 60);
 
+  CastDevice gen2;
+  gen2.model_name = "NC2-6A5";
+  auto caps_gen2 = CapabilityModel::Evaluate(gen2);
+  EXPECT_EQ(caps_gen2.device_family, "Chromecast Gen 1/2");
+  EXPECT_EQ(caps_gen2.max_resolution.width, 1920);
+  EXPECT_EQ(caps_gen2.max_fps, 30);
+  EXPECT_EQ(caps_gen2.h264_level, "4.1");
+}
 TEST(CapabilityModelTest, PresetRecommendations) {
   CastDevice dev;
   dev.model_name = "Chromecast Ultra";
@@ -45,4 +52,11 @@ TEST(CapabilityModelTest, PresetRecommendations) {
   EXPECT_EQ(stats_auto.target_delay_ms, 200);
   EXPECT_EQ(stats_auto.current_resolution.width, 1920);
   EXPECT_GE(stats_auto.bitrate_kbps, 8000u);
+}
+
+TEST(CapabilityModelTest, UserCaptureFpsIsNotClampedTo60) {
+  CastDevice dev;
+  dev.model_name = "Chromecast Ultra";
+  auto stats = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kAuto, 1920, 1080, 60, 120);
+  EXPECT_EQ(stats.current_framerate, 120);
 }

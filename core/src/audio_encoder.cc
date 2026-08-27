@@ -32,6 +32,7 @@ class OpusAudioEncoder : public IAudioEncoder {
     opus_encoder_ctl(encoder_, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
 
     next_frame_id_ = 0;
+    rtp_clock_origin_set_ = false;
 
     LOG_INFO << "Initialized Opus Audio Encoder (" << config_.sample_rate
              << " Hz, " << config_.channels << " ch, " << (config_.bitrate_bps / 1000) << " kbps)";
@@ -56,8 +57,17 @@ class OpusAudioEncoder : public IAudioEncoder {
     }
 
     uint32_t current_fid = next_frame_id_++;
-    // Convert timestamp to 48kHz audio timebase
-    uint32_t rtp_ts = static_cast<uint32_t>((current_fid * 48000) / 100);
+    if (!rtp_clock_origin_set_) {
+      rtp_clock_origin_ = frame.timestamp;
+      rtp_clock_origin_set_ = true;
+    }
+    int64_t capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        frame.timestamp - rtp_clock_origin_).count();
+    if (capture_us < 0) {
+      capture_us = 0;
+    }
+    uint32_t rtp_ts = static_cast<uint32_t>(
+        (capture_us * static_cast<int64_t>(config_.sample_rate)) / 1000000);
 
     out_encoded_frame.dependency = FrameDependency::kKeyFrame;
     out_encoded_frame.frame_id = current_fid;
@@ -76,6 +86,16 @@ class OpusAudioEncoder : public IAudioEncoder {
     return config_;
   }
 
+  void SetBitrate(int bitrate_bps) override {
+    if (bitrate_bps <= 0) {
+      return;
+    }
+    config_.bitrate_bps = bitrate_bps;
+    if (encoder_) {
+      opus_encoder_ctl(encoder_, OPUS_SET_BITRATE(bitrate_bps));
+    }
+  }
+
  private:
   void Cleanup() {
     if (encoder_) {
@@ -87,6 +107,8 @@ class OpusAudioEncoder : public IAudioEncoder {
   AudioEncoderConfig config_;
   OpusEncoder* encoder_ = nullptr;
   uint32_t next_frame_id_ = 0;
+  std::chrono::steady_clock::time_point rtp_clock_origin_{};
+  bool rtp_clock_origin_set_ = false;
 };
 
 std::unique_ptr<IAudioEncoder> AudioEncoderFactory::Create(AudioCodec codec) {

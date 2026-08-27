@@ -32,6 +32,14 @@ class IVideoEncoder {
   virtual void SetBitrate(uint32_t bitrate_kbps) = 0;
   virtual void SetFramerate(int fps) = 0;
 
+  // Reopen the encoder at a new size/fps/bitrate (adaptive ladder). Cast
+  // frame ids and the RTP clock origin are preserved so the receiver never
+  // sees an id jump or timestamp reset. Returns false if reopen failed.
+  virtual bool Reconfigure(const VideoEncoderConfig& config) = 0;
+
+  // Actual backend in use ("h264_vaapi", "libx264", "libvpx", ...).
+  virtual std::string EncoderName() const = 0;
+
   virtual const VideoEncoderConfig& GetConfig() const = 0;
 };
 

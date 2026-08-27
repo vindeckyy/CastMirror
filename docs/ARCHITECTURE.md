@@ -24,8 +24,7 @@
 
 **Default user-visible quality control:** Auto / High / Balanced / Smooth, plus a per-preset video bitrate slider (locked while a session is live).
 
-**Shipping v1 surface:** Linux **GTK 3** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** + **PulseAudio/PipeWire** monitor; video is **libx264** (`superfast`, `zerolatency`, High profile). `app/winui/` is a UI blueprint, not the Linux runtime.
-
+**Shipping v1 surface:** Linux **GTK 3** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** (XRandR per-monitor crop + MIT-SHM) or **Wayland** (xdg-desktop-portal ScreenCast + PipeWire); audio is **PulseAudio/PipeWire** sink monitor; video is **VAAPI H.264** hardware encode with **libx264** (`superfast`, `zerolatency`, High profile) software fallback. `app/winui/` is a UI blueprint for future Windows work.
 ---
 
 ## 2. How Chromecast display mirroring actually works
@@ -96,77 +95,61 @@ Why A: it is the **only** path that uses Cast’s firmware real-time pipeline (t
 
 ## 4. Recommended system architecture
 
-Windows-first **C++20 core** (`castcore`) + **C# WinUI 3** shell. Core owns capture, encode, Cast, recovery. UI owns presentation and user intent only.
+Linux-first **C++20 core** (`castcore`) + **GTK 3** desktop app (`castmirror-gui`) and CLI (`castmirror`). Core owns capture, encode, Cast V2 control, Cast RTP/RTCP transport, and session recovery. UI owns presentation and user intent.
 
 ```mermaid
 flowchart LR
-    subgraph ui [WinUI3 Shell]
-        View[Views]
-        VM[ViewModels]
-        Tray[TrayHost]
+    subgraph ui [Linux User Interface]
+        GTK[GTK 3 GUI]
+        CLI[CLI]
     end
-    subgraph core [castcore C++]
-        AppState[AppState]
-        Disc[Discovery]
+    subgraph core [castcore C++20]
+        Engine[CastEngine]
+        Disc[DeviceDiscovery]
         Sess[CastSession]
-        CapV[DisplayCapture]
-        CapA[AudioCapture]
-        Gpu[GpuProcessor]
-        Enc[EncoderHub]
-        Tx[CastTransport]
-        Adapt[AdaptiveController]
-        Recov[Recovery]
-        Cfg[Config]
-        Log[Logging]
+        CapV[X11 / PipeWire Capture]
+        CapA[PulseAudio Monitor]
+        Gpu[GpuProcessor Letterbox]
+        Enc[VAAPI / libx264 Encode]
+        Tx[CastTransport UDP]
+        Adapt[AdaptiveController Ladder]
+        Recov[SessionRecovery]
+        Cfg[ConfigStore]
+        Log[Logger]
     end
-    View --> VM
-    Tray --> VM
-    VM --> AppState
-    AppState --> Disc
-    AppState --> Sess
+    GTK --> Engine
+    CLI --> Engine
+    Engine --> Disc
+    Engine --> Sess
     Sess --> CapV
     Sess --> CapA
-    CapV --> Gpu
-    Gpu --> Enc
-    CapA --> Enc
-    Enc --> Tx
+    Sess --> Gpu
+    Sess --> Enc
+    Sess --> Tx
     Adapt --> Enc
+    Adapt --> CapV
     Recov --> Sess
 ```
 
-**Pixel path (primary):** DWM compose → **Windows Graphics Capture** `ID3D11Texture2D` → GPU **BGRA→NV12** (compute shader, same adapter as encoder) → **H.264 hardware encode** (0 B-frames, low-latency) → Annex-B access unit → `openscreen::cast::Sender` encrypt/packetize → UDP to `answer.udpPort` → device decode/render.
+**Pixel path (primary):** X11 XRandR / PipeWire portal capture → BGRA frame → `GpuProcessor` (fit-inside letterbox, NV12 / YUV420p direct write) → **H.264 encode** (VAAPI hardware MFT or libx264, 0 B-frames, low-delay) → Annex-B NALUs → `FrameCrypto` (AES-128-CTR) → `RtpPacketizer` (Cast RTP) → UDP to `answer.udpPort` → Cast device decode/render.
 
-**Audio path:** WASAPI **process loopback exclude our PID tree** → PCM 48 kHz stereo → **libopus** (10 ms frames, ~128 kbps) → audio `Sender` → same Cast Streaming session. Shared **QPC** timeline for RTP timestamps. Mute = stop audio frames (or send DTX), do not tear down video.
+**Audio path:** PulseAudio / PipeWire default sink monitor loopback → PCM 48 kHz stereo (10 ms frames) → **libopus** (Opus 48 kHz stereo, ~192 kbps) → `FrameCrypto` → `RtpPacketizer` → UDP to same Cast receiver. Mute: default sink is muted during session, restored on Stop.
 
-**Module boundaries (replaceable later):**
+**Module boundaries:**
 
-- `IDeviceDirectory` — mDNS + TXT parse + online/offline
-- `ICastChannel` — TLS Cast V2, heartbeat, launch/stop
-- `IMirroringNegotiator` — OFFER/ANSWER, codec pick
-- `IDisplayCapture` — WGC default; DXGI Desktop Duplication optional
-- `IAudioCapture` — WASAPI loopback
-- `IGpuProcessor` — scale, letterbox, NV12
-- `IVideoEncoder` — NVENC, AMF, oneVPL, Media Foundation, OpenH264
-- `IAudioEncoder` — Opus
-- `ITransport` — Open Screen Cast Streaming (HTTP CMAF fallback implements same “push encoded frame” sink)
-- `ICapabilityModel` — model ID + `ca` bits + ANSWER + H.264 level table
-- `INetworkMonitor` — RTT/loss from libcast RTCP + NIC changes
-- `IAppState` — single state machine the UI binds to
-- `ISessionRecovery` — reconnect policy
-- `IConfigStore` — `%APPDATA%\CastMirror\config.json`
-- `ILogSink` — local rotating logs only in v1
-
-Linux/macOS later: new `IDisplayCapture` / `IAudioCapture` / `IVideoEncoder` backends; keep Cast and AppState. Swap WinUI for Slint or platform UI.
-
-**Repo layout:**
-
-- `core/` — CMake static/shared lib, Open Screen as third_party
-- `app/` — WinUI 3 unpackaged Win32 (full trust: tray + capture + firewall)
-- `receiver-fallback/` — CAF HTML (only if Phase 0 fails or as Phase 6)
-- `tools/poc-*` — throwaway PoCs, not product UI
-- `tests/` — gtest + fake receiver
-
----
+- `DeviceDiscovery` — mDNS `_googlecast._tcp` browse + optional subnet TCP probe
+- `CastChannel` — TLS 1.2 Cast V2 (:8009), heartbeat PING/PONG, LAUNCH/STOP
+- `MirroringNegotiator` — JSON OFFER/ANSWER, AES-128-CTR key exchange
+- `IDisplayCapture` — `X11DisplayCapture` (XRandR crop + MIT-SHM) / `PipeWirePortalCapture` (portal ScreenCast) / `SyntheticDisplayCapture`
+- `IAudioCapture` — `PulseAudioCapture` (libpulse monitor) / `SyntheticAudioCapture`
+- `GpuProcessor` — libswscale direct-plane letterboxing (YUV420P / NV12)
+- `IVideoEncoder` — `FFmpegVideoEncoder` (VAAPI `h264_vaapi` with `libx264` fallback, `Reconfigure`)
+- `IAudioEncoder` — `OpusAudioEncoder` (libopus)
+- `CastTransport` — UDP RTP transmission, RTCP feedback parser (NACK/PLI), retransmission cache, destination IP filter
+- `AdaptiveController` — 8-rung ladder dynamically adjusting bitrate, resolution, and fps
+- `SessionRecovery` — 30 s exponential backoff reconnection policy on network blips
+- `ConfigStore` — `~/.config/castmirror/config.json`
+- `Logger` — local rotating debug logs (`~/.config/castmirror/castmirror.log`)
 
 ## 5. Technology stack (and rejects)
 
@@ -216,26 +199,24 @@ Maintain: `Online`, `Idle`, `Busy` (another app casting), `Unavailable`. Do not 
 
 ## 7. Capture, GPU, encode, adapt
 
-**Display capture: Windows Graphics Capture (default).** Monitor or window; works cross-GPU; Win10 1903+. Optional DXGI Desktop Duplication for no yellow border / same-GPU max perf (advanced). Win11: respect capture-border setting; still show in-app **CASTING** indicator.
+**Display capture:**
+- **X11 (default on X11):** `X11DisplayCapture` uses XRandR to enumerate monitors and crops to the selected display's geometry. Fast path uses MIT-SHM (`XShmGetImage`) with fallback to cropped `XGetImage`. Hardware cursor is composited via XFixes.
+- **Wayland (default under Wayland):** `PipeWirePortalCapture` uses `xdg-desktop-portal` ScreenCast to allow the user to select any monitor/window, streaming via PipeWire (`pw_stream`) in BGRA.
 
-**Do not** capture until session is `Casting`. RAII: destroying `Session` stops the pool and releases frames.
+**GPU / Color conversion:**
+- `GpuProcessor` letterboxes the source into the target encode resolution: scales down to fit, never upscales or stretches, and pads black bars (16/128/128) around the active area.
+- Writes directly into `AVFrame` linesized planes with 0 intermediate temporary memory copies.
 
-**GPU:** stay on capture adapter. `Direct3D11CaptureFramePool` free-threaded. Compute shader BGRA→NV12 + optional downscale (never upscale). Letterbox to receiver aspect. Avoid staging to CPU unless software encode.
+**Codec policy:**
+- **H.264 High profile, 0 B-frames, low delay** is the primary video path.
+- **VAAPI hardware acceleration (`h264_vaapi`)** is probed on session start and used when GPU/driver support exists.
+- **libx264** software encoding (`superfast`, `zerolatency`, High profile) is the universal fallback when VAAPI is unavailable or disabled via `CASTMIRROR_FORCE_SOFTWARE_ENCODE=1`.
+- **Opus 48 kHz stereo (10 ms frames)** is the audio codec for Cast Streaming.
 
-**Codec policy (compatibility first):**
-
-- **Always offer H.264 High, no B-frames**
-- Levels: gen1/2 **4.1** (1080p30 or 720p60); gen3/Ultra **4.2** (1080p60); CCwGTV **5.1** (4K30 H.264); Streamer **5.2** (4K60 H.264)
-- HEVC/VP9/AV1: **v2+ only** after H.264 path is solid (encoder + receiver both required)
-- Audio: **Opus** for Cast Streaming; AAC only on HTTP fallback
-
-**Encoder settings:** GOP 1–2 s, `LowLatency`/`zerolatency`, no lookahead, async depth 1–2, CBR or VBR with tight buffer, repeat SPS/PPS, IDR on scene-cut and on NACK storms.
-
-**Adapt:** start from min(source, receiver, preset). Ladder: 4K60 → 4K30 → 1440p60 → 1080p60 → 1080p30 → 720p60 → 720p30. Drive from libcast RTT/loss + encoder queue depth. Drop frames at capture (never grow a big CPU queue). Chrome’s auto-throttle design: keep **target playout delay** mostly fixed; change bitrate/resolution/fps.
-
-**Monitors:** UI lists displays with live thumbs (thumbs from a **low-rate** WGC preview only while the main window is visible, not while hidden in tray). If selected display vanishes, switch to primary or stop with a clear message.
-
----
+**Adapt:**
+- Dynamic 8-rung adaptation ladder driven by RTCP loss and RTT:
+  4K60 → 4K30 → 1440p60 → 1080p60 → 1080p30 → 720p60 → 720p30 → 540p30
+- Step downs reconfigure the encoder on the fly (`Reconfigure`) and update capture target framerate, never exceeding initial maximum dimensions.
 
 ## 8. Network / streaming
 

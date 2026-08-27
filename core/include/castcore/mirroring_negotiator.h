@@ -46,7 +46,10 @@ class MirroringNegotiator {
                                      const StreamEncryptionKeys& video_keys,
                                      const StreamEncryptionKeys& audio_keys,
                                      VideoCodec video_codec = VideoCodec::kH264,
-                                     int target_delay_ms = 400);
+                                     int target_delay_ms = 400,
+                                     int audio_bitrate_bps = 192000);
+
+  static std::string CreateStatusJson(int seq_num, const StreamStats& stats);
 
   static bool ParseAnswerJson(const std::string& answer_json,
                               const StreamEncryptionKeys& video_keys,

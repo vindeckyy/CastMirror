@@ -42,11 +42,13 @@ FFmpeg (libavcodec, libswscale, libavutil) and libx264
   IMPORTANT: The Apache-2.0 license applies to CastMirror *source* in this
   repository. Distributing a compiled CastMirror binary that is linked
   against GPL-licensed libx264 generally requires treating that binary
-  as GPL. If you ship binaries, review FFmpeg/x264 licensing for your
-  configuration (GPL vs LGPL FFmpeg builds, GPL x264) and comply fully.
+  as GPL. Official .deb packages depend on distro libx264 and must be
+  distributed as GPL. If you ship binaries, review FFmpeg/x264 licensing
+  for your configuration (GPL vs LGPL FFmpeg builds, GPL x264) and
+  comply fully.
 
 PulseAudio / PipeWire (libpulse)
   LGPL-2.1
 
-X11 / Xinerama
+X11 / Xext / XRandR / XFixes / MIT-SHM
   MIT / X11 licenses

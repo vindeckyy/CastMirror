@@ -29,7 +29,8 @@ class CapabilityModel {
                                             QualityPreset preset,
                                             int display_width,
                                             int display_height,
-                                            int display_refresh_rate);
+                                            int display_refresh_rate,
+                                            int capture_fps = 0);
 };
 
 } // namespace castcore

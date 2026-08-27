@@ -5,6 +5,7 @@
 #include <cstring>
 #include <chrono>
 #include <csignal>
+#include <algorithm>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -22,6 +23,23 @@
 #endif
 
 namespace castcore {
+
+namespace {
+
+bool IsHeartbeatPingPong(const std::string& namespace_, const std::string& payload) {
+  if (namespace_ != kNamespaceHeartbeat) {
+    return false;
+  }
+  return payload.find("PING") != std::string::npos || payload.find("PONG") != std::string::npos;
+}
+
+int64_t NowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+}  // namespace
 
 CastChannel::CastChannel() = default;
 
@@ -64,10 +82,21 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     return false;
   }
 
-  // Set TCP_NODELAY
+  // Set TCP_NODELAY and socket timeouts
   int flag = 1;
   setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
 
+#if defined(_WIN32)
+  DWORD tv_ms = 6000;
+  setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv_ms, sizeof(tv_ms));
+  setsockopt(socket_fd_, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv_ms, sizeof(tv_ms));
+#else
+  struct timeval tv{};
+  tv.tv_sec = 6;
+  tv.tv_usec = 0;
+  setsockopt(socket_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(socket_fd_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
   struct sockaddr_in server_addr{};
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(port);
@@ -102,6 +131,13 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   // Allow self-signed Cast device certificates (standard Cast v2 sender behavior)
   SSL_CTX_set_verify(ssl_ctx_, SSL_VERIFY_NONE, nullptr);
 
+  // Pin to TLS 1.2: real Chromecasts never offer 1.3, and under 1.3 the
+  // client's SSL_read can emit post-handshake records (NewSessionTicket /
+  // KeyUpdate processing) concurrently with HeartbeatLoop's SSL_write on the
+  // same SSL*. That full-duplex write/write race corrupts records both ways
+  // ("bad record mac"). 1.2 keeps read and write cipher states independent.
+  SSL_CTX_set_options(ssl_ctx_, SSL_OP_NO_TLSv1_3);
+
   ssl_ = SSL_new(ssl_ctx_);
   if (!ssl_) {
     LOG_ERROR << "Failed to create SSL structure";
@@ -115,12 +151,17 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   SSL_set_fd(ssl_, socket_fd_);
 
   if (SSL_connect(ssl_) <= 0) {
-    LOG_ERROR << "SSL handshake failed with Cast device at " << ip_address;
+    unsigned long ssl_err = ERR_get_error();
+    char err_buf[256];
+    ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
+    LOG_ERROR << "SSL handshake failed with Cast device at " << ip_address << ": " << err_buf;
     Disconnect();
     return false;
   }
 
   is_connected_ = true;
+  last_pong_ms_.store(NowMs());
+  disconnect_notified_.store(false);
   LOG_INFO << "TLS Cast Channel established with " << ip_address << ":" << port;
 
   // Start receive and heartbeat threads
@@ -186,14 +227,7 @@ void CastChannel::Disconnect() {
 
   if (was_connected) {
     LOG_INFO << "Disconnected Cast Channel from " << ip_address_;
-    StatusCallback cb;
-    {
-      std::lock_guard<std::mutex> lock(callback_mutex_);
-      cb = status_callback_;
-    }
-    if (cb) {
-      cb(false, "Disconnected");
-    }
+    NotifyDisconnected("Disconnected");
   }
 }
 
@@ -246,7 +280,10 @@ bool CastChannel::SendCastMessage(const std::string& namespace_,
   packet.insert(packet.end(), header, header + 4);
   packet.insert(packet.end(), serialized.begin(), serialized.end());
 
-  LOG_DEBUG << "[CastChannel SEND] ns=" << namespace_ << " src=" << source_id << " dst=" << destination_id << " payload=" << payload_utf8;
+  if (!IsHeartbeatPingPong(namespace_, payload_utf8)) {
+    LOG_DEBUG << "[CastChannel SEND] ns=" << namespace_ << " src=" << source_id
+              << " dst=" << destination_id << " payload=" << payload_utf8;
+  }
   return SendRawPacket(packet.data(), packet.size());
 }
 
@@ -314,6 +351,7 @@ void CastChannel::ReceiveLoop() {
         ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
         LOG_WARN << "Cast Channel socket disconnected while reading header: ret=" << ret << " err=" << err << " (" << err_buf << ")";
         is_connected_ = false;
+        NotifyDisconnected("TLS socket closed");
         return;
       }
       header_read += ret;
@@ -338,6 +376,7 @@ void CastChannel::ReceiveLoop() {
         if (should_stop_.load()) return;
         LOG_WARN << "Cast Channel socket disconnected while reading body";
         is_connected_ = false;
+        NotifyDisconnected("TLS socket closed");
         return;
       }
       body_read += ret;
@@ -350,7 +389,10 @@ void CastChannel::ReceiveLoop() {
         payload_str = msg.payload_utf8();
       }
 
-      LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id() << " dst=" << msg.destination_id() << " payload=" << payload_str;
+      if (!IsHeartbeatPingPong(msg.namespace_(), payload_str)) {
+        LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id()
+                  << " dst=" << msg.destination_id() << " payload=" << payload_str;
+      }
 
       // Automatically answer PING with PONG
       if (msg.namespace_() == kNamespaceHeartbeat) {
@@ -358,6 +400,10 @@ void CastChannel::ReceiveLoop() {
           auto j = nlohmann::json::parse(payload_str);
           if (j.contains("type") && j["type"] == "PING") {
             SendCastMessage(kNamespaceHeartbeat, "{\"type\":\"PONG\"}", msg.source_id(), msg.destination_id());
+          } else if (j.contains("type") && j["type"] == "PONG") {
+            NoteIncomingPong();
+          } else {
+            LOG_WARN << "Unexpected Cast heartbeat payload: " << payload_str;
           }
         } catch (...) {}
       }
@@ -395,6 +441,42 @@ void CastChannel::HeartbeatLoop() {
     if (!app_tid.empty()) {
       SendCastMessage(kNamespaceHeartbeat, "{\"type\":\"PING\"}", app_tid, kPlatformSenderId);
     }
+
+    if (HeartbeatTimedOut()) {
+      LOG_WARN << "No Cast heartbeat PONG for 6s; treating channel as dead";
+      is_connected_ = false;
+      NotifyDisconnected("Heartbeat timeout");
+      return;
+    }
+  }
+}
+
+void CastChannel::NoteIncomingPong() {
+  last_pong_ms_.store(NowMs());
+}
+
+bool CastChannel::HeartbeatTimedOut() const {
+  if (!is_connected_.load()) {
+    return true;
+  }
+  int64_t last = last_pong_ms_.load();
+  if (last <= 0) {
+    return false;
+  }
+  return (NowMs() - last) > 6000;
+}
+
+void CastChannel::NotifyDisconnected(const std::string& reason) {
+  if (disconnect_notified_.exchange(true)) {
+    return;
+  }
+  StatusCallback cb;
+  {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    cb = status_callback_;
+  }
+  if (cb) {
+    cb(false, reason);
   }
 }
 

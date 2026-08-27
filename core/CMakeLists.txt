@@ -33,6 +33,7 @@ set(CASTCORE_SOURCES
     src/rtcp_parser.cc
     src/cast_transport.cc
     src/display_capture.cc
+    src/display_capture_wayland.cc
     src/audio_capture.cc
     src/gpu_processor.cc
     src/video_encoder.cc
@@ -66,7 +67,24 @@ target_link_libraries(castcore PUBLIC
 
 if(UNIX AND NOT APPLE)
     pkg_check_modules(PULSE REQUIRED libpulse libpulse-simple)
-    find_package(X11)
-    target_include_directories(castcore PUBLIC ${PULSE_INCLUDE_DIRS} ${X11_INCLUDE_DIR})
-    target_link_libraries(castcore PUBLIC ${PULSE_LIBRARIES} ${X11_LIBRARIES} Xinerama)
+    # Core Xlib via find_package; extensions via pkg-config (reliable across
+    # CMake X11 module versions). Xinerama is dropped: enumeration now uses
+    # XRandR, which reports per-monitor geometry and refresh rate.
+    find_package(X11 REQUIRED)
+    pkg_check_modules(XEXT REQUIRED xext)
+    pkg_check_modules(XRANDR REQUIRED xrandr)
+    pkg_check_modules(XFIXES REQUIRED xfixes)
+    target_include_directories(castcore PUBLIC
+        ${PULSE_INCLUDE_DIRS} ${X11_INCLUDE_DIR}
+        ${XEXT_INCLUDE_DIRS} ${XRANDR_INCLUDE_DIRS} ${XFIXES_INCLUDE_DIRS})
+    target_link_libraries(castcore PUBLIC
+        ${PULSE_LIBRARIES} ${X11_LIBRARIES}
+        ${XEXT_LIBRARIES} ${XRANDR_LIBRARIES} ${XFIXES_LIBRARIES})
+
+    pkg_check_modules(PIPEWIRE libpipewire-0.3 gio-2.0)
+    if(PIPEWIRE_FOUND)
+        target_compile_definitions(castcore PUBLIC CASTCORE_HAVE_PIPEWIRE=1)
+        target_include_directories(castcore PUBLIC ${PIPEWIRE_INCLUDE_DIRS})
+        target_link_libraries(castcore PUBLIC ${PIPEWIRE_LIBRARIES})
+    endif()
 endif()

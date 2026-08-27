@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "castcore/rtp_packetizer.h"
 #include "castcore/rtcp_parser.h"
+#include "castcore/cast_transport.h"
 #include <map>
 
 using namespace castcore;
@@ -116,4 +117,11 @@ TEST(RtcpParserTest, ExpandsCheckpointAgainstMatchingSsrc) {
   EXPECT_TRUE(RtcpParser::ParseCompoundPacket(rtcp.data(), rtcp.size(), last_by_ssrc, fb));
   EXPECT_EQ(fb.sender_ssrc, 2u);
   EXPECT_EQ(fb.checkpoint_frame_id, 20u);
+}
+
+TEST(RtcpCacheTest, IgnoresTruncatedCheckpointAheadOfLastSent) {
+  EXPECT_EQ(CastTransport::SafeCacheEraseLimit(0, 250), 0u);
+  EXPECT_EQ(CastTransport::SafeCacheEraseLimit(283, 250), 0u);
+  EXPECT_EQ(CastTransport::SafeCacheEraseLimit(10, 250), 10u);
+  EXPECT_EQ(CastTransport::SafeCacheEraseLimit(270, 250), 250u);
 }

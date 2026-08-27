@@ -4,6 +4,8 @@
 #include <cstring>
 #include <chrono>
 #include <vector>
+#include <cerrno>
+#include <algorithm>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -21,6 +23,16 @@
 
 namespace castcore {
 
+namespace {
+
+#if defined(_WIN32)
+constexpr int kDontWait = 0;
+#else
+constexpr int kDontWait = MSG_DONTWAIT;
+#endif
+
+}  // namespace
+
 CastTransport::CastTransport() = default;
 
 CastTransport::~CastTransport() {
@@ -33,6 +45,18 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   receiver_ip_ = receiver_ip;
   receiver_port_ = receiver_udp_port;
   session_start_time_ = std::chrono::steady_clock::now();
+  fps_sample_time_ = session_start_time_;
+  fps_sample_frames_ = 0;
+  current_video_fps_ = 0.0;
+  {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    total_packets_sent_ = 0;
+    total_frames_sent_ = 0;
+    total_nacks_received_ = 0;
+    total_pli_received_ = 0;
+    last_rtt_ms_ = 0.0;
+    last_loss_fraction_ = 0.0;
+  }
 
   LOG_INFO << "Starting Cast Media Transport to UDP " << receiver_ip << ":" << receiver_udp_port << "...";
 
@@ -94,7 +118,9 @@ void CastTransport::Stop() {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     packet_cache_.clear();
     last_sent_frame_id_.clear();
+    last_retransmit_time_.clear();
   }
+
   {
     std::lock_guard<std::mutex> lock(send_mutex_);
     sr_state_.clear();
@@ -116,20 +142,24 @@ void CastTransport::SetFeedbackCallback(FeedbackCallback callback) {
 bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
   if (!running_.load() || socket_fd_ < 0 || packets.empty()) return false;
 
-  std::lock_guard<std::mutex> lock(send_mutex_);
   uint32_t current_fid = packets[0].frame_id;
 
   uint32_t ssrc = 0;
   uint32_t rtp_ts = 0;
-  uint32_t octets_this_frame = 0;
+  bool is_video_frame = true;
   if (packets[0].data.size() >= 12) {
     const uint8_t* p0 = packets[0].data.data();
+    // Cast audio uses payload type 127; report FPS/frames for video only.
+    is_video_frame = (p0[1] & 0x7F) != 127;
     rtp_ts = (static_cast<uint32_t>(p0[4]) << 24) | (static_cast<uint32_t>(p0[5]) << 16) |
              (static_cast<uint32_t>(p0[6]) << 8) | static_cast<uint32_t>(p0[7]);
     ssrc = (static_cast<uint32_t>(p0[8]) << 24) | (static_cast<uint32_t>(p0[9]) << 16) |
            (static_cast<uint32_t>(p0[10]) << 8) | static_cast<uint32_t>(p0[11]);
   }
 
+
+  // Cache first, then send. RetransmitPacket uses the same order so a NACK
+  // during a large frame cannot deadlock the capture/encode path.
   {
     std::lock_guard<std::mutex> clock(cache_mutex_);
     last_sent_frame_id_[ssrc] = current_fid;
@@ -146,25 +176,35 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
     }
   }
 
-  for (const auto& pkt : packets) {
-    ssize_t sent = sendto(socket_fd_, reinterpret_cast<const char*>(pkt.data.data()), pkt.data.size(), 0,
-                          reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
-    if (sent < 0) {
-      LOG_WARN << "UDP send error";
+  uint32_t octets_this_frame = 0;
+  uint32_t packets_sent_ok = 0;
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    if (!running_.load() || socket_fd_ < 0) {
       return false;
     }
-    octets_this_frame += static_cast<uint32_t>(pkt.data.size());
+    for (const auto& pkt : packets) {
+      if (!SendDatagram(pkt.data.data(), pkt.data.size())) {
+        continue;
+      }
+      octets_this_frame += static_cast<uint32_t>(pkt.data.size());
+      packets_sent_ok++;
+    }
+    if (packets_sent_ok > 0) {
+      MaybeSendSenderReport(ssrc, rtp_ts, packets_sent_ok, octets_this_frame);
+    }
   }
-
-  MaybeSendSenderReport(ssrc, rtp_ts, static_cast<uint32_t>(packets.size()), octets_this_frame);
 
   {
     std::lock_guard<std::mutex> slock(stats_mutex_);
-    total_packets_sent_ += static_cast<uint32_t>(packets.size());
-    total_frames_sent_++;
+    total_packets_sent_ += packets_sent_ok;
+    if (packets_sent_ok > 0 && is_video_frame) {
+      total_frames_sent_++;
+    }
   }
 
-  return true;
+
+  return packets_sent_ok > 0;
 }
 
 void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
@@ -219,26 +259,77 @@ void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
   sr[26] = static_cast<uint8_t>((st.octets >> 8) & 0xFF);
   sr[27] = static_cast<uint8_t>(st.octets & 0xFF);
 
-  sendto(socket_fd_, reinterpret_cast<const char*>(sr), sizeof(sr), 0,
+  sendto(socket_fd_, reinterpret_cast<const char*>(sr), sizeof(sr), kDontWait,
          reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
+}
+
+bool CastTransport::SendDatagram(const uint8_t* data, size_t length) {
+  if (socket_fd_ < 0 || !data || length == 0) {
+    return false;
+  }
+
+  for (;;) {
+    ssize_t sent = sendto(socket_fd_, reinterpret_cast<const char*>(data), length, kDontWait,
+                          reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
+    if (sent >= 0) {
+      return true;
+    }
+#if defined(_WIN32)
+    int err = WSAGetLastError();
+    if (err == WSAEINTR) {
+      continue;
+    }
+    if (err == WSAEWOULDBLOCK) {
+#else
+    if (errno == EINTR) {
+      continue;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+#endif
+      udp_drops_since_log_++;
+      auto now = std::chrono::steady_clock::now();
+      if (last_udp_drop_log_.time_since_epoch().count() == 0 ||
+          std::chrono::duration_cast<std::chrono::seconds>(now - last_udp_drop_log_).count() >= 2) {
+        LOG_WARN << "UDP send buffer full, dropped " << udp_drops_since_log_
+                 << " datagram(s) (will retransmit on NACK)";
+        last_udp_drop_log_ = now;
+        udp_drops_since_log_ = 0;
+      }
+      return false;
+    }
+    LOG_WARN << "UDP send error";
+    return false;
+  }
 }
 
 void CastTransport::RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t packet_id) {
   std::vector<RtpPacket> to_send;
+  const auto now = std::chrono::steady_clock::now();
+  constexpr auto kDuplicateNackWindow = std::chrono::milliseconds(25);
   {
     std::lock_guard<std::mutex> clock(cache_mutex_);
     auto sit = packet_cache_.find(ssrc);
     if (sit != packet_cache_.end()) {
       auto fit = sit->second.find(frame_id);
       if (fit != sit->second.end()) {
+        auto add_if_due = [&](const RtpPacket& packet) {
+          auto& last = last_retransmit_time_[ssrc][frame_id][packet.packet_id];
+          if (last.time_since_epoch().count() != 0 &&
+              now - last < kDuplicateNackWindow) {
+            return;
+          }
+          last = now;
+          to_send.push_back(packet);
+        };
+
         if (packet_id == 0xFFFF) {
           for (const auto& kv : fit->second) {
-            to_send.push_back(kv.second);
+            add_if_due(kv.second);
           }
         } else {
           auto pit = fit->second.find(packet_id);
           if (pit != fit->second.end()) {
-            to_send.push_back(pit->second);
+            add_if_due(pit->second);
           }
         }
       }
@@ -249,17 +340,31 @@ void CastTransport::RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t 
     std::lock_guard<std::mutex> slock(send_mutex_);
     if (socket_fd_ >= 0) {
       for (const auto& pkt : to_send) {
-        sendto(socket_fd_, reinterpret_cast<const char*>(pkt.data.data()), pkt.data.size(), 0,
-               reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
+        SendDatagram(pkt.data.data(), pkt.data.size());
       }
     }
   }
+}
+
+
+uint32_t CastTransport::SafeCacheEraseLimit(uint32_t checkpoint, uint32_t last_sent) {
+  if (checkpoint == 0) {
+    return 0;
+  }
+  if (checkpoint > last_sent) {
+    if ((checkpoint - last_sent) > 32) {
+      return 0;
+    }
+    return last_sent;
+  }
+  return checkpoint;
 }
 
 void CastTransport::ReceiveLoop() {
   uint8_t buffer[4096];
 
   while (running_.load()) {
+#if defined(_WIN32)
     struct sockaddr_in src_addr{};
     socklen_t slen = sizeof(src_addr);
     ssize_t bytes_read = recvfrom(socket_fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
@@ -269,7 +374,41 @@ void CastTransport::ReceiveLoop() {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
       continue;
     }
+#else
+    struct pollfd pfd{};
+    pfd.fd = socket_fd_;
+    pfd.events = POLLIN;
+    int pr = poll(&pfd, 1, 50);
+    if (pr <= 0) {
+      if (!running_.load()) break;
+      continue;
+    }
+    if (!(pfd.revents & POLLIN)) {
+      continue;
+    }
 
+    struct sockaddr_in src_addr{};
+    socklen_t slen = sizeof(src_addr);
+    ssize_t bytes_read = recvfrom(socket_fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
+                                  reinterpret_cast<struct sockaddr*>(&src_addr), &slen);
+    if (bytes_read <= 0) {
+      if (!running_.load()) break;
+      continue;
+    }
+#endif
+
+    // Drop RTCP packets not originating from the target receiver IP.
+    if (src_addr.sin_addr.s_addr != dest_addr_.sin_addr.s_addr) {
+      static std::chrono::steady_clock::time_point last_drop_warn{};
+      auto now = std::chrono::steady_clock::now();
+      if (now - last_drop_warn >= std::chrono::seconds(5)) {
+        char foreign_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &src_addr.sin_addr, foreign_ip, sizeof(foreign_ip));
+        LOG_WARN << "Dropped foreign RTCP packet from " << foreign_ip;
+        last_drop_warn = now;
+      }
+      continue;
+    }
     std::map<uint32_t, uint32_t> last_by_ssrc;
     {
       std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -283,22 +422,38 @@ void CastTransport::ReceiveLoop() {
       {
         std::lock_guard<std::mutex> slock(stats_mutex_);
         last_loss_fraction_ = feedback.fraction_lost;
+        last_rtt_ms_ = feedback.rtt_ms;
         total_nacks_received_ += static_cast<uint32_t>(feedback.nacks.size());
         if (feedback.picture_loss_indicator) {
           total_pli_received_++;
         }
       }
 
-      // Checkpoint acknowledgement: free frames up to checkpoint for this SSRC.
-      if (feedback.sender_ssrc != 0 && feedback.checkpoint_frame_id > 0) {
+      if (feedback.sender_ssrc != 0) {
         std::lock_guard<std::mutex> clock(cache_mutex_);
-        auto sit = packet_cache_.find(feedback.sender_ssrc);
-        if (sit != packet_cache_.end()) {
-          auto it = sit->second.begin();
-          while (it != sit->second.end() && it->first <= feedback.checkpoint_frame_id) {
-            it = sit->second.erase(it);
+        uint32_t last_sent = 0;
+        auto lit = last_sent_frame_id_.find(feedback.sender_ssrc);
+        if (lit != last_sent_frame_id_.end()) {
+          last_sent = lit->second;
+        }
+        uint32_t erase_to = SafeCacheEraseLimit(feedback.checkpoint_frame_id, last_sent);
+        if (erase_to > 0) {
+          auto sit = packet_cache_.find(feedback.sender_ssrc);
+          if (sit != packet_cache_.end()) {
+            auto it = sit->second.begin();
+            while (it != sit->second.end() && it->first <= erase_to) {
+              it = sit->second.erase(it);
+            }
+          }
+          auto rit = last_retransmit_time_.find(feedback.sender_ssrc);
+          if (rit != last_retransmit_time_.end()) {
+            auto it = rit->second.begin();
+            while (it != rit->second.end() && it->first <= erase_to) {
+              it = rit->second.erase(it);
+            }
           }
         }
+
       }
 
       // Handle retransmission requests (NACKs)
@@ -329,11 +484,16 @@ StreamStats CastTransport::GetStats() const {
   s.packet_loss_fraction = last_loss_fraction_;
   s.round_trip_time_ms = last_rtt_ms_;
 
-  auto elapsed_s = std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::steady_clock::now() - session_start_time_).count();
-  if (elapsed_s > 0) {
-    s.current_fps = static_cast<double>(total_frames_sent_) / elapsed_s;
+  const auto now = std::chrono::steady_clock::now();
+  const double sample_seconds =
+      std::chrono::duration<double>(now - fps_sample_time_).count();
+  if (sample_seconds >= 0.25) {
+    const uint32_t delta_frames = total_frames_sent_ - fps_sample_frames_;
+    current_video_fps_ = static_cast<double>(delta_frames) / sample_seconds;
+    fps_sample_frames_ = total_frames_sent_;
+    fps_sample_time_ = now;
   }
+  s.current_fps = current_video_fps_;
   return s;
 }
 

@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-DURATION="${1:-10}" # Duration in seconds (default 10s)
+DURATION="${1:-120}" # Duration in seconds (default 120s)
 TLS_PORT=29009
 UDP_PORT=54533
 
@@ -26,6 +26,5 @@ sleep 1
 
 # 2. Run End-to-End join tool with specified duration
 echo "[*] Starting live capture & streaming session..."
-./build/tools/poc-join 127.0.0.1 "$TLS_PORT"
-
+timeout "$((DURATION + 10))" ./build/tools/poc-join 127.0.0.1 "$TLS_PORT" "$DURATION"
 echo "[+] Soak test finished successfully!"

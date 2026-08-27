@@ -229,6 +229,31 @@ struct StreamStats {
   Resolution current_resolution{1920, 1080};
   int current_framerate = 60;
   std::string active_codec = "h264";
+
+  std::string encoder_name;
+  std::string capture_backend;
+  std::string display_name;
+  std::string device_name;
+  std::string device_ip;
+  int adaptive_rung_index = 0;
+  int adaptive_rung_count = 0;
+  bool adaptive_enabled = true;
+  int recovery_attempt = 0;
+  int recovery_elapsed_s = 0;
+  std::string health_hint;
+};
+
+// Options for one mirroring session (GUI / engine / session).
+struct SessionOptions {
+  QualityPreset preset = QualityPreset::kAuto;
+  bool enable_audio = true;
+  VideoCodec video_codec = VideoCodec::kH264;
+  uint32_t video_bitrate_kbps = 0;      // 0 = preset default
+  uint32_t audio_bitrate_bps = 192000;
+  int capture_fps = 0;                  // 0 = follow display refresh
+  int target_delay_ms = 200;
+  bool silence_host_speakers = true;
+  bool adaptive_enabled = true;
 };
 
 // Standard Cast App IDs

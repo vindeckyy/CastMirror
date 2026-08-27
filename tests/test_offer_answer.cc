@@ -65,3 +65,32 @@ TEST(OfferAnswerTest, ParseAnswerJson) {
   EXPECT_EQ(params.audio_stream.receiver_ssrc, 10001u);
   EXPECT_EQ(params.video_stream.receiver_ssrc, 10002u);
 }
+
+TEST(OfferAnswerTest, OfferUsesCustomAudioBitrate) {
+  StreamStats stats;
+  stats.current_resolution = {1920, 1080};
+  stats.current_framerate = 60;
+  stats.bitrate_kbps = 6000;
+  auto v_keys = MirroringNegotiator::GenerateRandomKeys();
+  auto a_keys = MirroringNegotiator::GenerateRandomKeys();
+  auto offer_str = MirroringNegotiator::CreateOfferJson(
+      1, stats, true, v_keys, a_keys, VideoCodec::kH264, 200, 96000);
+  auto j = nlohmann::json::parse(offer_str);
+  EXPECT_EQ(j["offer"]["supportedStreams"][0]["bitRate"], 96000);
+}
+
+TEST(OfferAnswerTest, CreateStatusJsonForGetStatus) {
+  StreamStats stats;
+  stats.current_fps = 59.5;
+  stats.bitrate_kbps = 8000;
+  stats.round_trip_time_ms = 12.0;
+  stats.packet_loss_fraction = 0.01;
+  stats.current_resolution = {1920, 1080};
+  auto s = MirroringNegotiator::CreateStatusJson(42, stats);
+  auto j = nlohmann::json::parse(s);
+  EXPECT_EQ(j["type"], "STATUS");
+  EXPECT_EQ(j["seqNum"], 42);
+  EXPECT_EQ(j["result"], "ok");
+  EXPECT_TRUE(j["status"].is_array());
+  EXPECT_EQ(j["status"][0]["ssrc"], 2);
+}

@@ -13,6 +13,7 @@
 #include <map>
 #include <functional>
 #include <chrono>
+#include <cstdint>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -44,6 +45,10 @@ class CastTransport {
 
   StreamStats GetStats() const;
 
+  // Returns the highest frame id that is safe to drop from the retransmit cache.
+  // 0 means "do not erase" (bogus wrap / checkpoint too far ahead).
+  static uint32_t SafeCacheEraseLimit(uint32_t checkpoint, uint32_t last_sent);
+
  private:
   struct SenderReportState {
     uint32_t last_rtp_timestamp = 0;
@@ -56,6 +61,7 @@ class CastTransport {
   void RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t packet_id);
   void MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
                              uint32_t packets_just_sent, uint32_t octets_just_sent);
+  bool SendDatagram(const uint8_t* data, size_t length);
 
   std::string receiver_ip_;
   uint16_t receiver_port_ = 0;
@@ -73,6 +79,11 @@ class CastTransport {
   // Retransmission cache: ssrc -> frame_id -> packet_id -> RtpPacket
   std::map<uint32_t, std::map<uint32_t, std::map<uint16_t, RtpPacket>>> packet_cache_;
   std::map<uint32_t, uint32_t> last_sent_frame_id_;
+  // Suppress duplicate retransmissions for the same packet within a short
+  // receiver retry interval: ssrc -> frame -> packet -> last send time.
+  std::map<uint32_t, std::map<uint32_t,
+      std::map<uint16_t, std::chrono::steady_clock::time_point>>> last_retransmit_time_;
+
 
   PliCallback pli_callback_;
   FeedbackCallback feedback_callback_;
@@ -85,6 +96,11 @@ class CastTransport {
   double last_rtt_ms_ = 0.0;
   double last_loss_fraction_ = 0.0;
   std::chrono::steady_clock::time_point session_start_time_;
+  std::chrono::steady_clock::time_point last_udp_drop_log_{};
+  uint32_t udp_drops_since_log_ = 0;
+  mutable std::chrono::steady_clock::time_point fps_sample_time_{};
+  mutable uint32_t fps_sample_frames_ = 0;
+  mutable double current_video_fps_ = 0.0;
 };
 
 } // namespace castcore

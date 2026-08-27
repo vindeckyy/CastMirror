@@ -51,7 +51,8 @@ bool StateMachine::IsValidTransition(SessionState from, SessionState to) const {
       return to == SessionState::kIdle;
 
     case SessionState::kFailed:
-      return to == SessionState::kIdle || to == SessionState::kDiscovering || to == SessionState::kReady;
+      return to == SessionState::kIdle || to == SessionState::kDiscovering ||
+             to == SessionState::kReady || to == SessionState::kConnecting;
   }
   return false;
 }

@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <fstream>
+#include <cstdint>
 
 namespace castcore {
 
@@ -28,7 +29,11 @@ class Logger {
   LogLevel GetMinLevel() const;
 
   void SetFileLogging(const std::string& file_path);
+  void SetSessionFileLogging(const std::string& file_path);
+  void ClearSessionFileLogging();
   void SetCallback(LogCallback callback);
+
+  static constexpr uint64_t kMaxMainLogBytes = 8ull * 1024ull * 1024ull;
 
   void Log(LogLevel level, const char* file, int line, const std::string& message);
 
@@ -39,7 +44,12 @@ class Logger {
   LogLevel min_level_ = LogLevel::kInfo;
   std::mutex mutex_;
   std::ofstream file_stream_;
+  std::ofstream session_stream_;
+  std::string main_log_path_;
   LogCallback callback_;
+  uint32_t log_write_count_ = 0;
+
+  void RotateMainLogIfNeededLocked();
 };
 
 class LogMessage {

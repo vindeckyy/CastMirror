@@ -24,6 +24,7 @@ void PrintHelp() {
             << "  --display <ID>          Display/Monitor index (default: 0)\n"
             << "  --preset <preset>       Quality preset: Auto, High, Balanced, Smooth (default: Auto)\n"
             << "  --no-audio              Disable audio mirroring\n"
+            << "  --bitrate <kbps>        Custom video bitrate in kbps\n"
             << "  --low-latency           Force 200ms target playout delay\n"
             << "  --help                  Show this help message\n\n";
 }
@@ -33,6 +34,8 @@ int main(int argc, char** argv) {
   int display_id_arg = 0;
   QualityPreset preset_arg = QualityPreset::kAuto;
   bool audio_enabled_arg = true;
+  uint32_t bitrate_arg = 0;
+  int target_delay_arg = 0;
   bool interactive_mode = true;
 
   for (int i = 1; i < argc; ++i) {
@@ -44,11 +47,15 @@ int main(int argc, char** argv) {
       target_device_arg = argv[++i];
       interactive_mode = false;
     } else if (arg == "--display" && i + 1 < argc) {
-      display_id_arg = std::stoi(argv[++i]);
+      try { display_id_arg = std::stoi(argv[++i]); } catch (...) {}
     } else if (arg == "--preset" && i + 1 < argc) {
       preset_arg = QualityPresetFromString(argv[++i]);
     } else if (arg == "--no-audio") {
       audio_enabled_arg = false;
+    } else if (arg == "--bitrate" && i + 1 < argc) {
+      try { bitrate_arg = static_cast<uint32_t>(std::stoul(argv[++i])); } catch (...) {}
+    } else if (arg == "--low-latency") {
+      target_delay_arg = 200;
     }
   }
 
@@ -59,7 +66,12 @@ int main(int argc, char** argv) {
 
   if (!interactive_mode && !target_device_arg.empty()) {
     std::cout << "Initiating Cast to " << target_device_arg << "...\n";
-    bool ok = engine.StartCasting(target_device_arg, display_id_arg, preset_arg, audio_enabled_arg);
+    SessionOptions opts;
+    opts.preset = preset_arg;
+    opts.enable_audio = audio_enabled_arg;
+    opts.video_bitrate_kbps = bitrate_arg;
+    if (target_delay_arg > 0) opts.target_delay_ms = target_delay_arg;
+    bool ok = engine.StartCasting(target_device_arg, display_id_arg, opts);
     if (!ok) {
       std::cerr << "Failed to start casting to " << target_device_arg << "\n";
       engine.Shutdown();

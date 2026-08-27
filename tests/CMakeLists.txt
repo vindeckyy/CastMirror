@@ -16,6 +16,11 @@ set(TEST_SOURCES
     test_adaptive.cc
     test_encoders.cc
     test_cast_e2e.cc
+    test_device_selection.cc
+    test_logger.cc
+    test_display_capture.cc
+    test_session_recovery.cc
+    test_cast_transport.cc
 )
 
 add_executable(castmirror_tests ${TEST_SOURCES})

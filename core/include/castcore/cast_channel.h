@@ -46,8 +46,11 @@ class CastChannel {
   void SetAppTransportId(const std::string& transport_id);
 
   std::string GetConnectedIp() const { return ip_address_; }
+  bool HeartbeatTimedOut() const;
 
  private:
+  void NoteIncomingPong();
+  void NotifyDisconnected(const std::string& reason);
   void ReceiveLoop();
   void HeartbeatLoop();
   bool SendRawPacket(const uint8_t* data, size_t length);
@@ -71,6 +74,8 @@ class CastChannel {
 
   std::thread receive_thread_;
   std::thread heartbeat_thread_;
+  std::atomic<int64_t> last_pong_ms_{0};
+  std::atomic<bool> disconnect_notified_{false};
 };
 
 } // namespace castcore

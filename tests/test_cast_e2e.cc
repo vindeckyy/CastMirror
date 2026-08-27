@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <functional>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -76,6 +77,15 @@ class TestReceiverServer {
   uint16_t GetTlsPort() const { return tls_port_; }
   uint16_t GetUdpPort() const { return udp_port_; }
   uint32_t GetUdpPacketsReceived() const { return packets_received_.load(); }
+  uint32_t GetVideoPacketsReceived() const { return video_packets_received_.load(); }
+  void DisconnectClient() {
+    int fd = current_client_fd_.load();
+    if (fd >= 0) {
+      shutdown(fd, SHUT_RDWR);
+    }
+  }
+
+
 
  private:
   SSL_CTX* CreateCtx() {
@@ -193,6 +203,7 @@ class TestReceiverServer {
       socklen_t clen = sizeof(caddr);
       int cfd = accept(server_fd_, reinterpret_cast<struct sockaddr*>(&caddr), &clen);
       if (cfd < 0) break;
+      current_client_fd_.store(cfd);
 
       SSL* ssl = SSL_new(ctx);
       SSL_set_fd(ssl, cfd);
@@ -271,8 +282,10 @@ class TestReceiverServer {
         SSL_shutdown(ssl);
       }
       SSL_free(ssl);
+      current_client_fd_.store(-1);
       close(cfd);
     }
+
     SSL_CTX_free(ctx);
   }
 
@@ -297,7 +310,11 @@ class TestReceiverServer {
                            reinterpret_cast<struct sockaddr*>(&saddr), &slen);
       if (r > 0) {
         packets_received_++;
+        if (r >= 2 && (buf[1] & 0x7F) == 96) {
+          video_packets_received_++;
+        }
       }
+
     }
   }
 
@@ -306,6 +323,9 @@ class TestReceiverServer {
   std::atomic<bool> running_{false};
   std::atomic<bool> is_ready_{false};
   std::atomic<uint32_t> packets_received_{0};
+  std::atomic<uint32_t> video_packets_received_{0};
+  std::atomic<int> current_client_fd_{-1};
+
   int server_fd_ = -1;
   int udp_fd_ = -1;
   std::thread tls_thread_;
@@ -317,10 +337,11 @@ TEST(CastE2ETest, FullEndToEndSessionWithSimulatedReceiver) {
   server.Start();
 
   uint16_t test_tls_port = server.GetTlsPort();
-  uint16_t test_udp_port = server.GetUdpPort();
+
 
   auto& engine = CastEngine::Instance();
   engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
 
   CastDevice dev;
   dev.id = "test-e2e-device";
@@ -343,7 +364,11 @@ TEST(CastE2ETest, FullEndToEndSessionWithSimulatedReceiver) {
   EXPECT_GT(stats.frames_sent, 0u);
   EXPECT_GT(stats.packets_sent, 0u);
   EXPECT_GT(server.GetUdpPacketsReceived(), 0u);
-
+  EXPECT_GT(server.GetVideoPacketsReceived(), 0u)
+      << "No video RTP was sent; capture callbacks may be queued without a video encoder worker";
+  EXPECT_GT(stats.current_fps, 1.0);
+  EXPECT_LT(stats.current_fps, 90.0)
+      << "FPS telemetry must count video frames, not 100 Hz audio frames";
   // Stop session
   auto t0 = std::chrono::steady_clock::now();
   engine.StopCasting();
@@ -355,5 +380,54 @@ TEST(CastE2ETest, FullEndToEndSessionWithSimulatedReceiver) {
   EXPECT_LE(stop_duration_ms, 500.0);
 
   engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+
+TEST(CastE2ETest, ReconnectRestartsVideoPipelineWithoutCrash) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+
+  CastDevice dev;
+  dev.id = "test-e2e-reconnect-device";
+  dev.name = "Reconnect Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  ASSERT_EQ(engine.GetState(), SessionState::kStreaming);
+
+  auto wait_until = [](const std::function<bool()>& predicate, int timeout_ms) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (predicate()) return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return predicate();
+  };
+
+  ASSERT_TRUE(wait_until([&] { return server.GetVideoPacketsReceived() > 0; }, 2000));
+  const uint32_t video_before_disconnect = server.GetVideoPacketsReceived();
+
+  server.DisconnectClient();
+  ASSERT_TRUE(wait_until([&] { return engine.GetState() == SessionState::kReconnecting; }, 3000));
+  ASSERT_TRUE(wait_until([&] { return engine.GetState() == SessionState::kStreaming; }, 8000));
+  EXPECT_TRUE(wait_until(
+      [&] { return server.GetVideoPacketsReceived() > video_before_disconnect; }, 2000))
+      << "Video RTP did not resume after reconnect";
+
+  engine.StopCasting();
+  EXPECT_EQ(engine.GetState(), SessionState::kIdle);
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
   server.Stop();
 }

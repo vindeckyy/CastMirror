@@ -20,6 +20,9 @@ class IDisplayCapture {
   virtual bool Start(int display_id, int target_fps = 60) = 0;
   virtual void Stop() = 0;
   virtual bool IsCapturing() const = 0;
+  virtual void SetTargetFps(int fps) { (void)fps; }
+  virtual bool SizeKnownBeforeStart() const { return true; }
+  virtual std::string BackendName() const { return "unknown"; }
 
   virtual std::vector<DisplayInfo> EnumerateDisplays() = 0;
   virtual void SetFrameCallback(FrameCallback callback) = 0;

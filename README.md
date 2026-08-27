@@ -53,7 +53,7 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 ```bash
 sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
-    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxinerama-dev \
+    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
     libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
     libgtk-3-dev
 

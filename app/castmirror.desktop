@@ -1,11 +1,13 @@
 [Desktop Entry]
 Version=1.0
 Name=CastMirror
-Comment=Native low-latency Google Cast display mirroring
-Exec=/home/hayden/Desktop/Projects/CastMirror/build/app/castmirror-gui
-Path=/home/hayden/Desktop/Projects/CastMirror/build
-Icon=video-display
+Comment=Send this PC's screen to a Chromecast or Cast TV
+Exec=castmirror-gui
+TryExec=castmirror-gui
+Icon=castmirror
 Terminal=false
 Type=Application
 Categories=AudioVideo;Video;Network;
 StartupNotify=true
+StartupWMClass=castmirror-gui
+Keywords=chromecast;cast;mirror;tv;display;

@@ -23,7 +23,18 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   cfg.max_bitrate_kbps = 12000;
   cfg.bitrate_kbps_high = 15000;
   cfg.bitrate_kbps_smooth = 0;
-
+  cfg.capture_fps = 45;
+  cfg.audio_bitrate_bps = 96000;
+  cfg.silence_host_speakers = false;
+  cfg.adaptive_enabled = false;
+  cfg.subnet_scan_enabled = true;
+  cfg.first_run_complete = true;
+  cfg.window_width = 1000;
+  cfg.window_height = 800;
+  cfg.notify_on_events = false;
+  cfg.force_software_encode = true;
+  cfg.force_x11_capture = true;
+  cfg.close_to_tray = false;
   EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kHigh), 15000u);
   EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kSmooth), 5000u);
 
@@ -35,7 +46,17 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   cfg.last_device_name = "";
   cfg.quality_preset = QualityPreset::kSmooth;
   cfg.bitrate_kbps_high = 0;
-
+  cfg.capture_fps = 0;
+  cfg.audio_bitrate_bps = 192000;
+  cfg.silence_host_speakers = true;
+  cfg.subnet_scan_enabled = false;
+  cfg.first_run_complete = false;
+  cfg.window_width = 920;
+  cfg.window_height = 700;
+  cfg.notify_on_events = true;
+  cfg.force_software_encode = false;
+  cfg.force_x11_capture = false;
+  cfg.close_to_tray = true;
   EXPECT_TRUE(store.Load(temp_path));
   EXPECT_EQ(cfg.last_device_id, "test-device-uuid-1234");
   EXPECT_EQ(cfg.last_device_name, "Living Room TV");
@@ -47,6 +68,17 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   EXPECT_EQ(cfg.bitrate_kbps_high, 15000u);
   EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kHigh), 15000u);
   EXPECT_EQ(cfg.GetPresetBitrateKbps(QualityPreset::kSmooth), 5000u);
-
+  EXPECT_EQ(cfg.capture_fps, 45);
+  EXPECT_EQ(cfg.audio_bitrate_bps, 96000u);
+  EXPECT_FALSE(cfg.silence_host_speakers);
+  EXPECT_FALSE(cfg.adaptive_enabled);
+  EXPECT_TRUE(cfg.subnet_scan_enabled);
+  EXPECT_TRUE(cfg.first_run_complete);
+  EXPECT_EQ(cfg.window_width, 1000);
+  EXPECT_EQ(cfg.window_height, 800);
+  EXPECT_FALSE(cfg.notify_on_events);
+  EXPECT_TRUE(cfg.force_software_encode);
+  EXPECT_TRUE(cfg.force_x11_capture);
+  EXPECT_FALSE(cfg.close_to_tray);
   std::filesystem::remove(temp_path);
 }

@@ -3,8 +3,48 @@
 #include <csignal>
 #include <filesystem>
 #include <cstdlib>
-
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#endif
 namespace castcore {
+
+namespace {
+
+std::string CastmirrorConfigDir() {
+#if defined(_WIN32)
+  const char* appdata = std::getenv("APPDATA");
+  std::string home_dir = appdata ? appdata : "C:\\ProgramData";
+  return home_dir + "\\CastMirror";
+#else
+  const char* home = std::getenv("HOME");
+  std::string home_dir = home ? home : "/tmp";
+  return home_dir + "/.config/castmirror";
+#endif
+}
+
+void EnterSessionLogging() {
+  std::string dir = CastmirrorConfigDir();
+  try {
+    std::filesystem::create_directories(dir);
+  } catch (...) {}
+#if defined(_WIN32)
+  Logger::Instance().SetSessionFileLogging(dir + "\\castmirror-session.log");
+#else
+  Logger::Instance().SetSessionFileLogging(dir + "/castmirror-session.log");
+#endif
+  Logger::Instance().SetMinLevel(LogLevel::kDebug);
+}
+
+void LeaveSessionLogging() {
+  Logger::Instance().SetMinLevel(LogLevel::kInfo);
+  Logger::Instance().ClearSessionFileLogging();
+}
+
+}  // namespace
 
 CastEngine& CastEngine::Instance() {
   static CastEngine instance;
@@ -45,16 +85,10 @@ bool CastEngine::Initialize() {
 #endif
   if (is_initialized_.exchange(true)) return true;
 
-  std::string home_dir;
+  std::string dir_path = CastmirrorConfigDir();
 #if defined(_WIN32)
-  const char* appdata = std::getenv("APPDATA");
-  home_dir = appdata ? appdata : "C:\\ProgramData";
-  std::string dir_path = home_dir + "\\CastMirror";
   std::string log_file = dir_path + "\\castmirror.log";
 #else
-  const char* home = std::getenv("HOME");
-  home_dir = home ? home : "/tmp";
-  std::string dir_path = home_dir + "/.config/castmirror";
   std::string log_file = dir_path + "/castmirror.log";
 #endif
 
@@ -63,7 +97,7 @@ bool CastEngine::Initialize() {
   } catch (...) {}
 
   Logger::Instance().SetFileLogging(log_file);
-  Logger::Instance().SetMinLevel(LogLevel::kDebug);
+  Logger::Instance().SetMinLevel(LogLevel::kInfo);
 
   LOG_INFO << "Initializing CastEngine (Logging to " << log_file << ")...";
   ConfigStore::Instance().Load();
@@ -102,6 +136,20 @@ bool CastEngine::StartCasting(const std::string& device_id,
                              QualityPreset preset,
                              bool audio_enabled,
                              uint32_t bitrate_kbps) {
+  const auto& cfg = ConfigStore::Instance().Get();
+  SessionOptions options;
+  options.preset = preset;
+  options.enable_audio = audio_enabled;
+  options.video_bitrate_kbps = bitrate_kbps;
+  options.audio_bitrate_bps = cfg.audio_bitrate_bps;
+  options.capture_fps = cfg.capture_fps;
+  options.target_delay_ms = cfg.target_delay_ms;
+  options.silence_host_speakers = cfg.silence_host_speakers;
+  options.adaptive_enabled = cfg.adaptive_enabled;
+  return StartCasting(device_id, display_id, options);
+}
+
+bool CastEngine::StartCasting(const std::string& device_id, int display_id, const SessionOptions& options) {
   std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
 
   auto dev_opt = discovery_.FindDeviceById(device_id);
@@ -110,28 +158,87 @@ bool CastEngine::StartCasting(const std::string& device_id,
   }
 
   if (!dev_opt.has_value()) {
-    LOG_ERROR << "Target device not found: " << device_id;
-    return false;
+    const auto& cfg = ConfigStore::Instance().Get();
+    struct sockaddr_in sa{};
+    if (inet_pton(AF_INET, device_id.c_str(), &sa.sin_addr) > 0) {
+      CastDevice d;
+      d.id = device_id;
+      d.name = (!cfg.last_device_name.empty() && cfg.last_device_ip == device_id)
+                   ? cfg.last_device_name
+                   : ("Cast Device (" + device_id + ")");
+      d.model_name = "Chromecast";
+      d.ip_address = device_id;
+      d.port = 8009;
+      d.capabilities = kCapVideoOut | kCapAudioOut;
+      d.status = DeviceStatus::kReady;
+      discovery_.AddOrUpdateDevice(d);
+      dev_opt = d;
+    } else if (!cfg.last_device_ip.empty() && (device_id == cfg.last_device_id || device_id == cfg.last_device_name)) {
+      CastDevice d;
+      d.id = cfg.last_device_id.empty() ? cfg.last_device_ip : cfg.last_device_id;
+      d.name = cfg.last_device_name.empty() ? cfg.last_device_ip : cfg.last_device_name;
+      d.model_name = "Chromecast";
+      d.ip_address = cfg.last_device_ip;
+      d.port = 8009;
+      d.capabilities = kCapVideoOut | kCapAudioOut;
+      d.status = DeviceStatus::kReady;
+      discovery_.AddOrUpdateDevice(d);
+      dev_opt = d;
+    }
   }
 
+  if (!dev_opt.has_value()) {
+    last_error_ = "Target device not found: " + device_id + ". Please verify the TV is online or add by IP.";
+    LOG_ERROR << last_error_;
+    return false;
+  }
   CastDevice dev = dev_opt.value();
+  const bool custom_endpoint = dev.model_name == "Custom Chromecast" ||
+                               dev.ip_address.rfind("127.", 0) == 0;
+  if (!custom_endpoint && dev.port != 8009 && dev.port != 8008) {
+    LOG_WARN << "Correcting stale Cast control port " << dev.port << " -> 8009 for " << dev.ip_address;
+    dev.port = 8009;
+    discovery_.AddOrUpdateDevice(dev);
+  }
 
-  // Save as last device
   auto& cfg = ConfigStore::Instance().Mutable();
   cfg.last_device_id = dev.id;
   cfg.last_device_name = dev.name;
   cfg.last_device_ip = dev.ip_address;
   cfg.last_display_id = display_id;
-  cfg.quality_preset = preset;
-  cfg.audio_enabled = audio_enabled;
-  if (bitrate_kbps > 0) {
-    cfg.SetPresetBitrateKbps(preset, bitrate_kbps);
-    cfg.max_bitrate_kbps = bitrate_kbps;
+  cfg.quality_preset = options.preset;
+  cfg.audio_enabled = options.enable_audio;
+  cfg.capture_fps = options.capture_fps;
+  cfg.audio_bitrate_bps = options.audio_bitrate_bps;
+  cfg.silence_host_speakers = options.silence_host_speakers;
+  cfg.adaptive_enabled = options.adaptive_enabled;
+  if (options.target_delay_ms > 0) {
+    cfg.target_delay_ms = options.target_delay_ms;
+  }
+  if (options.video_bitrate_kbps > 0) {
+    cfg.SetPresetBitrateKbps(options.preset, options.video_bitrate_kbps);
+    cfg.max_bitrate_kbps = options.video_bitrate_kbps;
   }
   ConfigStore::Instance().Save();
 
+  EnterSessionLogging();
   active_session_ = std::make_unique<CastSession>(state_machine_);
-  return active_session_->Start(dev, display_id, preset, audio_enabled, VideoCodec::kH264, bitrate_kbps);
+  active_session_->SetDeviceLookup([this](const std::string& id, const std::string& ip) {
+    auto dev = discovery_.FindDeviceById(id);
+    if (!dev) dev = discovery_.FindDeviceByIp(ip);
+    return dev;
+  });
+  active_session_->SetErrorCallback([this](const std::string& err) {
+    std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+    last_error_ = err;
+  });
+  last_error_.clear();
+  bool ok = active_session_->Start(dev, display_id, options);
+  if (!ok) {
+    active_session_.reset();
+    LeaveSessionLogging();
+  }
+  return ok;
 }
 
 bool CastEngine::StartCastingLastDevice() {
@@ -142,8 +249,16 @@ bool CastEngine::StartCastingLastDevice() {
   }
 
   std::string target = !cfg.last_device_id.empty() ? cfg.last_device_id : cfg.last_device_ip;
-  return StartCasting(target, cfg.last_display_id, cfg.quality_preset, cfg.audio_enabled,
-                      cfg.GetPresetBitrateKbps(cfg.quality_preset));
+  SessionOptions options;
+  options.preset = cfg.quality_preset;
+  options.enable_audio = cfg.audio_enabled;
+  options.video_bitrate_kbps = cfg.GetPresetBitrateKbps(cfg.quality_preset);
+  options.audio_bitrate_bps = cfg.audio_bitrate_bps;
+  options.capture_fps = cfg.capture_fps;
+  options.target_delay_ms = cfg.target_delay_ms;
+  options.silence_host_speakers = cfg.silence_host_speakers;
+  options.adaptive_enabled = cfg.adaptive_enabled;
+  return StartCasting(target, cfg.last_display_id, options);
 }
 
 void CastEngine::StopCasting() {
@@ -152,6 +267,27 @@ void CastEngine::StopCasting() {
     active_session_->Stop();
     active_session_.reset();
   }
+  LeaveSessionLogging();
+}
+
+void CastEngine::SetLiveVideoBitrateKbps(uint32_t kbps) {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  if (active_session_) {
+    active_session_->SetLiveVideoBitrateKbps(kbps);
+  }
+  auto& cfg = ConfigStore::Instance().Mutable();
+  cfg.SetPresetBitrateKbps(cfg.quality_preset, kbps);
+  cfg.max_bitrate_kbps = kbps;
+  ConfigStore::Instance().Save();
+}
+
+void CastEngine::SetLiveAudioBitrateBps(uint32_t bps) {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  if (active_session_) {
+    active_session_->SetLiveAudioBitrateBps(bps);
+  }
+  ConfigStore::Instance().Mutable().audio_bitrate_bps = bps;
+  ConfigStore::Instance().Save();
 }
 
 SessionState CastEngine::GetState() const {
@@ -168,6 +304,11 @@ StreamStats CastEngine::GetStats() const {
 
 const AppConfig& CastEngine::GetConfig() const {
   return ConfigStore::Instance().Get();
+}
+
+std::string CastEngine::GetLastError() const {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  return last_error_;
 }
 
 void CastEngine::SetOnDevicesChanged(DevicesChangedCallback callback) {

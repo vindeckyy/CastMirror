@@ -25,6 +25,19 @@ struct AppConfig {
   bool enable_tray_on_startup = false;
   bool low_latency_mode = false;
   bool capture_border_hint = true;
+  int capture_fps = 0;  // 0 = auto from display
+  uint32_t audio_bitrate_bps = 192000;
+  bool silence_host_speakers = true;
+  bool adaptive_enabled = true;
+  bool subnet_scan_enabled = false;
+  std::string portal_restore_token;
+  bool first_run_complete = false;
+  int window_width = 920;
+  int window_height = 700;
+  bool notify_on_events = true;
+  bool force_software_encode = false;
+  bool force_x11_capture = false;
+  bool close_to_tray = true;
 
   uint32_t GetPresetBitrateOverrideKbps(QualityPreset preset) const;
   uint32_t GetPresetBitrateKbps(QualityPreset preset) const;

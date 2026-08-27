@@ -1,5 +1,6 @@
 #include "castcore/audio_capture.h"
 #include "castcore/logger.h"
+#include "castcore/thread_util.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -7,10 +8,10 @@
 #include <chrono>
 #include <cstring>
 #include <string>
+#include <vector>
+#include <cstddef>
 
 #if !defined(_WIN32)
-  #include <pulse/simple.h>
-  #include <pulse/error.h>
   #include <pulse/pulseaudio.h>
 #endif
 
@@ -175,12 +176,13 @@ std::string PulseDefaultSinkName() {
   return probe.name;
 }
 
-bool PulseGetSinkMute(const std::string& sink, int* mute_out) {
-  if (sink.empty() || !mute_out) return false;
+bool PulseGetSinkPlayback(const std::string& sink, int* mute_out, pa_cvolume* volume_out) {
+  if (sink.empty() || !mute_out || !volume_out) return false;
   PulseSession s;
-  if (!s.Connect("CastMirror-mute-get")) return false;
+  if (!s.Connect("CastMirror-sink-get")) return false;
   struct Probe {
     int mute = 0;
+    pa_cvolume volume{};
     int done = 0;
     bool ok = false;
   } probe;
@@ -192,6 +194,7 @@ bool PulseGetSinkMute(const std::string& sink, int* mute_out) {
           return;
         }
         p->mute = info->mute;
+        p->volume = info->volume;
         p->ok = true;
       }, &probe);
   if (op) {
@@ -200,7 +203,29 @@ bool PulseGetSinkMute(const std::string& sink, int* mute_out) {
   }
   if (!probe.ok) return false;
   *mute_out = probe.mute;
+  *volume_out = probe.volume;
   return true;
+}
+
+bool PulseSetSinkVolume(const std::string& sink, const pa_cvolume& volume) {
+  if (sink.empty()) return false;
+  PulseSession s;
+  if (!s.Connect("CastMirror-vol-set")) return false;
+  struct Result {
+    int done = 0;
+    int success = 0;
+  } result;
+  pa_operation* op = pa_context_set_sink_volume_by_name(s.ctx, sink.c_str(), &volume,
+      [](pa_context*, int success, void* userdata) {
+        auto* r = static_cast<Result*>(userdata);
+        r->success = success;
+        r->done = 1;
+      }, &result);
+  if (op) {
+    s.Wait(&result.done);
+    pa_operation_unref(op);
+  }
+  return result.done == 1 && result.success != 0;
 }
 
 bool PulseSetSinkMute(const std::string& sink, int mute) {
@@ -231,89 +256,163 @@ class PulseAudioCapture : public IAudioCapture {
   PulseAudioCapture() = default;
   ~PulseAudioCapture() override { Stop(); }
 
+  void SetHostSilence(bool silence) override {
+    silence_host_ = silence;
+  }
+
   bool Start(int sample_rate, int channels) override {
     Stop();
     sample_rate_ = sample_rate > 0 ? sample_rate : 48000;
     channels_ = channels > 0 ? channels : 2;
 
+    ml_ = pa_mainloop_new();
+    if (!ml_) {
+      LOG_WARN << "PulseAudio mainloop alloc failed, falling back to Synthetic Audio";
+      return false;
+    }
+    ctx_ = pa_context_new(pa_mainloop_get_api(ml_), "CastMirror");
+    if (!ctx_) {
+      CleanupPulse();
+      return false;
+    }
+
+    int ctx_phase = 0;
+    pa_context_set_state_callback(ctx_, [](pa_context* c, void* userdata) {
+      int* phase = static_cast<int*>(userdata);
+      switch (pa_context_get_state(c)) {
+        case PA_CONTEXT_READY: *phase = 1; break;
+        case PA_CONTEXT_FAILED:
+        case PA_CONTEXT_TERMINATED: *phase = -1; break;
+        default: break;
+      }
+    }, &ctx_phase);
+
+    if (pa_context_connect(ctx_, nullptr, PA_CONTEXT_NOFLAGS, nullptr) < 0) {
+      CleanupPulse();
+      return false;
+    }
+    auto connect_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (ctx_phase == 0 && std::chrono::steady_clock::now() < connect_deadline) {
+      if (pa_mainloop_iterate(ml_, 1, nullptr) < 0) {
+        ctx_phase = -1;
+        break;
+      }
+    }
+    if (ctx_phase != 1) {
+      LOG_WARN << "PulseAudio context failed, falling back to Synthetic Audio";
+      pa_context_set_state_callback(ctx_, nullptr, nullptr);
+      CleanupPulse();
+      return false;
+    }
+    pa_context_set_state_callback(ctx_, nullptr, nullptr);
+    std::string sink_name = PulseDefaultSinkName();
+    if (!sink_name.empty()) {
+      record_device_ = sink_name + ".monitor";
+    }
+
     pa_sample_spec ss;
     ss.format = PA_SAMPLE_S16LE;
-    ss.rate = sample_rate_;
-    ss.channels = channels_;
+    ss.rate = static_cast<uint32_t>(sample_rate_);
+    ss.channels = static_cast<uint8_t>(channels_);
 
-    uint32_t frag = static_cast<uint32_t>((sample_rate_ / 100) * channels_ * sizeof(int16_t)); // 10ms
-    pa_buffer_attr ba;
+    uint32_t frag = static_cast<uint32_t>((sample_rate_ / 100) * channels_ * sizeof(int16_t));
+    pa_buffer_attr ba{};
     ba.fragsize = frag;
-    ba.maxlength = frag * 3; // cap capture queue to ~30ms
+    ba.maxlength = frag * 3;
     ba.tlength = static_cast<uint32_t>(-1);
     ba.prebuf = static_cast<uint32_t>(-1);
     ba.minreq = static_cast<uint32_t>(-1);
 
-    std::string sink_name = PulseDefaultSinkName();
-    std::string sink_monitor;
-    if (!sink_name.empty()) {
-      sink_monitor = sink_name + ".monitor";
-    }
-    const char* try_devs[2];
-    int n_devs = 0;
-    if (!sink_monitor.empty()) {
-      try_devs[n_devs++] = sink_monitor.c_str();
-    }
-
-    int error = 0;
-    const char* used_dev = nullptr;
-    for (int i = 0; i < n_devs; ++i) {
-      error = 0;
-      pa_simple_ = pa_simple_new(nullptr, "CastMirror", PA_STREAM_RECORD, try_devs[i],
-                                 "System Audio Loopback", &ss, nullptr, &ba, &error);
-      if (pa_simple_) {
-        used_dev = try_devs[i];
-        break;
-      }
-    }
-    if (!pa_simple_) {
-      LOG_WARN << "PulseAudio record failed (" << pa_strerror(error) << "), falling back to Synthetic Audio";
+    stream_ = pa_stream_new(ctx_, "System Audio Loopback", &ss, nullptr);
+    if (!stream_) {
+      CleanupPulse();
       return false;
     }
 
-    // Mute local speakers while capturing the sink monitor so audio is heard
-    // on the Cast receiver only. Restore the previous mute state on Stop().
-    if (!sink_name.empty()) {
+    int stream_phase = 0;
+    pa_stream_set_state_callback(stream_, [](pa_stream* s, void* userdata) {
+      int* phase = static_cast<int*>(userdata);
+      switch (pa_stream_get_state(s)) {
+        case PA_STREAM_READY: *phase = 1; break;
+        case PA_STREAM_FAILED:
+        case PA_STREAM_TERMINATED: *phase = -1; break;
+        default: break;
+      }
+    }, &stream_phase);
+
+    pa_stream_flags_t flags = static_cast<pa_stream_flags_t>(
+        PA_STREAM_ADJUST_LATENCY | PA_STREAM_AUTO_TIMING_UPDATE | PA_STREAM_INTERPOLATE_TIMING);
+    const char* dev = record_device_.empty() ? nullptr : record_device_.c_str();
+    if (pa_stream_connect_record(stream_, dev, &ba, flags) < 0) {
+      LOG_WARN << "PulseAudio record connect failed, falling back to Synthetic Audio";
+      CleanupPulse();
+      return false;
+    }
+    auto rec_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (stream_phase == 0 && std::chrono::steady_clock::now() < rec_deadline) {
+      if (pa_mainloop_iterate(ml_, 1, nullptr) < 0) {
+        stream_phase = -1;
+        break;
+      }
+    }
+    if (stream_phase != 1) {
+      LOG_WARN << "PulseAudio record stream not ready, falling back to Synthetic Audio";
+      pa_stream_set_state_callback(stream_, nullptr, nullptr);
+      CleanupPulse();
+      return false;
+    }
+    pa_stream_set_state_callback(stream_, nullptr, nullptr);
+    if (silence_host_ && !sink_name.empty()) {
       int prev_mute = 0;
-      if (PulseGetSinkMute(sink_name, &prev_mute) && PulseSetSinkMute(sink_name, 1)) {
-        muted_sink_ = sink_name;
-        saved_sink_mute_ = prev_mute;
-        LOG_INFO << "Muted local playback on " << sink_name << " while casting";
+      pa_cvolume prev_volume{};
+      if (PulseGetSinkPlayback(sink_name, &prev_mute, &prev_volume)) {
+        pa_cvolume silent{};
+        unsigned ch = prev_volume.channels > 0 ? prev_volume.channels : 2;
+        pa_cvolume_set(&silent, ch, PA_VOLUME_MUTED);
+        bool vol_ok = PulseSetSinkVolume(sink_name, silent);
+        bool unmute_ok = true;
+        if (prev_mute) {
+          unmute_ok = PulseSetSinkMute(sink_name, 0);
+        }
+        if (vol_ok && unmute_ok) {
+          muted_sink_ = sink_name;
+          saved_sink_mute_ = prev_mute;
+          saved_sink_volume_ = prev_volume;
+          have_saved_volume_ = true;
+          LOG_INFO << "Silenced local playback on " << sink_name
+                   << " (volume 0, unmuted so monitor keeps running)";
+        } else {
+          LOG_WARN << "Could not silence local sink " << sink_name << "; host speakers may still play";
+        }
       } else {
-        LOG_WARN << "Could not mute local sink " << sink_name << "; host speakers may still play";
+        LOG_WARN << "Could not read local sink " << sink_name << "; host speakers may still play";
       }
     }
 
     running_ = true;
     capture_thread_ = std::thread(&PulseAudioCapture::CaptureLoop, this);
     LOG_INFO << "Started PulseAudio Loopback Capture (" << sample_rate_ << " Hz, " << channels_
-             << " channels, device=" << (used_dev ? used_dev : "unknown") << ")";
+             << " channels, device=" << (dev ? dev : "default") << ")";
     return true;
   }
 
   void Stop() override {
     bool was_running = running_.exchange(false);
     if (was_running) {
-      if (pa_simple_) {
-        pa_simple_flush(pa_simple_, nullptr);
+      if (ml_) {
+        pa_mainloop_wakeup(ml_);
       }
-      if (capture_thread_.joinable()) {
-        capture_thread_.join();
-      }
-      if (pa_simple_) {
-        pa_simple_free(pa_simple_);
-        pa_simple_ = nullptr;
-      }
+      JoinOrDetach(capture_thread_, 500, "PulseAudio capture");
     }
+    CleanupPulse();
     if (!muted_sink_.empty()) {
+      if (have_saved_volume_) {
+        PulseSetSinkVolume(muted_sink_, saved_sink_volume_);
+      }
       PulseSetSinkMute(muted_sink_, saved_sink_mute_);
       LOG_INFO << "Restored local playback on " << muted_sink_;
       muted_sink_.clear();
+      have_saved_volume_ = false;
     }
   }
 
@@ -327,46 +426,109 @@ class PulseAudioCapture : public IAudioCapture {
   }
 
  private:
+  void CleanupPulse() {
+    if (stream_) {
+      pa_stream_set_state_callback(stream_, nullptr, nullptr);
+      pa_stream_disconnect(stream_);
+      pa_stream_unref(stream_);
+      stream_ = nullptr;
+    }
+    if (ctx_) {
+      pa_context_set_state_callback(ctx_, nullptr, nullptr);
+      pa_context_disconnect(ctx_);
+      pa_context_unref(ctx_);
+      ctx_ = nullptr;
+    }
+    if (ml_) {
+      pa_mainloop_free(ml_);
+      ml_ = nullptr;
+    }
+  }
+
+  void EmitPcm(const uint8_t* data, size_t bytes, int samples_per_frame) {
+    CapturedAudioFrame af;
+    af.sample_rate = sample_rate_;
+    af.channels = channels_;
+    af.samples_per_channel = samples_per_frame;
+    af.timestamp = std::chrono::steady_clock::now();
+    af.pcm_data.assign(data, data + bytes);
+    AudioCallback cb;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cb = callback_;
+    }
+    if (cb) {
+      cb(af);
+    }
+  }
+
   void CaptureLoop() {
-    int samples_per_frame = sample_rate_ / 100; // 10ms
-    size_t buffer_bytes = samples_per_frame * channels_ * sizeof(int16_t);
-    std::vector<uint8_t> buffer(buffer_bytes);
+    int samples_per_frame = sample_rate_ / 100;
+    size_t frame_bytes = static_cast<size_t>(samples_per_frame * channels_ * sizeof(int16_t));
+    std::vector<uint8_t> pending;
+    std::vector<uint8_t> silence(frame_bytes, 0);
+    auto last_emit = std::chrono::steady_clock::now();
+    auto last_cork_warn = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 
     while (running_.load()) {
-      int error = 0;
-      if (pa_simple_read(pa_simple_, buffer.data(), buffer.size(), &error) < 0) {
-        LOG_WARN << "PulseAudio read error: " << pa_strerror(error);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        continue;
+      if (pa_mainloop_prepare(ml_, 20) < 0) {
+        break;
+      }
+      if (pa_mainloop_poll(ml_) < 0) {
+        break;
+      }
+      pa_mainloop_dispatch(ml_);
+
+      if (stream_ && pa_stream_get_state(stream_) == PA_STREAM_READY) {
+        if (pa_stream_is_corked(stream_)) {
+          auto now = std::chrono::steady_clock::now();
+          if (now - last_cork_warn >= std::chrono::seconds(2)) {
+            LOG_WARN << "PulseAudio record stream corked/suspended; emitting silence keepalive";
+            last_cork_warn = now;
+          }
+        }
+        const void* data = nullptr;
+        size_t nbytes = 0;
+        if (pa_stream_peek(stream_, &data, &nbytes) >= 0) {
+          if (nbytes > 0) {
+            if (data) {
+              const auto* bytes = static_cast<const uint8_t*>(data);
+              pending.insert(pending.end(), bytes, bytes + nbytes);
+            }
+            pa_stream_drop(stream_);
+          }
+        }
       }
 
-      CapturedAudioFrame af;
-      af.sample_rate = sample_rate_;
-      af.channels = channels_;
-      af.samples_per_channel = samples_per_frame;
-      af.timestamp = std::chrono::steady_clock::now();
-      af.pcm_data = buffer;
-
-      AudioCallback cb;
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        cb = callback_;
+      while (pending.size() >= frame_bytes) {
+        EmitPcm(pending.data(), frame_bytes, samples_per_frame);
+        pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(frame_bytes));
+        last_emit = std::chrono::steady_clock::now();
       }
-      if (cb) {
-        cb(af);
+
+      auto now = std::chrono::steady_clock::now();
+      if (now - last_emit >= std::chrono::milliseconds(20)) {
+        EmitPcm(silence.data(), silence.size(), samples_per_frame);
+        last_emit = now;
       }
     }
   }
 
-  pa_simple* pa_simple_ = nullptr;
+  pa_mainloop* ml_ = nullptr;
+  pa_context* ctx_ = nullptr;
+  pa_stream* stream_ = nullptr;
+  std::string record_device_;
   int sample_rate_ = 48000;
   int channels_ = 2;
   std::atomic<bool> running_{false};
+  std::atomic<bool> silence_host_{true};
   std::thread capture_thread_;
   std::mutex mutex_;
   AudioCallback callback_;
   std::string muted_sink_;
   int saved_sink_mute_ = 0;
+  pa_cvolume saved_sink_volume_{};
+  bool have_saved_volume_ = false;
 };
 #endif
 
