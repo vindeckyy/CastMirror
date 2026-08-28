@@ -9,10 +9,10 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
     libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
-    libgtk-3-dev
+    libgtk-4-dev libadwaita-1-dev
 ```
 
-`libgtk-3-dev` is required for `castmirror-gui`. The CLI (`castmirror`) links only `castcore`.
+`libgtk-4-dev` and `libadwaita-1-dev` are required for `castmirror-gui`. The CLI (`castmirror`) links only `castcore`.
 
 ## Configure and build
 
@@ -25,13 +25,13 @@ Binaries:
 
 | Path | Role |
 |---|---|
-| `build/app/castmirror-gui` | GTK desktop app |
+| `build/app/castmirror-gui` | GTK 4 + libadwaita desktop app |
 | `build/app/castmirror` | Interactive / flag CLI |
 | `build/tests/castmirror_tests` | Google Test suite |
 | `build/tools/poc-*` | Protocol and encode benches |
 | `build/tools/fake-receiver` | Simulated Cast receiver |
 
-A `.desktop` launcher lives at [`app/castmirror.desktop`](../app/castmirror.desktop) (Exec path points at the local build).
+A `.desktop` launcher lives at [`app/io.github.vindeckyy.CastMirror.desktop`](../app/io.github.vindeckyy.CastMirror.desktop).
 
 ## Tests
 

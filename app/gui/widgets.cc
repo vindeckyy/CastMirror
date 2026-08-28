@@ -1,157 +1,201 @@
 #include "widgets.h"
 
+#include <string>
+
 namespace castcore::gui {
 
+namespace {
+
+const char* kSemanticClasses[] = {
+    "is-idle",
+    "is-progress",
+    "is-live",
+    "is-warning",
+    "is-error",
+    "is-selected",
+    "is-disabled",
+};
+
+void ClearSemanticClasses(GtkWidget* widget) {
+  if (!widget) {
+    return;
+  }
+  for (const char* cls : kSemanticClasses) {
+    gtk_widget_remove_css_class(widget, cls);
+  }
+}
+
+void MarkPresentation(GtkWidget* widget) {
+  if (!widget) {
+    return;
+  }
+  g_object_set(widget, "accessible-role", GTK_ACCESSIBLE_ROLE_PRESENTATION, nullptr);
+}
+
+void OnStatValueNotify(GObject* object, GParamSpec* /*pspec*/, gpointer user_data) {
+  auto* card = GTK_WIDGET(user_data);
+  const char* title = static_cast<const char*>(g_object_get_data(object, "cm-stat-title"));
+  const char* value = gtk_label_get_text(GTK_LABEL(object));
+  std::string accessible = std::string(title ? title : "Statistic") + ": " + (value ? value : "—");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(card),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, accessible.c_str(),
+                                 -1);
+}
+
+}  // namespace
+
 GtkWidget* MakeSectionHeader(const char* title, const char* one_liner) {
-  GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-  GtkWidget* title_lbl = gtk_label_new(title);
+  GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+
+  GtkWidget* title_lbl = gtk_label_new(title ? title : "");
   gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
-  gtk_style_context_add_class(gtk_widget_get_style_context(title_lbl), "card-title");
-  gtk_box_pack_start(GTK_BOX(box), title_lbl, FALSE, FALSE, 0);
+  gtk_label_set_wrap(GTK_LABEL(title_lbl), TRUE);
+  gtk_label_set_xalign(GTK_LABEL(title_lbl), 0.0f);
+  gtk_widget_add_css_class(title_lbl, "cm-section-title");
+  gtk_box_append(GTK_BOX(box), title_lbl);
 
   if (one_liner && one_liner[0] != '\0') {
     GtkWidget* desc_lbl = gtk_label_new(one_liner);
     gtk_widget_set_halign(desc_lbl, GTK_ALIGN_START);
-    gtk_label_set_line_wrap(GTK_LABEL(desc_lbl), TRUE);
-    gtk_style_context_add_class(gtk_widget_get_style_context(desc_lbl), "card-desc");
-    gtk_box_pack_start(GTK_BOX(box), desc_lbl, FALSE, FALSE, 0);
+    gtk_label_set_wrap(GTK_LABEL(desc_lbl), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(desc_lbl), 0.0f);
+    gtk_widget_add_css_class(desc_lbl, "cm-section-description");
+    gtk_box_append(GTK_BOX(box), desc_lbl);
   }
 
   return box;
 }
 
-GtkWidget* MakeInfoButton(const char* help_text) {
-  GtkWidget* btn = gtk_button_new_from_icon_name("help-about-symbolic", GTK_ICON_SIZE_BUTTON);
-  gtk_style_context_add_class(gtk_widget_get_style_context(btn), "btn-info");
-  gtk_widget_set_tooltip_text(btn, "Click for detailed explanation");
+GtkWidget* MakeInfoButton(const char* title, const char* help_text) {
+  GtkWidget* btn = gtk_menu_button_new();
+  gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(btn), "help-about-symbolic");
+  gtk_widget_add_css_class(btn, "flat");
+  gtk_widget_add_css_class(btn, "circular");
+  gtk_widget_set_size_request(btn, 40, 40);
+
+  std::string accessible = std::string("About ") + (title ? title : "this setting");
+  gtk_widget_set_tooltip_text(btn, accessible.c_str());
+  gtk_accessible_update_property(GTK_ACCESSIBLE(btn),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, accessible.c_str(),
+                                 -1);
 
   if (help_text && help_text[0] != '\0') {
-    GtkWidget* popover = gtk_popover_new(btn);
-    GtkWidget* pop_label = gtk_label_new(help_text);
-    gtk_label_set_line_wrap(GTK_LABEL(pop_label), TRUE);
-    gtk_label_set_max_width_chars(GTK_LABEL(pop_label), 38);
-    gtk_container_set_border_width(GTK_CONTAINER(popover), 12);
-    gtk_container_add(GTK_CONTAINER(popover), pop_label);
-    gtk_widget_show(pop_label);
-
-    auto on_info_click = +[](GtkButton*, gpointer pop) {
-      gtk_popover_popup(GTK_POPOVER(pop));
-    };
-    g_signal_connect(btn, "clicked", G_CALLBACK(on_info_click), popover);
+    GtkWidget* popover = gtk_popover_new();
+    GtkWidget* label = gtk_label_new(help_text);
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 42);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+    gtk_widget_set_margin_start(label, 12);
+    gtk_widget_set_margin_end(label, 12);
+    gtk_widget_set_margin_top(label, 12);
+    gtk_widget_set_margin_bottom(label, 12);
+    gtk_popover_set_child(GTK_POPOVER(popover), label);
+    gtk_menu_button_set_popover(GTK_MENU_BUTTON(btn), popover);
   }
 
   return btn;
 }
 
-GtkWidget* MakeSettingRow(const char* title,
-                          const char* one_liner,
-                          const char* popover_text,
-                          GtkWidget* control_widget) {
-  GtkWidget* row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-  gtk_style_context_add_class(gtk_widget_get_style_context(row), "setting-row");
-
-  GtkWidget* left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-  gtk_widget_set_hexpand(left_vbox, TRUE);
-
-  GtkWidget* title_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-  GtkWidget* title_lbl = gtk_label_new(title);
-  gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
-  gtk_style_context_add_class(gtk_widget_get_style_context(title_lbl), "setting-title");
-  gtk_box_pack_start(GTK_BOX(title_hbox), title_lbl, FALSE, FALSE, 0);
-
-  if (popover_text && popover_text[0] != '\0') {
-    GtkWidget* info_btn = MakeInfoButton(popover_text);
-    gtk_box_pack_start(GTK_BOX(title_hbox), info_btn, FALSE, FALSE, 0);
-  }
-
-  gtk_box_pack_start(GTK_BOX(left_vbox), title_hbox, FALSE, FALSE, 0);
-
-  if (one_liner && one_liner[0] != '\0') {
-    GtkWidget* desc_lbl = gtk_label_new(one_liner);
-    gtk_widget_set_halign(desc_lbl, GTK_ALIGN_START);
-    gtk_label_set_line_wrap(GTK_LABEL(desc_lbl), TRUE);
-    gtk_style_context_add_class(gtk_widget_get_style_context(desc_lbl), "setting-help");
-    gtk_box_pack_start(GTK_BOX(left_vbox), desc_lbl, FALSE, FALSE, 0);
-  }
-
-  gtk_box_pack_start(GTK_BOX(row), left_vbox, TRUE, TRUE, 0);
-
-  if (control_widget) {
-    gtk_widget_set_valign(control_widget, GTK_ALIGN_CENTER);
-    gtk_box_pack_end(GTK_BOX(row), control_widget, FALSE, FALSE, 0);
-  }
-
-  return row;
-}
-
 GtkWidget* MakeStatCard(const char* title,
-                        const char* popover_text,
+                        const char* icon_name,
+                        const char* help_text,
                         GtkWidget** out_value_label) {
-  GtkWidget* card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-  gtk_style_context_add_class(gtk_widget_get_style_context(card), "stat-card");
+  GtkWidget* card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_add_css_class(card, "cm-stat-card");
+  gtk_widget_set_hexpand(card, TRUE);
+  gtk_widget_set_size_request(card, 220, -1);
 
-  GtkWidget* top_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
-  GtkWidget* tlbl = gtk_label_new(title);
-  gtk_widget_set_halign(tlbl, GTK_ALIGN_START);
-  gtk_style_context_add_class(gtk_widget_get_style_context(tlbl), "stat-title");
-  gtk_box_pack_start(GTK_BOX(top_hbox), tlbl, TRUE, TRUE, 0);
+  GtkWidget* header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
 
-  if (popover_text && popover_text[0] != '\0') {
-    GtkWidget* info_btn = MakeInfoButton(popover_text);
-    gtk_box_pack_end(GTK_BOX(top_hbox), info_btn, FALSE, FALSE, 0);
+  if (icon_name && icon_name[0] != '\0') {
+    GtkWidget* icon = gtk_image_new_from_icon_name(icon_name);
+    gtk_image_set_pixel_size(GTK_IMAGE(icon), 16);
+    MarkPresentation(icon);
+    gtk_box_append(GTK_BOX(header), icon);
   }
-  gtk_box_pack_start(GTK_BOX(card), top_hbox, FALSE, FALSE, 0);
 
-  GtkWidget* val_lbl = gtk_label_new("—");
-  gtk_widget_set_halign(val_lbl, GTK_ALIGN_START);
-  gtk_style_context_add_class(gtk_widget_get_style_context(val_lbl), "stat-value");
-  gtk_box_pack_start(GTK_BOX(card), val_lbl, FALSE, FALSE, 0);
+  GtkWidget* title_lbl = gtk_label_new(title ? title : "");
+  gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
+  gtk_widget_set_hexpand(title_lbl, TRUE);
+  gtk_label_set_wrap(GTK_LABEL(title_lbl), TRUE);
+  gtk_label_set_xalign(GTK_LABEL(title_lbl), 0.0f);
+  gtk_widget_add_css_class(title_lbl, "cm-section-description");
+  gtk_box_append(GTK_BOX(header), title_lbl);
+
+  if (help_text && help_text[0] != '\0') {
+    gtk_box_append(GTK_BOX(header), MakeInfoButton(title, help_text));
+  }
+
+  gtk_box_append(GTK_BOX(card), header);
+
+  GtkWidget* value_lbl = gtk_label_new("—");
+  gtk_widget_set_halign(value_lbl, GTK_ALIGN_START);
+  gtk_label_set_wrap(GTK_LABEL(value_lbl), TRUE);
+  gtk_label_set_xalign(GTK_LABEL(value_lbl), 0.0f);
+  gtk_box_append(GTK_BOX(card), value_lbl);
+
+  g_object_set_data_full(G_OBJECT(value_lbl), "cm-stat-title",
+                         g_strdup(title ? title : "Statistic"), g_free);
+  g_signal_connect(value_lbl, "notify::label", G_CALLBACK(OnStatValueNotify), card);
+  OnStatValueNotify(G_OBJECT(value_lbl), nullptr, card);
 
   if (out_value_label) {
-    *out_value_label = val_lbl;
+    *out_value_label = value_lbl;
   }
-
   return card;
 }
 
-void UpdateStatusBadge(GtkWidget* badge, GtkWidget* label, SessionState state) {
-  if (!badge || !label) return;
-  GtkStyleContext* ctx = gtk_widget_get_style_context(badge);
-  gtk_style_context_remove_class(ctx, "status-idle");
-  gtk_style_context_remove_class(ctx, "status-connecting");
-  gtk_style_context_remove_class(ctx, "status-live");
-  gtk_style_context_remove_class(ctx, "status-failed");
+void UpdateStatusBadge(GtkWidget* pill, GtkWidget* dot, GtkWidget* label, SessionState state) {
+  if (!pill || !label) {
+    return;
+  }
 
+  ClearSemanticClasses(pill);
+  if (dot) {
+    ClearSemanticClasses(dot);
+  }
+
+  const char* text = "Ready";
+  const char* cls = "is-idle";
   switch (state) {
     case SessionState::kStreaming:
-      gtk_style_context_add_class(ctx, "status-live");
-      gtk_label_set_text(GTK_LABEL(label), "● LIVE");
+      text = "Live";
+      cls = "is-live";
       break;
     case SessionState::kConnecting:
+      text = "Connecting";
+      cls = "is-warning";
+      break;
     case SessionState::kNegotiating:
-      gtk_style_context_add_class(ctx, "status-connecting");
-      gtk_label_set_text(GTK_LABEL(label), "◐ CONNECTING");
+      text = "Starting stream";
+      cls = "is-warning";
       break;
     case SessionState::kReconnecting:
-      gtk_style_context_add_class(ctx, "status-connecting");
-      gtk_label_set_text(GTK_LABEL(label), "◐ RECONNECTING");
+      text = "Reconnecting";
+      cls = "is-warning";
       break;
     case SessionState::kStopping:
-      gtk_style_context_add_class(ctx, "status-connecting");
-      gtk_label_set_text(GTK_LABEL(label), "○ STOPPING");
+      text = "Stopping";
+      cls = "is-warning";
       break;
     case SessionState::kFailed:
-      gtk_style_context_add_class(ctx, "status-failed");
-      gtk_label_set_text(GTK_LABEL(label), "✕ FAILED");
+      text = "Failed";
+      cls = "is-error";
       break;
     case SessionState::kIdle:
     case SessionState::kReady:
     case SessionState::kDiscovering:
     default:
-      gtk_style_context_add_class(ctx, "status-idle");
-      gtk_label_set_text(GTK_LABEL(label), "○ READY");
+      text = "Ready";
+      cls = "is-idle";
       break;
   }
+
+  gtk_widget_add_css_class(pill, cls);
+  if (dot) {
+    gtk_widget_add_css_class(dot, cls);
+  }
+  gtk_label_set_text(GTK_LABEL(label), text);
 }
 
 }  // namespace castcore::gui

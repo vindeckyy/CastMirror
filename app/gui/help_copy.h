@@ -5,29 +5,32 @@ namespace castcore::gui::copy {
 
 // Application & Header
 inline constexpr const char* kAppTitle = "CastMirror";
-inline constexpr const char* kAppSubtitleDefault = "Native Chromecast display mirroring";
-inline constexpr const char* kReadySubtitle = "Pick a TV and a screen, then Cast display.";
-inline constexpr const char* kAboutComments = "Native Chromecast display mirroring for Linux";
+inline constexpr const char* kAppSubtitleDefault = "Native display mirroring for Cast devices";
+inline constexpr const char* kReadySubtitle = "Choose a TV and screen, then cast your display.";
+inline constexpr const char* kAboutComments =
+    "Native display mirroring for Linux. Not affiliated with Google. Chromecast, Google Cast, and Google TV are Google trademarks.";
 inline constexpr const char* kAboutLicense =
     "Source Apache-2.0. The official .deb is GPL because it links distro libx264. See NOTICE.";
 
 // Cast Tab - Sections
-inline constexpr const char* kSectionTelevision = "TELEVISION";
+inline constexpr const char* kSectionTelevision = "Where to cast";
 inline constexpr const char* kSectionTelevisionHelp = "Choose the Google Cast, Android TV, or Nest display on your LAN.";
-inline constexpr const char* kSectionDisplay = "SCREEN TO SHARE";
+inline constexpr const char* kSectionDisplay = "Screen to share";
 inline constexpr const char* kSectionDisplayHelp = "CastMirror sends this monitor, cropped to its XRandR / portal rectangle — not a browser tab.";
 inline constexpr const char* kWaylandPortalNote =
     "On Wayland, clicking Cast will open the desktop portal so you can pick a screen or window. CastMirror then matches that size before talking to the TV.";
-inline constexpr const char* kSectionQuality = "PICTURE QUALITY";
+inline constexpr const char* kSectionQuality = "Picture quality";
 inline constexpr const char* kSectionQualityHelp = "Pick how sharp and fluid the picture should be. You can customize the bitrate cap in Settings.";
 inline constexpr const char* kQualityPopover =
     "Chromecast mirroring is designed for desktop productivity, presentations, and video playback (~200–400 ms playout delay). It is not a low-latency game streamer like Sunshine/Moonlight.";
-inline constexpr const char* kSectionSound = "SOUND";
+inline constexpr const char* kSectionSound = "Sound";
 inline constexpr const char* kSectionSoundHelp = "System audio (the default PulseAudio / PipeWire monitor sink), not a microphone.";
 inline constexpr const char* kSoundPopover =
     "Sends desktop audio using low-latency Opus. Turn on 'Mute PC speakers' in Settings if you only want sound from the television.";
 
 // Device List & Empty State
+inline constexpr const char* kEmptyDevicesDetail =
+    "CastMirror uses mDNS to find video-capable Cast devices. If your router blocks mDNS, use Add by IP or enable LAN scanning in Settings. Audio-only speakers are hidden.";
 inline constexpr const char* kEmptyDevicesTitle = "No TVs found yet";
 inline constexpr const char* kEmptyDevicesBody =
     "1. Make sure your TV or Chromecast is powered on.\n"
@@ -135,13 +138,13 @@ inline constexpr const char* kFirstRunWelcomeBody =
     "• Hardware-accelerated H.264 encoding with adaptive bitrate\n"
     "• Typical latency is around 200–400 milliseconds (standard Chromecast buffer depth)";
 
-inline constexpr const char* kFirstRunNetworkTitle = "Network Connection";
+inline constexpr const char* kFirstRunNetworkTitle = "Network connection";
 inline constexpr const char* kFirstRunNetworkBody =
     "Make sure your PC and Chromecast TV are connected to the same Wi-Fi or wired network.\n\n"
     "• CastMirror uses mDNS to automatically detect nearby TVs.\n"
     "• If your TV is on a different VLAN or subnet, you can add it manually using 'Add by IP' on the Cast tab.";
 
-inline constexpr const char* kFirstRunCaptureTitle = "Selecting Your Screen";
+inline constexpr const char* kFirstRunCaptureTitle = "Select your screen";
 inline constexpr const char* kFirstRunCaptureBody =
     "On the Cast tab, pick your target TV and screen, then click 'Cast display'.\n\n"
     "• On Wayland desktops, a system dialog will appear asking you to choose the monitor or window to share.\n"

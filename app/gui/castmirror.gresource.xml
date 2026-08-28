@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/vindeckyy/CastMirror">
+    <file alias="castmirror.css">app/gui/castmirror.css</file>
+    <file alias="logo.svg">docs/assets/logo.svg</file>
+    <file alias="icons/scalable/apps/io.github.vindeckyy.CastMirror.svg">docs/assets/logo.svg</file>
+    <file alias="icons/scalable/actions/castmirror-signal-symbolic.svg">app/gui/icons/castmirror-signal-symbolic.svg</file>
+  </gresource>
+</gresources>

@@ -24,7 +24,7 @@
 
 **Default user-visible quality control:** Auto / High / Balanced / Smooth, plus a per-preset video bitrate slider (locked while a session is live).
 
-**Shipping v1 surface:** Linux **GTK 3** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** (XRandR per-monitor crop + MIT-SHM) or **Wayland** (xdg-desktop-portal ScreenCast + PipeWire); audio is **PulseAudio/PipeWire** sink monitor; video is **VAAPI H.264** hardware encode with **libx264** (`superfast`, `zerolatency`, High profile) software fallback. `app/winui/` is a UI blueprint for future Windows work.
+**Shipping v1 surface:** Linux **GTK 4 + libadwaita** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** (XRandR per-monitor crop + MIT-SHM) or **Wayland** (xdg-desktop-portal ScreenCast + PipeWire); audio is **PulseAudio/PipeWire** sink monitor; video is **VAAPI H.264** hardware encode with **libx264** (`superfast`, `zerolatency`, High profile) software fallback. `app/winui/` is a UI blueprint for future Windows work.
 ---
 
 ## 2. How Chromecast display mirroring actually works
@@ -95,12 +95,12 @@ Why A: it is the **only** path that uses Cast’s firmware real-time pipeline (t
 
 ## 4. Recommended system architecture
 
-Linux-first **C++20 core** (`castcore`) + **GTK 3** desktop app (`castmirror-gui`) and CLI (`castmirror`). Core owns capture, encode, Cast V2 control, Cast RTP/RTCP transport, and session recovery. UI owns presentation and user intent.
+Linux-first **C++20 core** (`castcore`) + **GTK 4 + libadwaita** desktop app (`castmirror-gui`) and CLI (`castmirror`). Core owns capture, encode, Cast V2 control, Cast RTP/RTCP transport, and session recovery. UI owns presentation and user intent.
 
 ```mermaid
 flowchart LR
     subgraph ui [Linux User Interface]
-        GTK[GTK 3 GUI]
+        GTK[GTK 4 + libadwaita GUI]
         CLI[CLI]
     end
     subgraph core [castcore C++20]

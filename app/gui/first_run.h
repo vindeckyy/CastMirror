@@ -1,11 +1,11 @@
 #ifndef CASTMIRROR_GUI_FIRST_RUN_H_
 #define CASTMIRROR_GUI_FIRST_RUN_H_
 
-#include <gtk/gtk.h>
+#include <adwaita.h>
 
 namespace castcore::gui {
 
-void ShowFirstRunAssistantIfNeeded(GtkWindow* parent);
+void ShowFirstRunDialogIfNeeded(AdwApplicationWindow* parent);
 
 }  // namespace castcore::gui
 

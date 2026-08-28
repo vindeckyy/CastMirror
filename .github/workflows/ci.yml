@@ -20,7 +20,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
-            nlohmann-json3-dev libgtest-dev libgtk-3-dev xvfb
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
 
       - name: Install GoogleTest (Ubuntu source package)
         run: |
@@ -31,7 +31,7 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCASTMIRROR_ENABLE_TRAY=OFF
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
@@ -52,7 +52,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
-            nlohmann-json3-dev libgtest-dev libgtk-3-dev xvfb
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
 
       - name: Install GoogleTest (Ubuntu source package)
         run: |
@@ -63,7 +63,7 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+        run: cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCASTMIRROR_ENABLE_TRAY=OFF -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
 
       - name: Build
         run: cmake --build build-asan -j"$(nproc)"
@@ -71,3 +71,6 @@ jobs:
       - name: Test
         working-directory: build-asan
         run: ASAN_OPTIONS=detect_leaks=0 CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
+
+
+[You have received this identical output 3 times. Re-reading '.github/workflows/ci.yml:raw' will not change it — use a narrower selector (path:A-B), or proceed with the edit.]

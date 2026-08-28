@@ -26,7 +26,7 @@
 
 CastMirror is a native **C++20** sender for Google Cast display mirroring. It discovers devices on the LAN, captures the Linux desktop and system audio, encodes **H.264** (libx264) and **Opus**, and streams **Cast RTP/RTCP** over UDP — the same media path Chrome uses for “Cast screen,” without embedding Chrome.
 
-The shipping UI is a **GTK 3** desktop app. A CLI is included.
+The shipping UI is a **GTK 4 + libadwaita** desktop app. A CLI is included.
 
 ## What it is not
 
@@ -55,7 +55,7 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
     libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
-    libgtk-3-dev
+    libgtk-4-dev libadwaita-1-dev
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
@@ -81,7 +81,7 @@ CLI:
 ./build/app/castmirror --device 192.168.1.150 --no-audio
 ```
 
-Desktop launcher: [app/castmirror.desktop](app/castmirror.desktop).
+Desktop launcher: [app/io.github.vindeckyy.CastMirror.desktop](app/io.github.vindeckyy.CastMirror.desktop).
 
 ## Architecture
 
@@ -108,7 +108,7 @@ Chromecast 3rd gen, Ultra, Google TV / Streamer, and built-in Cast TVs. **Nest H
 
 ```
 CastMirror/
-├── app/gui/                 # Shipping GTK 3 UI
+├── app/gui/                 # Shipping GTK 4 + libadwaita UI
 ├── app/cli/                 # Interactive / flag CLI
 ├── app/winui/               # Windows UI blueprint (not v1 shipping)
 ├── core/                    # castcore C++20 library
