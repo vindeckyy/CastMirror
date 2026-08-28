@@ -25,8 +25,10 @@ inline constexpr const char* kQualityPopover =
     "Chromecast mirroring is designed for desktop productivity, presentations, and video playback (~200–400 ms playout delay). It is not a low-latency game streamer like Sunshine/Moonlight.";
 inline constexpr const char* kSectionSound = "Sound";
 inline constexpr const char* kSectionSoundHelp = "System audio (the default PulseAudio / PipeWire monitor sink), not a microphone.";
+inline constexpr const char* kComputerSoundTitle = "Computer sound";
+inline constexpr const char* kComputerSoundHelp = "Play system audio on the TV while casting";
 inline constexpr const char* kSoundPopover =
-    "Sends desktop audio using low-latency Opus. Turn on 'Mute PC speakers' in Settings if you only want sound from the television.";
+    "Sends desktop audio using low-latency Opus. Turn on 'Mute sound while streaming' if you only want sound from the television.";
 
 // Device List & Empty State
 inline constexpr const char* kEmptyDevicesDetail =
@@ -93,7 +95,7 @@ inline constexpr const char* kAdaptivePopover =
 inline constexpr const char* kAudioQualityTitle = "Audio quality";
 inline constexpr const char* kAudioQualityHelp = "Opus bitrate. 192 kbps is recommended; 64 kbps is best for weak Wi-Fi.";
 
-inline constexpr const char* kSilenceTitle = "Mute PC speakers while casting";
+inline constexpr const char* kSilenceTitle = "Mute sound while streaming";
 inline constexpr const char* kSilenceHelp = "Stops the room from playing the same audio twice. Speaker volume is restored when stopped.";
 
 inline constexpr const char* kDelayTitle = "Target delay";

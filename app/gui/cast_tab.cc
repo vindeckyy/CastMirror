@@ -50,6 +50,26 @@ bool DisplaysEqual(const std::vector<DisplayInfo>& a, const std::vector<DisplayI
   return true;
 }
 
+GtkWidget* MakeCircularGlyph(const char* icon_name, int box_px, int icon_px) {
+  GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_widget_add_css_class(box, "cm-device-glyph");
+  gtk_widget_set_size_request(box, box_px, box_px);
+  gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+  gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+  gtk_widget_set_hexpand(box, FALSE);
+  gtk_widget_set_vexpand(box, FALSE);
+  gtk_widget_set_overflow(box, GTK_OVERFLOW_HIDDEN);
+
+  GtkWidget* icon = gtk_image_new_from_icon_name(icon_name);
+  gtk_image_set_pixel_size(GTK_IMAGE(icon), icon_px);
+  gtk_widget_set_halign(icon, GTK_ALIGN_CENTER);
+  gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
+  gtk_widget_set_hexpand(icon, TRUE);
+  gtk_widget_set_vexpand(icon, TRUE);
+  gtk_box_append(GTK_BOX(box), icon);
+  return box;
+}
+
 }  // namespace
 
 CastTab::CastTab(GuiApp* app) : app_(app) {
@@ -72,17 +92,18 @@ void CastTab::BuildUi() {
   gtk_widget_add_css_class(content_box, "cm-page-content");
   adw_clamp_set_child(ADW_CLAMP(clamp), content_box);
 
-  // Page title & description
+  GtkWidget* heading = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   GtkWidget* title_lbl = gtk_label_new("Cast your screen");
   gtk_widget_add_css_class(title_lbl, "cm-page-title");
   gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
-  gtk_box_append(GTK_BOX(content_box), title_lbl);
+  gtk_box_append(GTK_BOX(heading), title_lbl);
 
   GtkWidget* desc_lbl = gtk_label_new("Choose a nearby display, a screen, and the quality you want.");
   gtk_widget_add_css_class(desc_lbl, "cm-page-description");
   gtk_widget_set_halign(desc_lbl, GTK_ALIGN_START);
   gtk_label_set_wrap(GTK_LABEL(desc_lbl), TRUE);
-  gtk_box_append(GTK_BOX(content_box), desc_lbl);
+  gtk_box_append(GTK_BOX(heading), desc_lbl);
+  gtk_box_append(GTK_BOX(content_box), heading);
 
   // 1. Where to cast Section
   dev_section_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -188,7 +209,9 @@ void CastTab::BuildUi() {
 
   // Device ListBox
   device_list_box_ = gtk_list_box_new();
+  gtk_widget_add_css_class(device_list_box_, "cm-choice-list");
   gtk_list_box_set_selection_mode(GTK_LIST_BOX(device_list_box_), GTK_SELECTION_SINGLE);
+  gtk_list_box_set_show_separators(GTK_LIST_BOX(device_list_box_), FALSE);
   gtk_list_box_set_sort_func(
       GTK_LIST_BOX(device_list_box_),
       +[](GtkListBoxRow* row1, GtkListBoxRow* row2, gpointer user_data) -> gint {
@@ -243,7 +266,9 @@ void CastTab::BuildUi() {
 
   // Display ListBox
   display_list_box_ = gtk_list_box_new();
+  gtk_widget_add_css_class(display_list_box_, "cm-choice-list");
   gtk_list_box_set_selection_mode(GTK_LIST_BOX(display_list_box_), GTK_SELECTION_SINGLE);
+  gtk_list_box_set_show_separators(GTK_LIST_BOX(display_list_box_), FALSE);
   gtk_list_box_set_sort_func(
       GTK_LIST_BOX(display_list_box_),
       +[](GtkListBoxRow* row1, GtkListBoxRow* row2, gpointer user_data) -> gint {
@@ -295,6 +320,7 @@ void CastTab::BuildUi() {
 
   // FlowBox for Presets
   preset_flow_box_ = gtk_flow_box_new();
+  gtk_widget_add_css_class(preset_flow_box_, "cm-preset-grid");
   gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(preset_flow_box_), GTK_SELECTION_NONE);
   gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(preset_flow_box_), 1);
   gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(preset_flow_box_), 2);
@@ -375,11 +401,18 @@ void CastTab::BuildUi() {
   gtk_box_append(GTK_BOX(s_header_box), s_info_btn);
   gtk_box_append(GTK_BOX(sound_section_), s_header_box);
 
-  AdwPreferencesGroup* sound_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  GtkWidget* sound_list = gtk_list_box_new();
+  gtk_widget_add_css_class(sound_list, "cm-choice-list");
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(sound_list), GTK_SELECTION_NONE);
+  gtk_list_box_set_show_separators(GTK_LIST_BOX(sound_list), FALSE);
+
+  const auto& sound_cfg = ConfigStore::Instance().Get();
+
   audio_switch_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_switch_row_), "Send computer audio");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_switch_row_), "Play system audio on the TV while casting");
-  adw_switch_row_set_active(ADW_SWITCH_ROW(audio_switch_row_), ConfigStore::Instance().Get().audio_enabled);
+  gtk_widget_add_css_class(audio_switch_row_, "cm-sound-row");
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_switch_row_), copy::kComputerSoundTitle);
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_switch_row_), copy::kComputerSoundHelp);
+  adw_switch_row_set_active(ADW_SWITCH_ROW(audio_switch_row_), sound_cfg.audio_enabled);
 
   g_signal_connect(audio_switch_row_, "notify::active", G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer user_data) {
     auto* self = static_cast<CastTab*>(user_data);
@@ -389,11 +422,30 @@ void CastTab::BuildUi() {
     cfg.audio_enabled = (state != FALSE);
     ConfigStore::Instance().Save();
     self->app_->SyncAudioEnabled(state != FALSE);
+    self->UpdateSoundRowSensitivity();
   }), this);
 
-  adw_preferences_group_add(sound_group, audio_switch_row_);
-  gtk_box_append(GTK_BOX(sound_section_), GTK_WIDGET(sound_group));
+  silence_switch_row_ = adw_switch_row_new();
+  gtk_widget_add_css_class(silence_switch_row_, "cm-sound-row");
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(silence_switch_row_), copy::kSilenceTitle);
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(silence_switch_row_), copy::kSilenceHelp);
+  adw_switch_row_set_active(ADW_SWITCH_ROW(silence_switch_row_), sound_cfg.silence_host_speakers);
+
+  g_signal_connect(silence_switch_row_, "notify::active", G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer user_data) {
+    auto* self = static_cast<CastTab*>(user_data);
+    if (self->syncing_audio_ || self->updating_ui_) return;
+    gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(obj));
+    auto& cfg = ConfigStore::Instance().Mutable();
+    cfg.silence_host_speakers = (state != FALSE);
+    ConfigStore::Instance().Save();
+    self->app_->SyncSilenceHost(state != FALSE);
+  }), this);
+
+  gtk_list_box_append(GTK_LIST_BOX(sound_list), audio_switch_row_);
+  gtk_list_box_append(GTK_LIST_BOX(sound_list), silence_switch_row_);
+  gtk_box_append(GTK_BOX(sound_section_), sound_list);
   gtk_box_append(GTK_BOX(content_box), sound_section_);
+  UpdateSoundRowSensitivity();
 }
 
 void CastTab::UpdateBitrateNote() {
@@ -448,21 +500,15 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
 
   GtkWidget* row = gtk_list_box_row_new();
   w.row = row;
-  gtk_widget_add_css_class(row, "cm-device-row");
   gtk_widget_set_size_request(row, -1, 84);
 
   g_object_set_data_full(G_OBJECT(row), "cm_id", g_strdup(dev.id.c_str()), g_free);
 
   GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
-  // Circular glyph prefix
-  GtkWidget* glyph_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_widget_add_css_class(glyph_box, "cm-device-glyph");
-  gtk_widget_set_size_request(glyph_box, 48, 48);
-  gtk_widget_set_valign(glyph_box, GTK_ALIGN_CENTER);
-  GtkWidget* icon = gtk_image_new_from_icon_name("video-display-symbolic");
-  gtk_image_set_pixel_size(GTK_IMAGE(icon), 24);
-  gtk_box_append(GTK_BOX(glyph_box), icon);
-  gtk_box_append(GTK_BOX(row_box), glyph_box);
+  gtk_widget_add_css_class(row_box, "cm-device-row");
+  GtkWidget* device_glyph = MakeCircularGlyph("video-display-symbolic", 48, 22);
+  gtk_widget_set_valign(device_glyph, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(row_box), device_glyph);
 
   // Text column
   GtkWidget* text_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -484,7 +530,7 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
                          : (dev.model_name + " · " + dev.ip_address);
   w.sub1_lbl = gtk_label_new(sub1.c_str());
   gtk_widget_set_halign(w.sub1_lbl, GTK_ALIGN_START);
-  gtk_label_set_wrap(GTK_LABEL(w.sub1_lbl), TRUE);
+  gtk_label_set_ellipsize(GTK_LABEL(w.sub1_lbl), PANGO_ELLIPSIZE_END);
   gtk_widget_add_css_class(w.sub1_lbl, "dim-label");
   gtk_box_append(GTK_BOX(text_box), w.sub1_lbl);
 
@@ -495,7 +541,7 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
       << " at " << caps.max_fps << " fps · " << (caps.max_bitrate_kbps / 1000) << " Mbps";
   w.sub2_lbl = gtk_label_new(ss2.str().c_str());
   gtk_widget_set_halign(w.sub2_lbl, GTK_ALIGN_START);
-  gtk_label_set_wrap(GTK_LABEL(w.sub2_lbl), TRUE);
+  gtk_label_set_ellipsize(GTK_LABEL(w.sub2_lbl), PANGO_ELLIPSIZE_END);
   gtk_widget_add_css_class(w.sub2_lbl, "dim-label");
   gtk_box_append(GTK_BOX(text_box), w.sub2_lbl);
 
@@ -551,20 +597,15 @@ CastTab::DisplayRowWidgets CastTab::CreateDisplayRow(const DisplayInfo& disp, in
 
   GtkWidget* row = gtk_list_box_row_new();
   w.row = row;
-  gtk_widget_add_css_class(row, "cm-display-row");
   gtk_widget_set_size_request(row, -1, 72);
 
   g_object_set_data(G_OBJECT(row), "cm_disp_id", GINT_TO_POINTER(disp.id));
 
   GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
-  GtkWidget* glyph_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_widget_add_css_class(glyph_box, "cm-device-glyph");
-  gtk_widget_set_size_request(glyph_box, 40, 40);
-  gtk_widget_set_valign(glyph_box, GTK_ALIGN_CENTER);
-  GtkWidget* icon = gtk_image_new_from_icon_name("video-single-display-symbolic");
-  gtk_image_set_pixel_size(GTK_IMAGE(icon), 20);
-  gtk_box_append(GTK_BOX(glyph_box), icon);
-  gtk_box_append(GTK_BOX(row_box), glyph_box);
+  gtk_widget_add_css_class(row_box, "cm-display-row");
+  GtkWidget* display_glyph = MakeCircularGlyph("video-single-display-symbolic", 40, 18);
+  gtk_widget_set_valign(display_glyph, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(row_box), display_glyph);
 
   // Text column
   GtkWidget* text_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -594,7 +635,7 @@ CastTab::DisplayRowWidgets CastTab::CreateDisplayRow(const DisplayInfo& disp, in
 
   w.sub_lbl = gtk_label_new(subtitle.c_str());
   gtk_widget_set_halign(w.sub_lbl, GTK_ALIGN_START);
-  gtk_label_set_wrap(GTK_LABEL(w.sub_lbl), TRUE);
+  gtk_label_set_ellipsize(GTK_LABEL(w.sub_lbl), PANGO_ELLIPSIZE_END);
   gtk_widget_add_css_class(w.sub_lbl, "dim-label");
   gtk_box_append(GTK_BOX(text_box), w.sub_lbl);
 
@@ -943,20 +984,41 @@ void CastTab::SyncAudioSwitch(bool active) {
     adw_switch_row_set_active(ADW_SWITCH_ROW(audio_switch_row_), active);
   }
   syncing_audio_ = false;
+  UpdateSoundRowSensitivity();
+}
+
+void CastTab::SyncSilenceSwitch(bool active) {
+  if (!silence_switch_row_) return;
+  syncing_audio_ = true;
+  if (adw_switch_row_get_active(ADW_SWITCH_ROW(silence_switch_row_)) != static_cast<gboolean>(active)) {
+    adw_switch_row_set_active(ADW_SWITCH_ROW(silence_switch_row_), active);
+  }
+  syncing_audio_ = false;
 }
 
 bool CastTab::GetAudioEnabled() const {
   return audio_switch_row_ ? (adw_switch_row_get_active(ADW_SWITCH_ROW(audio_switch_row_)) != FALSE) : true;
 }
 
+void CastTab::UpdateSoundRowSensitivity() {
+  const bool audio_on = GetAudioEnabled();
+  if (audio_switch_row_) {
+    gtk_widget_set_sensitive(audio_switch_row_, session_controls_sensitive_);
+  }
+  if (silence_switch_row_) {
+    gtk_widget_set_sensitive(silence_switch_row_, session_controls_sensitive_ && audio_on);
+  }
+}
+
 void CastTab::SetControlsSensitive(bool sensitive) {
+  session_controls_sensitive_ = sensitive;
   gtk_widget_set_sensitive(device_list_box_, sensitive);
   gtk_widget_set_sensitive(display_list_box_, sensitive);
   if (preset_auto_btn_) gtk_widget_set_sensitive(preset_auto_btn_, sensitive);
   if (preset_high_btn_) gtk_widget_set_sensitive(preset_high_btn_, sensitive);
   if (preset_balanced_btn_) gtk_widget_set_sensitive(preset_balanced_btn_, sensitive);
   if (preset_smooth_btn_) gtk_widget_set_sensitive(preset_smooth_btn_, sensitive);
-  if (audio_switch_row_) gtk_widget_set_sensitive(audio_switch_row_, sensitive);
+  UpdateSoundRowSensitivity();
   if (rescan_btn_) gtk_widget_set_sensitive(rescan_btn_, sensitive);
   if (add_ip_btn_) gtk_widget_set_sensitive(add_ip_btn_, sensitive);
   if (remove_btn_) gtk_widget_set_sensitive(remove_btn_, sensitive && IsSelectedDeviceRemovable());

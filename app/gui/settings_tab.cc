@@ -101,12 +101,19 @@ void SettingsTab::BuildUi() {
   adw_preferences_group_set_title(audio_group, "Audio");
   adw_preferences_page_add(page, audio_group);
 
-  // Send computer audio
+  // Computer sound
   audio_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_row_), "Send computer audio");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_row_), "Play system audio on the TV while casting");
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_row_), copy::kComputerSoundTitle);
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_row_), copy::kComputerSoundHelp);
   adw_switch_row_set_active(ADW_SWITCH_ROW(audio_row_), cfg.audio_enabled);
   adw_preferences_group_add(audio_group, audio_row_);
+
+  // Mute sound while streaming
+  silence_row_ = adw_switch_row_new();
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(silence_row_), copy::kSilenceTitle);
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(silence_row_), copy::kSilenceHelp);
+  adw_switch_row_set_active(ADW_SWITCH_ROW(silence_row_), cfg.silence_host_speakers);
+  adw_preferences_group_add(audio_group, silence_row_);
 
   // Audio Quality
   const char* const audio_bitrate_strings[] = {
@@ -119,13 +126,6 @@ void SettingsTab::BuildUi() {
   adw_combo_row_set_model(ADW_COMBO_ROW(audio_quality_row_), G_LIST_MODEL(string_list));
   adw_combo_row_set_selected(ADW_COMBO_ROW(audio_quality_row_), AudioBitrateToComboIndex(cfg.audio_bitrate_bps));
   adw_preferences_group_add(audio_group, audio_quality_row_);
-
-  // Mute PC speakers while casting
-  silence_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(silence_row_), copy::kSilenceTitle);
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(silence_row_), copy::kSilenceHelp);
-  adw_switch_row_set_active(ADW_SWITCH_ROW(silence_row_), cfg.silence_host_speakers);
-  adw_preferences_group_add(audio_group, silence_row_);
 
   // 3. Latency & buffering
   AdwPreferencesGroup* lat_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
@@ -332,6 +332,9 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.silence_host_speakers = state;
     ConfigStore::Instance().Save();
+    if (self->app_) {
+      self->app_->SyncSilenceHost(state);
+    }
   };
   g_signal_connect(silence_row_, "notify::active", G_CALLBACK(on_silence_toggle), this);
 
@@ -571,7 +574,19 @@ void SettingsTab::SyncAudioSwitch(bool active) {
       adw_switch_row_set_active(ADW_SWITCH_ROW(audio_row_), active);
       UpdateDependentSensitivities();
       syncing_controls_ = false;
+    } else {
+      UpdateDependentSensitivities();
     }
+  }
+}
+
+void SettingsTab::SyncSilenceSwitch(bool active) {
+  if (!silence_row_) return;
+  gboolean current = adw_switch_row_get_active(ADW_SWITCH_ROW(silence_row_));
+  if (current != static_cast<gboolean>(active)) {
+    syncing_controls_ = true;
+    adw_switch_row_set_active(ADW_SWITCH_ROW(silence_row_), active);
+    syncing_controls_ = false;
   }
 }
 

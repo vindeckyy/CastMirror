@@ -34,6 +34,7 @@ class GuiApp {
   void TriggerRescan();
 
   void SyncAudioEnabled(bool enabled);
+  void SyncSilenceHost(bool enabled);
   void SyncBitrateSlider(uint32_t kbps);
 
   void ShowToast(const std::string& title);

@@ -8,13 +8,10 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
-#include <atomic>
 #include <ctime>
 
 namespace castcore::gui {
 
-static std::atomic<bool> g_debug_hold_warning{false};
-static LiveTab* g_debug_live_tab = nullptr;
 namespace {
 
 std::string GetCurrentTimestampStr() {
@@ -65,7 +62,6 @@ GtkWidget* MakePipelineNode(const char* title,
 }  // namespace
 
 LiveTab::LiveTab(GuiApp* app) : app_(app) {
-  g_debug_live_tab = this;
   BuildUi();
 }
 
@@ -469,13 +465,6 @@ void LiveTab::UpdateLadderVisualization(int active_rung, int total_rungs, bool e
 
 void LiveTab::UpdateStats(const StreamStats& stats) {
   StreamStats cur = stats;
-  if (g_debug_hold_warning.load()) {
-    cur.packet_loss_fraction = 0.06;
-    cur.round_trip_time_ms = 90;
-    cur.health_hint = "Test network warning";
-    if (cur.bitrate_kbps == 0) cur.bitrate_kbps = 8000;
-    if (cur.current_fps == 0) cur.current_fps = 58.0;
-  }
   last_stats_ = cur;
 
   if (!cur.device_name.empty()) {
@@ -540,7 +529,7 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
   gtk_label_set_text(GTK_LABEL(val_sent_), ss_sent.str().c_str());
 
   SessionState current_state = app_ ? app_->GetCurrentState() : SessionState::kStreaming;
-  UpdatePipelineDiagram(current_state, stats);
+  UpdatePipelineDiagram(current_state, cur);
   UpdateLadderVisualization(cur.adaptive_rung_index, cur.adaptive_rung_count, cur.adaptive_enabled);
 
   // Health Card
@@ -741,80 +730,39 @@ void LiveTab::ResetSessionValues() {
     }
   }
 }
-void DebugInjectHealthWarning() {
-  FILE* f = fopen("/tmp/debug_inject.log", "a");
-  if (f) { fprintf(f, "DebugInject called hold=%d\n", (int)g_debug_hold_warning.load()); fclose(f); }
-  g_debug_hold_warning = true;
-  if (f) { f=fopen("/tmp/debug_inject.log","a"); fprintf(f, "hold set true\n"); fclose(f); }
-  g_timeout_add_seconds(5, +[](gpointer) -> gboolean { g_debug_hold_warning = false; FILE* ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"hold cleared\n"); fclose(ff);} return G_SOURCE_REMOVE; }, nullptr);
-  if (g_debug_live_tab) {
-    FILE* ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"using global live %p\n", g_debug_live_tab); fclose(ff);}
-    // Direct warning injection on main thread without relying on UpdateStats hold
-    g_main_context_invoke(nullptr, +[](gpointer data)->gboolean {
-      LiveTab* live = static_cast<LiveTab*>(data);
-      live->SetHealthState("Test network warning", "is-warning", "dialog-warning-symbolic");
-      if (live->pipe_network_node_) {
-        gtk_widget_remove_css_class(live->pipe_network_node_, "is-live");
-        gtk_widget_remove_css_class(live->pipe_network_node_, "is-idle");
-        gtk_widget_remove_css_class(live->pipe_network_node_, "is-progress");
-        gtk_widget_add_css_class(live->pipe_network_node_, "is-warning");
-        if (live->pipe_network_sub_) gtk_label_set_text(GTK_LABEL(live->pipe_network_sub_), "12.0 Mbps (6.0% loss)");
-      }
-      if (live->val_loss_) gtk_label_set_text(GTK_LABEL(live->val_loss_), "6.0%");
-      if (live->val_rtt_) gtk_label_set_text(GTK_LABEL(live->val_rtt_), "90 ms");
-      live->AppendActivityEvent("Test network warning");
-      FILE* fff=fopen("/tmp/debug_inject.log","a"); if(fff){fprintf(fff,"direct warning applied\n"); fclose(fff);}
-      return G_SOURCE_REMOVE;
-    }, g_debug_live_tab);
-    // Keep warning visible for 5s before next healthy sample clears it
-    g_timeout_add_seconds(5, +[](gpointer data)->gboolean {
-      LiveTab* live = static_cast<LiveTab*>(data);
-      // Next healthy UpdateStats will clear, but also reset pipeline
-      if (live->pipe_network_node_) {
-        // Let next real stats restore; just clear hold flag is enough, but also force a healthy sample
-        StreamStats st = live->last_stats_;
-        st.health_hint.clear();
-        st.packet_loss_fraction = 0.0;
-        st.round_trip_time_ms = 24;
-        live->UpdateStats(st);
-      }
-      FILE* fff=fopen("/tmp/debug_inject.log","a"); if(fff){fprintf(fff,"warning cleared\n"); fclose(fff);}
-      g_debug_hold_warning.store(false);
-      return G_SOURCE_REMOVE;
-    }, g_debug_live_tab);
-    FILE* ff2=fopen("/tmp/debug_inject.log","a"); if(ff2){fprintf(ff2,"scheduled warning 5s\n"); fclose(ff2);}
+
+#if !defined(NDEBUG)
+extern "C" void castmirror_inject_test_health_warning() {
+  GApplication* gapp = g_application_get_default();
+  if (!gapp || !GTK_IS_APPLICATION(gapp)) {
     return;
   }
-  g_main_context_invoke(nullptr, +[](gpointer) -> gboolean {
-    FILE* ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"invoke lambda start\n"); fclose(ff);}
-    GApplication* gapp = g_application_get_default();
-    if (!gapp) { ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"no gapp\n"); fclose(ff);} return G_SOURCE_REMOVE; }
-    GtkWindow* win = nullptr;
-    if (GTK_IS_APPLICATION(gapp)) {
-      win = gtk_application_get_active_window(GTK_APPLICATION(gapp));
-      if (!win) {
-        GList* wins = gtk_application_get_windows(GTK_APPLICATION(gapp));
-        if (wins && wins->data) win = GTK_WINDOW(wins->data);
-      }
-    }
-    if (!win) { ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"no win\n"); fclose(ff);} return G_SOURCE_REMOVE; }
-    auto* gui = static_cast<GuiApp*>(g_object_get_data(G_OBJECT(win), "castmirror-gui-app"));
-    if (!gui) { ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"no gui\n"); fclose(ff);} return G_SOURCE_REMOVE; }
-    LiveTab* live = gui->GetLiveTab();
-    if (!live) { ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"no live\n"); fclose(ff);} return G_SOURCE_REMOVE; }
-    StreamStats st = live->last_stats_;
-    st.packet_loss_fraction = 0.06;
-    st.round_trip_time_ms = 90;
-    st.health_hint = "Test network warning";
-    if (st.bitrate_kbps == 0) st.bitrate_kbps = 8000;
-    if (st.current_fps == 0) st.current_fps = 58.0;
-    if (st.current_resolution.width == 0) st.current_resolution = {1920, 1080};
-    live->UpdateStats(st);
-    ff=fopen("/tmp/debug_inject.log","a"); if(ff){fprintf(ff,"invoke UpdateStats done\n"); fclose(ff);}
-    return G_SOURCE_REMOVE;
-  }, nullptr);
-  f=fopen("/tmp/debug_inject.log","a"); if(f){fprintf(f,"scheduled invoke\n"); fclose(f);}
+  GtkWindow* win = gtk_application_get_active_window(GTK_APPLICATION(gapp));
+  if (!win) {
+    return;
+  }
+  auto* gui = static_cast<GuiApp*>(g_object_get_data(G_OBJECT(win), "castmirror-gui-app"));
+  if (!gui || !gui->GetLiveTab()) {
+    return;
+  }
+  g_idle_add(
+      +[](gpointer data) -> gboolean {
+        LiveTab* live = static_cast<LiveTab*>(data);
+        StreamStats st = live->LastStats();
+        st.packet_loss_fraction = 0.06;
+        st.round_trip_time_ms = 90;
+        st.health_hint = "Test network warning";
+        if (st.bitrate_kbps == 0) {
+          st.bitrate_kbps = 8000;
+        }
+        if (st.current_fps == 0) {
+          st.current_fps = 58.0;
+        }
+        live->UpdateStats(st);
+        return G_SOURCE_REMOVE;
+      },
+      gui->GetLiveTab());
 }
-
+#endif
 
 }  // namespace castcore::gui

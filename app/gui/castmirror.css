@@ -51,6 +51,15 @@
   color: @cm_text;
 }
 
+.cm-window headerbar {
+  min-height: 56px;
+}
+
+.cm-header-logo {
+  min-width: 48px;
+  min-height: 48px;
+}
+
 .cm-header-title,
 .cm-header-title .title {
   color: @cm_text;
@@ -76,7 +85,7 @@
 }
 
 .cm-view-switcher button {
-  min-height: calc(40px - 16px - 2px);
+  min-height: 40px;
   padding: 8px 16px;
   color: @cm_text_secondary;
   background-color: transparent;
@@ -354,12 +363,64 @@
   background-color: @cm_error;
 }
 
-/* Selectable destination and display rows */
+/* Flatten Adwaita list chrome so Cast cards own spacing. */
+list.cm-choice-list {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+}
+
+list.cm-choice-list > row {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  padding: 0;
+  min-height: 0;
+  margin-top: 0;
+  margin-right: 0;
+  margin-left: 0;
+  margin-bottom: 8px;
+}
+
+list.cm-choice-list > row:last-child {
+  margin-bottom: 0;
+}
+
+list.cm-choice-list > row:hover,
+list.cm-choice-list > row:active,
+list.cm-choice-list > row:selected,
+list.cm-choice-list > row:selected:hover {
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.cm-preset-grid {
+  padding: 0;
+  margin: 0;
+  background-color: transparent;
+  background-image: none;
+}
+
+.cm-preset-grid > flowboxchild {
+  padding: 0;
+  margin: 0;
+}
+
+/* Selectable destination and display cards (inner box, not the list row). */
 .cm-device-row,
-.cm-display-row {
+.cm-display-row,
+list.cm-choice-list > row.cm-sound-row {
   padding: 16px;
   color: @cm_text;
   background-color: @cm_surface_container;
+  background-image: none;
   border: 1px solid @cm_control_outline;
   border-radius: 18px;
   font-size: 1.071rem;
@@ -370,20 +431,27 @@
   transition-timing-function: ease-out;
 }
 
+list.cm-choice-list > row:hover .cm-device-row,
+list.cm-choice-list > row:hover .cm-display-row,
 .cm-device-row:hover,
-.cm-display-row:hover {
+.cm-display-row:hover,
+list.cm-choice-list > row.cm-sound-row:hover {
   background-color: @cm_surface_high;
 }
 
+list.cm-choice-list > row:active .cm-device-row,
+list.cm-choice-list > row:active .cm-display-row,
 .cm-device-row:active,
 .cm-display-row:active {
   background-color: @cm_surface_highest;
 }
 
-.cm-device-row:selected,
-.cm-device-row.is-selected,
-.cm-display-row:selected,
-.cm-display-row.is-selected {
+list.cm-choice-list > row:selected .cm-device-row,
+list.cm-choice-list > row:selected .cm-display-row,
+list.cm-choice-list > row:selected:hover .cm-device-row,
+list.cm-choice-list > row:selected:hover .cm-display-row,
+list.cm-choice-list > row.is-selected .cm-device-row,
+list.cm-choice-list > row.is-selected .cm-display-row {
   color: @cm_text;
   background-color: @cm_primary_container;
   border: 2px solid @cm_primary;
@@ -408,9 +476,33 @@
 .cm-device-glyph {
   min-width: 48px;
   min-height: 48px;
+  max-width: 48px;
+  max-height: 48px;
+  padding: 0;
   color: @cm_primary;
   background-color: @cm_primary_container;
   border-radius: 999px;
+}
+
+.cm-display-row .cm-device-glyph {
+  min-width: 40px;
+  min-height: 40px;
+  max-width: 40px;
+  max-height: 40px;
+}
+
+.cm-device-glyph image {
+  margin-top: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+  margin-left: 0;
+  padding: 0;
+}
+
+list.cm-choice-list > row:selected .cm-device-glyph,
+list.cm-choice-list > row.is-selected .cm-device-glyph {
+  background-color: @cm_background;
+  color: @cm_primary;
 }
 
 /* Quality presets */
@@ -726,6 +818,8 @@
 .cm-view-switcher button:focus-visible,
 .cm-device-row:focus-visible,
 .cm-display-row:focus-visible,
+list.cm-choice-list > row:focus-visible .cm-device-row,
+list.cm-choice-list > row:focus-visible .cm-display-row,
 .cm-preset-card:focus-visible,
 .cm-log-view:focus-visible {
   outline: 2px solid @cm_primary;

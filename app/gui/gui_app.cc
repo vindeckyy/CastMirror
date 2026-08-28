@@ -118,14 +118,21 @@ void GuiApp::BuildUi() {
 
   GtkWidget* header_bar = adw_header_bar_new();
   adw_header_bar_set_show_title(ADW_HEADER_BAR(header_bar), FALSE);
+  // Desktop gtk-decoration-layout includes "icon,menu", which would draw a 16px
+  // window icon beside our packed 48px brand logo. Keep native window buttons only.
+  adw_header_bar_set_decoration_layout(ADW_HEADER_BAR(header_bar), ":minimize,maximize,close");
 
   GtkWidget* brand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+  gtk_widget_set_valign(brand, GTK_ALIGN_CENTER);
   GtkWidget* logo = gtk_image_new_from_resource("/io/github/vindeckyy/CastMirror/logo.svg");
-  gtk_image_set_pixel_size(GTK_IMAGE(logo), 32);
+  gtk_image_set_pixel_size(GTK_IMAGE(logo), 48);
+  gtk_widget_add_css_class(logo, "cm-header-logo");
+  gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(brand), logo);
 
   header_title_ = adw_window_title_new(copy::kAppTitle, copy::kAppSubtitleDefault);
   gtk_widget_add_css_class(header_title_, "cm-header-title");
+  gtk_widget_set_valign(header_title_, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(brand), header_title_);
   adw_header_bar_pack_start(ADW_HEADER_BAR(header_bar), brand);
 
@@ -445,6 +452,15 @@ void GuiApp::SyncAudioEnabled(bool enabled) {
   }
 }
 
+void GuiApp::SyncSilenceHost(bool enabled) {
+  if (cast_tab_) {
+    cast_tab_->SyncSilenceSwitch(enabled);
+  }
+  if (settings_tab_) {
+    settings_tab_->SyncSilenceSwitch(enabled);
+  }
+}
+
 void GuiApp::SyncBitrateSlider(uint32_t kbps) {
   if (settings_tab_) {
     settings_tab_->SyncBitrateSlider(kbps);
@@ -456,6 +472,7 @@ void GuiApp::ShowToast(const std::string& title) {
     return;
   }
   AdwToast* toast = adw_toast_new(title.c_str());
+  adw_toast_set_timeout(toast, 3);
   adw_toast_overlay_add_toast(ADW_TOAST_OVERLAY(toast_overlay_), toast);
 }
 

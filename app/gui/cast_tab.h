@@ -25,6 +25,7 @@ class CastTab {
 
   void SetControlsSensitive(bool sensitive);
   void SyncAudioSwitch(bool active);
+  void SyncSilenceSwitch(bool active);
   void SetScanInProgress(bool scanning);
 
   std::string GetSelectedDeviceId() const { return selected_device_id_; }
@@ -74,6 +75,7 @@ class CastTab {
   void OnDeviceRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnDisplayRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnPresetChanged(QualityPreset preset);
+  void UpdateSoundRowSensitivity();
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;
@@ -100,6 +102,7 @@ class CastTab {
 
   GtkWidget* sound_section_ = nullptr;
   GtkWidget* audio_switch_row_ = nullptr;
+  GtkWidget* silence_switch_row_ = nullptr;
 
   std::vector<CastDevice> devices_;
   std::vector<DisplayInfo> displays_;
@@ -113,6 +116,7 @@ class CastTab {
   bool updating_ui_ = false;
   bool scan_in_progress_ = false;
   bool syncing_audio_ = false;
+  bool session_controls_sensitive_ = true;
 };
 
 }  // namespace castcore::gui

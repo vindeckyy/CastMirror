@@ -22,6 +22,7 @@ class LiveTab {
   void UpdateSessionState(SessionState state, const std::string& message);
   void AppendActivityEvent(const std::string& message);
   void ResetSessionValues();
+  const StreamStats& LastStats() const { return last_stats_; }
 
  private:
   void BuildUi();
@@ -93,11 +94,7 @@ class LiveTab {
   std::string last_device_name_;
   SessionState current_ui_state_ = SessionState::kIdle;
   bool failure_visible_ = false;
-
-  friend void DebugInjectHealthWarning();
 };
-
-void DebugInjectHealthWarning();
 
 }  // namespace castcore::gui
 

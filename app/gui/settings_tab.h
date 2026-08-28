@@ -19,6 +19,7 @@ class SettingsTab {
   void UpdateSessionState(SessionState state);
   void SyncBitrateSlider(uint32_t kbps);
   void SyncAudioSwitch(bool active);
+  void SyncSilenceSwitch(bool active);
 
  private:
   void BuildUi();
