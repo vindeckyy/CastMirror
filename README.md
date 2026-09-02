@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-ready-v2.png" width="720" alt="CastMirror GTK app — Cast tab">
+  <img src="docs/assets/screenshot-cast.png" width="720" alt="CastMirror GTK app — Cast tab">
 </p>
 
 ## What it is
@@ -71,18 +71,34 @@ Full package notes, firewall, and audio behavior: [docs/building.md](docs/buildi
 
 ## Usage
 
-The GUI is split into four tabs: **Cast**, **Live session**, **Settings**, and **Logs**.
+The GUI is split into four dedicated tabs:
 
-1. Start `castmirror-gui`
-2. On **Cast**, pick a device (Rescan or Add IP)
-3. Choose what to share — a **Screen** or a **Window** (toggle in the "What to share" section), then pick the specific monitor or window from the list. On Wayland the system portal picker handles selection when you press Cast
-4. Choose a quality preset and bitrate; the per-profile cap is the target the adaptive controller will hold and recover to
-5. Cast — host speakers stay quiet if audio mirroring is on (toggle audio in **Settings**)
-6. The **Live session** tab shows the pipeline, bitrate, and loss during a cast
-7. Stop restores local playback
+### 1. Cast
+Discover LAN receivers, select a monitor display or open application window, tune target bitrate, and start mirroring.
 
 <p align="center">
-  <img src="docs/assets/screenshot-live-v2.png" width="720" alt="CastMirror Live session tab — idle">
+  <img src="docs/assets/screenshot-cast.png" width="720" alt="CastMirror — Cast tab">
+</p>
+
+### 2. Live session
+Real-time streaming pipeline visualization, hardware-accelerated Cairo vector sparkline charts (FPS, Bitrate, RTT, Packet Loss), dynamic adaptive ladder rungs, and live studio controls (Freeze display, Mute TV audio).
+
+<p align="center">
+  <img src="docs/assets/screenshot-live.png" width="720" alt="CastMirror — Live session tab">
+</p>
+
+### 3. Settings
+Configure video encoding presets, target playout buffer delay, host audio mute behavior, color scheme theme (System default / Light / Dark), and run hardware/network self-test diagnostics.
+
+<p align="center">
+  <img src="docs/assets/screenshot-settings.png" width="720" alt="CastMirror — Settings tab">
+</p>
+
+### 4. Logs
+Live searchable diagnostic event logs with filter levels, quick copy, and open log directory actions.
+
+<p align="center">
+  <img src="docs/assets/screenshot-logs.png" width="720" alt="CastMirror — Logs tab">
 </p>
 
 CLI:
