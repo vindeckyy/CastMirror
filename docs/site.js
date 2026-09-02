@@ -75,48 +75,85 @@
     });
   });
 
-  // 4. Documentation Hub Tab / Panel Switcher
+  // 4. Documentation Hub Navigation & Scrollspy
   const docNavLinks = document.querySelectorAll(".docs-nav-link");
   const docPanels = document.querySelectorAll(".doc-panel");
 
-  function switchDoc(docId, scrollIntoView) {
-    if (!docId) docId = "doc-building";
-    const targetLink = document.querySelector('.docs-nav-link[data-doc="' + docId + '"]');
-    const targetPanel = document.getElementById(docId);
+  function setActiveNavLink(targetId) {
+    docNavLinks.forEach(function (link) {
+      if (link.getAttribute("data-doc") === targetId) {
+        link.classList.add("is-active");
+      } else {
+        link.classList.remove("is-active");
+      }
+    });
+  }
 
-    if (!targetPanel || !targetLink) return;
+  // Smooth scroll click handler
+  docNavLinks.forEach(function (link) {
+    link.addEventListener("click", function (e) {
+      const targetId = link.getAttribute("data-doc");
+      if (targetId === "all") {
+        e.preventDefault();
+        const docsSection = document.getElementById("documentation");
+        if (docsSection) docsSection.scrollIntoView({ behavior: "smooth" });
+        setActiveNavLink("all");
+        history.replaceState(null, "", "#documentation");
+      } else {
+        e.preventDefault();
+        const targetPanel = document.getElementById(targetId);
+        if (targetPanel) {
+          const yOffset = -80;
+          const y = targetPanel.getBoundingClientRect().top + window.pageYOffset + yOffset;
+          window.scrollTo({ top: y, behavior: "smooth" });
+          setActiveNavLink(targetId);
+          history.replaceState(null, "", "#" + targetId);
+        }
+      }
+    });
+  });
 
-    docNavLinks.forEach(function (link) { link.classList.remove("is-active"); });
-    docPanels.forEach(function (panel) { panel.classList.remove("is-active"); });
+  // Scrollspy to highlight active chapter
+  if ("IntersectionObserver" in window) {
+    const observer = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            setActiveNavLink(entry.target.id);
+          }
+        });
+      },
+      {
+        rootMargin: "-20% 0px -60% 0px",
+        threshold: 0
+      }
+    );
 
-    targetLink.classList.add("is-active");
-    targetPanel.classList.add("is-active");
+    docPanels.forEach(function (panel) {
+      observer.observe(panel);
+    });
+  }
 
-    if (scrollIntoView) {
-      const docsSection = document.getElementById("documentation");
-      if (docsSection) {
-        docsSection.scrollIntoView({ behavior: "smooth" });
+  // Deep-link check on load
+  function checkHash() {
+    const hash = location.hash.replace(/^#/, "");
+    if (hash === "documentation") {
+      setActiveNavLink("all");
+    } else if (hash && hash.startsWith("doc-")) {
+      const targetPanel = document.getElementById(hash);
+      if (targetPanel) {
+        setTimeout(function () {
+          const yOffset = -80;
+          const y = targetPanel.getBoundingClientRect().top + window.pageYOffset + yOffset;
+          window.scrollTo({ top: y, behavior: "smooth" });
+          setActiveNavLink(hash);
+        }, 100);
       }
     }
   }
 
-  docNavLinks.forEach(function (link) {
-    link.addEventListener("click", function (e) {
-      e.preventDefault();
-      const docId = link.getAttribute("data-doc");
-      location.hash = docId;
-      switchDoc(docId, false);
-    });
-  });
-
-  // Handle hash changes or initial hash
-  function checkHash() {
-    const hash = location.hash.replace(/^#/, "");
-    if (hash && hash.startsWith("doc-")) {
-      switchDoc(hash, true);
-    }
-  }
-
   window.addEventListener("hashchange", checkHash);
-  checkHash();
+  if (location.hash) {
+    checkHash();
+  }
 })();

@@ -146,29 +146,37 @@
     </div>
   </section>
 
-  <!-- Full Documentation Hub -->
+  <!-- Full Documentation Hub (All Docs Open on the Website) -->
   <section id="documentation">
     <div class="wrap">
-      <p class="section-kicker">Documentation Hub</p>
-      <h2>Technical Reference &amp; Guides</h2>
-      <p class="lede">Complete documentation migrated directly from the source repository.</p>
+      <p class="section-kicker">Documentation</p>
+      <h2>Complete Technical Manual &amp; Guides</h2>
+      <p class="lede">All project documentation open on the website, migrated directly from the source repository.</p>
 
       <div class="docs-layout">
-        <!-- Sticky Sidebar Navigation -->
-        <div class="docs-nav">
-          <a class="docs-nav-link is-active" data-doc="doc-building" href="#doc-building">🛠️ Building &amp; Install</a>
+        <!-- Sticky Sidebar Table of Contents -->
+        <nav class="docs-nav" aria-label="Documentation Table of Contents">
+          <div class="docs-nav-header">
+            <span>Documentation Hub</span>
+            <span>5 Guides</span>
+          </div>
+          <a class="docs-nav-link is-active" data-doc="all" href="#documentation">📖 All Documentation</a>
+          <a class="docs-nav-link" data-doc="doc-building" href="#doc-building">🛠️ Building &amp; Install</a>
           <a class="docs-nav-link" data-doc="doc-architecture" href="#doc-architecture">📐 System Architecture</a>
           <a class="docs-nav-link" data-doc="doc-compatibility" href="#doc-compatibility">📺 Devices &amp; Ladder</a>
           <a class="docs-nav-link" data-doc="doc-protocol" href="#doc-protocol">📡 Cast Protocol</a>
           <a class="docs-nav-link" data-doc="doc-tests" href="#doc-tests">🧪 Test &amp; Verification</a>
-        </div>
+        </nav>
 
-        <!-- Documentation Panels -->
+        <!-- Documentation Content Body (All Docs Open Simultaneously) -->
         <div class="docs-content">
           
-          <!-- Panel 1: Building & Installation -->
-          <div class="doc-panel is-active" id="doc-building">
-            <h3>Building CastMirror</h3>
+          <!-- Document 1: Building & Installation -->
+          <article class="doc-panel" id="doc-building">
+            <div class="doc-panel-header">
+              <h3>1. Building &amp; Installation Guide</h3>
+              <span class="doc-badge">Guide</span>
+            </div>
             <p>Linux is the primary supported platform. You need a modern C++20 compiler (GCC 11+ or Clang 14+), CMake 3.20+, Ninja, and developer libraries for GTK 4, Libadwaita, FFmpeg, and PulseAudio.</p>
 
             <h4>Prerequisites (Debian / Ubuntu / Kali)</h4>
@@ -221,11 +229,14 @@ cmake --build build -j"12"</pre>
 
             <h4>Network &amp; Firewall Configuration</h4>
             <p>Control traffic uses <strong>TCP 8009 (TLS)</strong> to the receiver. Media streams use <strong>UDP</strong> to the ephemeral port returned in the ANSWER. Both devices must be on the same local subnet. Helper script: <code>scripts/setup_firewall.sh</code>.</p>
-          </div>
+          </article>
 
-          <!-- Panel 2: Architecture & Design -->
-          <div class="doc-panel" id="doc-architecture">
-            <h3>System Architecture</h3>
+          <!-- Document 2: Architecture & Design -->
+          <article class="doc-panel" id="doc-architecture">
+            <div class="doc-panel-header">
+              <h3>2. System Architecture &amp; Design</h3>
+              <span class="doc-badge">Architecture</span>
+            </div>
             <p>CastMirror is structured as a modular <strong>C++20 engine (<code>castcore</code>)</strong> with a decoupled <strong>GTK 4 + Libadwaita GUI (<code>app/gui</code>)</strong> and CLI (<code>app/cli</code>).</p>
 
             <h4>Performance &amp; Latency Contract</h4>
@@ -265,11 +276,14 @@ cmake --build build -j"12"</pre>
                 </tbody>
               </table>
             </div>
-          </div>
+          </article>
 
-          <!-- Panel 3: Device Compatibility & Ladder -->
-          <div class="doc-panel" id="doc-compatibility">
-            <h3>Device Compatibility &amp; Adaptation</h3>
+          <!-- Document 3: Device Compatibility & Ladder -->
+          <article class="doc-panel" id="doc-compatibility">
+            <div class="doc-panel-header">
+              <h3>3. Device Compatibility &amp; Adaptation Ladder</h3>
+              <span class="doc-badge">Matrix</span>
+            </div>
             <p>CastMirror classifies receivers using mDNS capability bitmasks (<code>ca</code>) and model identifiers (<code>md</code>), verified against the receiver's negotiation ANSWER.</p>
 
             <h4>Receiver Compatibility Matrix</h4>
@@ -309,11 +323,14 @@ cmake --build build -j"12"</pre>
                 </tbody>
               </table>
             </div>
-          </div>
+          </article>
 
-          <!-- Panel 4: Protocol Deep-Dive -->
-          <div class="doc-panel" id="doc-protocol">
-            <h3>Cast Streaming Protocol Specification</h3>
+          <!-- Document 4: Protocol Deep-Dive -->
+          <article class="doc-panel" id="doc-protocol">
+            <div class="doc-panel-header">
+              <h3>4. Cast Streaming Protocol Specification</h3>
+              <span class="doc-badge">Protocol</span>
+            </div>
             <p>Google Cast screen mirroring uses a specialized real-time media protocol (not WebRTC ICE/DTLS and not HLS media playback).</p>
 
             <h4>1. Control Plane (Cast V2 TLS :8009)</h4>
@@ -348,11 +365,14 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
                 </ul>
               </li>
             </ul>
-          </div>
+          </article>
 
-          <!-- Panel 5: Test & Verification Report -->
-          <div class="doc-panel" id="doc-tests">
-            <h3>Test &amp; Verification Report</h3>
+          <!-- Document 5: Test & Verification Report -->
+          <article class="doc-panel" id="doc-tests">
+            <div class="doc-panel-header">
+              <h3>5. Test &amp; Verification Report</h3>
+              <span class="doc-badge">Verification</span>
+            </div>
             <p>CastMirror undergoes rigorous automated verification including unit tests, integration suites, synthetic network impairments, and simulated receiver loopback.</p>
 
             <h4>Test Suite Status (87 / 87 Passed &mdash; 100%)</h4>
@@ -392,7 +412,7 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
                 </tbody>
               </table>
             </div>
-          </div>
+          </article>
 
         </div>
       </div>
