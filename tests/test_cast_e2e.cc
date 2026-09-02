@@ -716,8 +716,8 @@ TEST(CastE2ETest, ZeroExternalNetworkAudit) {
   AppConfig saved_cfg = ConfigStore::Instance().Get();
 
   CastDevice dev;
-  dev.id = "test-e2e-audit-device";
-  dev.name = "Audit Loopback TV";
+  dev.id = "test-e2e-loopback-device";
+  dev.name = "Test Receiver";
   dev.model_name = "Chromecast Ultra";
   dev.ip_address = "127.0.0.1";
   dev.port = server.GetTlsPort();

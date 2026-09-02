@@ -675,20 +675,6 @@ void CastTab::RefreshDevices() {
   std::string prefer_id = !selected_device_id_.empty() ? selected_device_id_ : cfg.last_device_id;
   int preferred_idx = IndexOfPreferredDevice(new_devices, prefer_id, cfg.last_device_ip);
 
-  // If previous saved device not discovered, insert sticky entry in the UI list
-  if (preferred_idx < 0 && !cfg.last_device_ip.empty()) {
-    CastDevice sticky;
-    sticky.id = cfg.last_device_id.empty() ? cfg.last_device_ip : cfg.last_device_id;
-    sticky.name = cfg.last_device_name.empty() ? cfg.last_device_ip : cfg.last_device_name;
-    sticky.model_name = "saved";
-    sticky.ip_address = cfg.last_device_ip;
-    sticky.port = 8009;
-    sticky.capabilities = kCapVideoOut | kCapAudioOut;
-    sticky.status = DeviceStatus::kOffline;
-    new_devices.insert(new_devices.begin(), sticky);
-    preferred_idx = 0;
-  }
-
   bool equal = DevicesEqual(devices_, new_devices);
   if (equal && !devices_.empty() && !device_row_widgets_.empty()) {
     UpdateDeviceSectionState();
@@ -710,7 +696,7 @@ void CastTab::RefreshDevices() {
 
       gtk_label_set_text(GTK_LABEL(w.title_lbl), d.name.c_str());
 
-      std::string sub1 = (d.model_name == "saved" || d.model_name == "Custom Chromecast")
+      std::string sub1 = (d.model_name == "Custom Chromecast")
                              ? ("Saved display · " + d.ip_address)
                              : (d.model_name + " · " + d.ip_address);
       gtk_label_set_text(GTK_LABEL(w.sub1_lbl), sub1.c_str());
