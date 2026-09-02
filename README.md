@@ -40,12 +40,14 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 
 ## Features
 
-- One-click Cast to Chromecast, Google TV, and Cast TVs (or add a device by IP)
-- **Screen or window sharing** — cast an entire monitor or pick a single application window. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
-- Quality presets **Auto / High / Balanced / Smooth** plus a **per-profile bitrate slider** (1–25 Mbps). The slider is locked while connecting or live
+- One-click Cast to Chromecast, Google TV, and Cast TVs (or add a device by IP) with dynamic hardware model glyphs
+- **Screen or window sharing** — cast an entire monitor or pick a single application window with application icon resolution. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
+- Quality presets **Auto / High / Balanced / Smooth** with an **inline bitrate slider** (1–25 Mbps) synchronized between Cast and Settings
+- **Live studio controls** — Freeze display and Mute TV audio on the fly with clean silence-frame injection
+- **Real-time vector sparklines** — Hardware-accelerated Cairo mini-charts for live FPS, bitrate, RTT, and packet loss
 - Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop
-- Audio controls live in **Settings** so the Cast page stays focused on picking a device and source
 - **Adaptive bitrate is always on**: it holds your selected bitrate target, drops on congestion, and ramps back up aggressively once the link recovers
+- **Appearance & Diagnostics** — System / Light / Dark theme switcher and built-in hardware/network self-test wizard
 - AES-128-CTR per-frame media crypto as required by Cast Streaming
 - TLS control plane on port **8009**
 - Stop budget under **500 ms** (capture does not run except during a live session)
@@ -57,7 +59,7 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
     libxcomposite-dev libxdamage-dev \
-    libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
+    libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
     libgtk-4-dev libadwaita-1-dev
 
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release

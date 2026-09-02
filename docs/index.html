@@ -104,8 +104,10 @@
       <p class="section-kicker">Quick start</p>
       <h2>Build on Linux</h2>
       <pre><button class="copy" type="button">Copy</button>sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
-    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxinerama-dev \
-    libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev
+    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+    libxcomposite-dev libxdamage-dev \
+    libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
+    libgtk-4-dev libadwaita-1-dev
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ./build/app/castmirror-gui</pre>

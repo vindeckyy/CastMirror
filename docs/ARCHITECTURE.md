@@ -1,6 +1,6 @@
 # CastMirror: Native Chromecast Display Mirroring
 
-**Date:** 2026-08-26  
+**Date:** 2026-09-02  
 **Status:** Implemented — Linux GTK sender (`castmirror-gui`) and CLI (`castmirror`) on `castcore`. Windows WinUI remains a shell blueprint.  
 **Working project name:** CastMirror
 
@@ -151,25 +151,26 @@ flowchart LR
 - `ConfigStore` — `~/.config/castmirror/config.json`
 - `Logger` — local rotating debug logs (`~/.config/castmirror/castmirror.log`)
 
-## 5. Technology stack (and rejects)
+## 5. Technology stack
 
-**Core: C++20, MSVC, CMake, WIL, C++/WinRT for WGC.** Open Screen is C++; D3D11/NVENC/MF are C/C++. Rust would add a permanent FFI tax around libcast.
+**Core: C++20, GCC / Clang, CMake 3.20+, Ninja.**  
+Linux-native architecture built around `castcore`. Interfaces are decoupled for modular capture backends and platform abstraction.
 
-**UI: C# WinUI 3 + Windows App SDK, Mica, custom visual style (not stock Settings gray).** Tray via `Shell_NotifyIcon` (WinUI has no tray API). Unpackaged so capture/firewall/tray work.
+**UI: GTK 4 (>= 4.12) + libadwaita (>= 1.5).**  
+Modern GNOME desktop visual standards with `AdwViewSwitcherTitle`, `AdwViewSwitcherBar`, `AdwBreakpoint` responsive adaptation, and dark/light/system theme switching via `AdwStyleManager`. System tray integration uses Ayatana AppIndicator (`libayatana-appindicator-glib-2.0`). Desktop notifications use `org.freedesktop.Notifications`. `app/winui/` is preserved as a UI blueprint for future Windows exploration.
 
-**Rejected UIs:** Electron (RAM, extra process, no justification); Tauri (WebView2 around a GPU capture pipeline); Qt (LGPL/commercial + less native); Flutter (engine + weak tray); raw Slint for v1 (weaker Windows tray/accessibility — revisit for Linux).
+**Capture:**
+- **X11:** XRandR per-monitor crop + MIT-SHM (`XShmGetImage`) for displays; XComposite (`CompositeRedirectManual`) + XDamage + XFixes for window capture.
+- **Wayland:** `xdg-desktop-portal` ScreenCast API streaming BGRA via PipeWire (`pw_stream`).
 
-**Reuse:**
+**Audio:**
+- PulseAudio / PipeWire default sink monitor loopback via `libpulse`. Automatic sink muting during streaming with state restoration on Stop.
 
-- **openscreen** (BSD-3) — discovery optional, Cast channel, Cast Streaming **required**
-- **libopus** (BSD)
-- **OpenH264** (BSD) — software H.264, not GPL x264
-- **FFmpeg** — **dynamic LGPL** only if needed for color/scale fallback; prefer D3D11 shaders
-- Microsoft WGC / WASAPI loopback samples (MIT) as reference, not copy-paste of OBS/Sunshine (**GPL — do not link or paste**)
-
-**Vendor encode:** NVENC SDK, AMF, Intel oneVPL as **optional** backends behind `IVideoEncoder`. Default probe order: **Media Foundation hardware MFT** (one path covers NV/AMD/Intel) → vendor SDK if MF latency too high → OpenH264.
-
-**JSON:** offer messages — nlohmann/json or Open Screen’s own offer types (prefer library types, do not reimplement RTP).
+**Encoding & Transport:**
+- **Video:** Hardware VAAPI (`h264_vaapi`) with universal software fallback to FFmpeg `libx264` (`superfast`, `zerolatency`, High profile, 0 B-frames). Multi-slice and periodic intra-refresh support.
+- **Audio:** `libopus` (Opus 48 kHz stereo, 10 ms frames, 64–192 kbps).
+- **Transport:** Custom Cast RTP packetizer (7-byte header, MTU fragmentation), paced UDP transmission, compound RTCP CAST/CST2 parsing, and dynamic NACK retransmission with duplicate suppression.
+- **Crypto:** OpenSSL 3.x for Cast V2 TLS (port 8009) and Cast Streaming AES-128-CTR with per-frame IV masking.
 
 ---
 
@@ -231,19 +232,17 @@ Maintain: `Online`, `Idle`, `Busy` (another app casting), `Unavailable`. Do not 
 
 ## 9. UI/UX and application state
 
-**Visual:** one stage, not a control panel. Large live source preview (bezel), TV tiles (name + Ready/Busy/Offline), one primary button. Fluent + custom type/spacing (Linear/Arc density, Microsoft materials). Dark default.
+**Layout & Navigation:**
+The application is organized into four dedicated tabs powered by `AdwViewStack`, with an adaptive `AdwViewSwitcherTitle` in the header bar and an `AdwViewSwitcherBar` in the bottom bar with an `AdwBreakpoint` for narrow window widths (≤ 680px):
+- **Cast:** LAN receiver list with model glyphs (Google TV Streamer, Nest Hub, custom IP), display monitor or application window selector (with live desktop app icon resolution), quality preset cards (Auto, High, Balanced, Smooth), inline bitrate slider, and primary Cast Display action button.
+- **Live session:** Real-time streaming status banner, hardware-accelerated Cairo vector sparklines (FPS, Bitrate, RTT, Packet Loss), dynamic adaptive ladder rung indicators, and live studio controls (Freeze display, Mute TV audio with silence injection).
+- **Settings:** Video bitrate ceiling slider, capture frame rate, Opus audio quality, host speaker mute toggle, target playout buffer delay (200 / 400 ms), LAN subnet scan, appearance theme switcher (System / Light / Dark), and hardware/network self-test diagnostics wizard.
+- **Logs:** Real-time searchable log console with severity filter (Debug/Info/Warning/Error), clipboard copy, and quick access to log folder.
 
-**Button:** `Cast Display` → spinner `Connecting to Living Room…` → `Stop Casting` (destructive, always visible). Connected: LIVE badge on preview, discreet stats **hidden by default** (click to expand: fps, bitrate, RTT, resolution).
+**Tray & Notifications:**
+System tray icon chromas during streaming via Ayatana AppIndicator. Left-click toggles the window; right-click provides quick Cast/Stop actions and device switching. Desktop notifications display when casting starts, disconnects, or reconnects via `org.freedesktop.Notifications`.
 
-**States to design explicitly:** empty LAN, searching, ready, connecting, casting, reconnecting, failed (with retry), device vanished, weak network (quality dropped), encoder failed, permission denied (capture/mic not needed; capture is graphics).
-
-**Advanced (drawer):** source (display/window), quality preset, audio toggle, stats, DXGI vs WGC, start in tray. Never codecs/ports.
-
-**Tray:** icon chroma when casting. Left-click: toggle last TV. Right-click: device list, open window, quit. First run shows the window; after one successful cast, optional start-in-tray.
-
-**Privacy UX:** OS capture border when present + tray + in-app LIVE + optional floating “Casting to X” chip. Stopping is one click from tray.
-
-**State machine:** `Idle → Discovering → Ready → Connecting → Negotiating → Streaming ⇄ Reconnecting → Stopping → Idle`, plus `Failed`. UI binds to this only.
+**State machine:** `Idle → Discovering → Ready → Connecting → Negotiating → Streaming ⇄ Reconnecting → Stopping → Idle`, plus `Failed`. UI binds strictly to this state machine.
 
 ---
 
@@ -319,15 +318,11 @@ Heartbeat miss → reconnect. Never leave a zombie capture.
 
 ## 14. Testing strategy
 
-- **Unit:** TXT parser, capability matrix, bitrate ladder, state machine, config, offer builder (golden JSON)
-- **Integration:** Open Screen `cast_receiver` loopback (no TV)
-- **Network:** `clumsy` / WinDivert — 2% loss, 50 ms jitter, reorder
-- **Perf:** ETW + glass-to-glass stopwatch; GPUView if copies suspected
-- **Real devices (minimum matrix):** Chromecast 2 or 3, Ultra or CCwGTV, one Cast-enabled TV, one Nest Hub if available
-- **Soak:** 2 h 1080p60; sleep/wake; display mode change
-- **UI:** WinAppDriver or FlaUI for Cast/Stop/tray; manual visual pass
-
-Do not claim success without a **real-device** log of OFFER/ANSWER + measured latency.
+- **Unit & Integration:** Google Test (`castmirror_tests`, 87 test cases) and CTest.
+- **Network Simulation:** Linux Traffic Control (`scripts/simulate_network.sh` using `tc qdisc netem`) for packet loss, latency jitter, and packet reordering.
+- **Benchmarks:** `tools/poc-encode`, `tools/poc-join`, and `scripts/bench_baseline.sh` recording CSV baselines in `docs/bench/baseline.csv`.
+- **Simulated Receiver:** `tools/fake-receiver` for zero-hardware automated E2E testing of the TLS handshake, OFFER/ANSWER negotiation, Cast RTP packet handling, and clean session teardown.
+- **Real devices:** Chromecast 3rd gen, Ultra, Google TV Streamer, and built-in Cast TVs. See [docs/TEST_REPORT.md](TEST_REPORT.md).
 
 ---
 
