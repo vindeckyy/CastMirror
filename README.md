@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-ready.png" width="720" alt="CastMirror GTK app — Cast tab">
+  <img src="docs/assets/screenshot-ready-v2.png" width="720" alt="CastMirror GTK app — Cast tab">
 </p>
 
 ## What it is
@@ -82,7 +82,7 @@ The GUI is split into four tabs: **Cast**, **Live session**, **Settings**, and *
 7. Stop restores local playback
 
 <p align="center">
-  <img src="docs/assets/screenshot-live.png" width="720" alt="CastMirror Live session tab — idle">
+  <img src="docs/assets/screenshot-live-v2.png" width="720" alt="CastMirror Live session tab — idle">
 </p>
 
 CLI:
