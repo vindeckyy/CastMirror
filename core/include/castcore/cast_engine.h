@@ -57,6 +57,8 @@ class CastEngine {
   bool IsStreamFrozen() const;
   void SetLiveAudioMuted(bool muted);
   bool IsLiveAudioMuted() const;
+  void SetPlayoutDelayMs(int delay_ms);
+  void SetAdaptiveResolutionChangeAllowed(bool allow);
 
   SessionState GetState() const;
   StreamStats GetStats() const;
@@ -77,7 +79,8 @@ class CastEngine {
   StateMachine state_machine_;
   DeviceDiscovery discovery_;
   std::unique_ptr<CastSession> active_session_;
-  mutable std::recursive_mutex engine_mutex_;
+  mutable std::mutex engine_mutex_;
+  mutable std::mutex callbacks_mutex_;
 
   DevicesChangedCallback devices_cb_;
   StateChangedCallback state_cb_;

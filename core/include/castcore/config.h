@@ -4,8 +4,20 @@
 #include "castcore/types.h"
 #include <string>
 #include <memory>
+#include <map>
+#include <optional>
 
 namespace castcore {
+
+struct DeviceProfile {
+  int target_width = 0;
+  int target_height = 0;
+  int target_fps = 0;
+  uint32_t bitrate_kbps = 0;
+  int target_delay_ms = 200;
+  QualityPreset preset = QualityPreset::kAuto;
+  VideoCodec preferred_video_codec = VideoCodec::kH264;
+};
 
 struct AppConfig {
   std::string last_device_id;
@@ -28,6 +40,8 @@ struct AppConfig {
   uint32_t bitrate_kbps_high = 0;
   uint32_t bitrate_kbps_balanced = 0;
   uint32_t bitrate_kbps_smooth = 0;
+  uint32_t bitrate_kbps_game = 0;
+  uint32_t bitrate_kbps_cinema = 0;
   bool enable_tray_on_startup = false;
   bool low_latency_mode = false;
   bool capture_border_hint = true;
@@ -49,6 +63,14 @@ struct AppConfig {
   int launch_timeout_s = 8;
   int answer_timeout_s = 5;
   bool adaptive_resolution_enabled = true;
+  bool verify_device_cert = true;
+  bool latency_hud_enabled = false;
+
+  // Per-device profile persistence
+  std::map<std::string, DeviceProfile> device_profiles;
+
+  std::optional<DeviceProfile> GetDeviceProfile(const std::string& device_id) const;
+  void SetDeviceProfile(const std::string& device_id, const DeviceProfile& profile);
 
   uint32_t GetPresetBitrateOverrideKbps(QualityPreset preset) const;
   uint32_t GetPresetBitrateKbps(QualityPreset preset) const;

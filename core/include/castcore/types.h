@@ -13,12 +13,14 @@
 
 namespace castcore {
 
-// Quality presets for user-visible quality control (Auto / High / Balanced / Smooth)
+// Quality presets for user-visible quality control (Auto / High / Balanced / Smooth / Game / Cinema)
 enum class QualityPreset {
   kAuto,
   kHigh,       // Max quality: 1080p60 / 4K30, high bitrate (~8-12 Mbps)
   kBalanced,   // Balanced: 1080p30 / 1080p60, balanced bitrate (~5 Mbps)
-  kSmooth      // Smooth: 720p60 / 720p30, lower bitrate (~2.5-3.5 Mbps), low latency
+  kSmooth,     // Smooth: 720p60 / 720p30, lower bitrate (~2.5-3.5 Mbps), low latency
+  kGame,       // Game (Ultra-Low Latency): 150ms delay, locked adaptive resolution
+  kCinema      // Cinema (Max Quality): 400ms delay, maximum bit budget (~16 Mbps)
 };
 
 inline const char* QualityPresetToString(QualityPreset preset) {
@@ -27,6 +29,8 @@ inline const char* QualityPresetToString(QualityPreset preset) {
     case QualityPreset::kHigh: return "High";
     case QualityPreset::kBalanced: return "Balanced";
     case QualityPreset::kSmooth: return "Smooth";
+    case QualityPreset::kGame: return "Game";
+    case QualityPreset::kCinema: return "Cinema";
   }
   return "Auto";
 }
@@ -35,6 +39,8 @@ inline QualityPreset QualityPresetFromString(const std::string& str) {
   if (str == "High") return QualityPreset::kHigh;
   if (str == "Balanced") return QualityPreset::kBalanced;
   if (str == "Smooth") return QualityPreset::kSmooth;
+  if (str == "Game") return QualityPreset::kGame;
+  if (str == "Cinema") return QualityPreset::kCinema;
   return QualityPreset::kAuto;
 }
 
@@ -42,7 +48,9 @@ inline QualityPreset QualityPresetFromString(const std::string& str) {
 // default until the user customizes that profile.
 inline uint32_t QualityPresetDefaultBitrateKbps(QualityPreset preset) {
   switch (preset) {
+    case QualityPreset::kCinema: return 16000;
     case QualityPreset::kHigh: return 12000;
+    case QualityPreset::kGame: return 8000;
     case QualityPreset::kSmooth: return 5000;
     case QualityPreset::kBalanced:
     case QualityPreset::kAuto:
@@ -348,6 +356,8 @@ struct StreamStats {
   int recovery_attempt = 0;
   int recovery_elapsed_s = 0;
   uint64_t capture_skipped = 0; // XDamage / PipeWire skip optimization
+  uint64_t video_frames_dropped_capture = 0;
+  uint64_t video_queue_overruns = 0;
   std::string health_hint;
 };
 
@@ -364,6 +374,9 @@ struct SessionOptions {
   bool adaptive_enabled = true;
   bool adaptive_resolution_enabled = true;
   bool show_cursor = false;  // Composite hardware cursor into captured frames
+  bool verify_device_cert = true;  // Verify receiver certificates against Cast Root CA
+  bool allow_http_fallback = false; // Fall back to CAF receiver + local fMP4 HTTP server on mirroring reject
+  std::string caf_receiver_app_id = "CC1AD845"; // Default Media Receiver or custom hosted app ID
   // Selected capture source. When unset, the legacy display_id argument
   // (passed alongside these options) is used as a Monitor source.
   std::optional<CaptureSource> source;

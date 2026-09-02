@@ -154,6 +154,14 @@ void SettingsTab::BuildUi() {
   adw_action_row_set_activatable_widget(ADW_ACTION_ROW(delay_row_), delay_scale_);
   adw_preferences_group_add(lat_group, delay_row_);
 
+  // Latency HUD overlay
+  latency_hud_row_ = adw_switch_row_new();
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(latency_hud_row_), "Camera latency HUD overlay");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(latency_hud_row_),
+                              "Burn-in millisecond stopwatch and frame counter onto stream for glass-to-glass latency calibration");
+  adw_switch_row_set_active(ADW_SWITCH_ROW(latency_hud_row_), cfg.latency_hud_enabled);
+  adw_preferences_group_add(lat_group, latency_hud_row_);
+
   // 4. Device discovery
   AdwPreferencesGroup* disc_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   adw_preferences_group_set_title(disc_group, "Device discovery");
@@ -382,6 +390,16 @@ void SettingsTab::BuildUi() {
     ConfigStore::Instance().Save();
   };
   g_signal_connect(delay_scale_, "value-changed", G_CALLBACK(on_delay_changed), this);
+
+  auto on_hud_toggle = +[](GObject*, GParamSpec*, gpointer user_data) {
+    auto* self = static_cast<SettingsTab*>(user_data);
+    if (self->syncing_controls_) return;
+    gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(self->latency_hud_row_));
+    auto& c = ConfigStore::Instance().Mutable();
+    c.latency_hud_enabled = state;
+    ConfigStore::Instance().Save();
+  };
+  g_signal_connect(latency_hud_row_, "notify::active", G_CALLBACK(on_hud_toggle), this);
 
   // 9. Subnet Scan Switch with Asynchronous AdwAlertDialog
   auto on_scan_toggle = +[](GObject*, GParamSpec*, gpointer user_data) {

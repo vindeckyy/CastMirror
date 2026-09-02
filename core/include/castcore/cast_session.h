@@ -14,6 +14,7 @@
 #include "castcore/audio_encoder.h"
 #include "castcore/adaptive_controller.h"
 #include "castcore/session_recovery.h"
+#include "castcore/http_fallback_server.h"
 
 #include <memory>
 #include <mutex>
@@ -54,6 +55,8 @@ class CastSession {
   bool IsStreamFrozen() const;
   void SetAudioMuted(bool muted);
   bool IsAudioMuted() const;
+  void SetPlayoutDelayMs(int delay_ms);
+  void SetAdaptiveResolutionChangeAllowed(bool allow);
 
  private:
   void OnChannelMessage(const std::string& ns, const std::string& payload,
@@ -90,8 +93,11 @@ class CastSession {
   VideoCodec video_codec_ = VideoCodec::kH264;
   uint32_t bitrate_override_kbps_ = 0;
 
+  bool FallbackToHttpCafStreaming();
+
   std::unique_ptr<CastChannel> cast_channel_;
   std::unique_ptr<CastTransport> transport_;
+  std::unique_ptr<HttpFallbackServer> http_fallback_server_;
   std::unique_ptr<IDisplayCapture> display_capture_;
   std::unique_ptr<IAudioCapture> audio_capture_;
   std::unique_ptr<IVideoEncoder> video_encoder_;
@@ -116,7 +122,8 @@ class CastSession {
   std::atomic<bool> is_streaming_{false};
   std::atomic<bool> stop_requested_{false};
 
-  mutable std::recursive_mutex session_mutex_;
+  mutable std::mutex callbacks_mutex_;
+  mutable std::mutex params_mutex_;
   std::mutex cv_mutex_;
   std::condition_variable cv_;
   bool answer_received_ = false;
@@ -125,6 +132,8 @@ class CastSession {
   std::mutex video_queue_mutex_;
   std::condition_variable video_queue_cv_;
   std::optional<CapturedVideoFrame> pending_video_frame_;
+  std::atomic<uint64_t> video_queue_overruns_{0};
+  std::atomic<uint64_t> video_frames_dropped_capture_{0};
   std::thread video_encode_thread_;
   std::mutex video_encoder_mutex_;
 

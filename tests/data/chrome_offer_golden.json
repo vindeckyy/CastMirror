@@ -1,0 +1,52 @@
+{
+  "type": "OFFER",
+  "seqNum": 1001,
+  "offer": {
+    "castMode": "mirroring",
+    "receiverGetStatus": true,
+    "supportedStreams": [
+      {
+        "index": 0,
+        "type": "audio_source",
+        "codecName": "opus",
+        "rtpProfile": "cast",
+        "rtpPayloadType": 127,
+        "ssrc": 1,
+        "bitRate": 192000,
+        "timeBase": "1/48000",
+        "channels": 2,
+        "samplingRate": 48000,
+        "targetDelay": 400,
+        "aesKey": "0123456789abcdef0123456789abcdef",
+        "aesIvMask": "fedcba9876543210fedcba9876543210"
+      },
+      {
+        "index": 1,
+        "type": "video_source",
+        "codecName": "h264",
+        "rtpProfile": "cast",
+        "rtpPayloadType": 96,
+        "ssrc": 2,
+        "bitRate": 6000000,
+        "timeBase": "1/90000",
+        "maxFrameRate": "60/1",
+        "maxBitRate": 9000000,
+        "targetDelay": 400,
+        "profile": "high",
+        "level": "4.2",
+        "aesKey": "0123456789abcdef0123456789abcdef",
+        "aesIvMask": "fedcba9876543210fedcba9876543210",
+        "resolutions": [
+          {
+            "width": 1920,
+            "height": 1080
+          },
+          {
+            "width": 1280,
+            "height": 720
+          }
+        ]
+      }
+    ]
+  }
+}

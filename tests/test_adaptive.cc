@@ -461,10 +461,10 @@ TEST(AdaptiveTest, JitterAwareDelayAdaptation) {
 }
 
 TEST(AdaptiveTest, UpshiftAfterRecoveryForAllPresets) {
-  // Verify that upshift works for Balanced preset (previously only Auto/High).
-  // With the hold-and-ramp behavior, bitrate ramps back aggressively (~3 clean
-  // intervals per step) and resolution upshifts on the slow cadence (10 clean
-  // + 15s cooldown) after bitrate has recovered.
+  // Verify that upshift works for Balanced preset.
+  // With the hold-and-ramp behavior, bitrate ramps back (8 clean intervals
+  // per step) and resolution upshifts on the slow cadence (10 clean + 15s cooldown)
+  // after bitrate has recovered.
   AdaptiveController adaptive;
   StreamStats initial;
   initial.current_resolution = {1920, 1080};
@@ -472,33 +472,40 @@ TEST(AdaptiveTest, UpshiftAfterRecoveryForAllPresets) {
   initial.bitrate_kbps = 8000;
   initial.target_delay_ms = 200;
   adaptive.Initialize(initial, QualityPreset::kBalanced);
+  adaptive.SetEvaluationIntervalMsForTest(50);
 
-  // Force a downshift with loss
+  // Force a downshift with severe loss
   RtcpFeedback lossy;
-  lossy.fraction_lost = 0.05;
-  for (uint16_t i = 0; i < 12; ++i) {
+  lossy.fraction_lost = 0.20;
+  for (uint16_t i = 0; i < 60; ++i) {
     lossy.nacks.push_back(PacketNack{10, i});
   }
   adaptive.OnFeedback(lossy);
-  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  std::this_thread::sleep_for(std::chrono::milliseconds(60));
   StreamStats updated;
   ASSERT_TRUE(adaptive.CheckAdaptation(updated));
   ASSERT_GT(adaptive.GetCurrentLadderIndex(), 0);
   ASSERT_LT(adaptive.GetCurrentBitrateKbps(), 8000u);
 
-  // Feed clean feedback. Bitrate ramps back in ~12 clean intervals (4 ramp
-  // steps × 3 clean each), then resolution upshifts after 10 more clean
-  // intervals + 15s since downshift. 28 iterations gives ample margin.
+  // Feed clean feedback for bitrate ramp-back (4 steps * 8 clean = 32 intervals)
   RtcpFeedback clean;
   clean.fraction_lost = 0.0;
   clean.rtt_ms = 10.0;
-  for (int i = 0; i < 28; ++i) {
+  for (int i = 0; i < 36; ++i) {
     adaptive.OnFeedback(clean);
-    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
     adaptive.CheckAdaptation(updated);
   }
   // Bitrate should have ramped back to the custom target (8000)
   EXPECT_EQ(adaptive.GetCurrentBitrateKbps(), 8000u);
+
+  // Advance time past 15s downshift cooldown to test resolution upshift
+  adaptive.ResetEvalTimeForTest();
+  for (int i = 0; i < 12; ++i) {
+    adaptive.OnFeedback(clean);
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    adaptive.CheckAdaptation(updated);
+  }
   // Resolution should have upshifted back to the original rung (3 = 1080p60)
   EXPECT_EQ(adaptive.GetCurrentLadderIndex(), 3);
 }
@@ -542,9 +549,9 @@ TEST(AdaptiveTest, CustomBitrateHoldsAndRampsBackUp) {
 
   uint32_t after_drop = adaptive.GetCurrentBitrateKbps();
 
-  // Feed clean feedback — bitrate should ramp back aggressively
-  // (3 clean intervals per step, ~50% of gap each step)
-  for (int i = 0; i < 20; ++i) {
+  // Feed clean feedback — bitrate should ramp back
+  // (8 clean intervals per step * 4 steps = 32 intervals)
+  for (int i = 0; i < 36; ++i) {
     adaptive.OnFeedback(clean);
     std::this_thread::sleep_for(std::chrono::milliseconds(60));
     adaptive.CheckAdaptation(updated);
@@ -554,3 +561,85 @@ TEST(AdaptiveTest, CustomBitrateHoldsAndRampsBackUp) {
   EXPECT_EQ(adaptive.GetCurrentBitrateKbps(), 8000u);
   EXPECT_GT(adaptive.GetCurrentBitrateKbps(), after_drop);
 }
+
+TEST(AdaptiveTest, DelayGradientRttTrendTriggersPreemptiveDownshiftWithoutLoss) {
+  AdaptiveController adaptive;
+
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 60;
+  initial.bitrate_kbps = 8000;
+  initial.target_delay_ms = 200;
+
+  adaptive.Initialize(initial, QualityPreset::kAuto);
+  adaptive.SetEvaluationIntervalMsForTest(10);
+  int initial_rung = adaptive.GetCurrentLadderIndex();
+
+  // Simulate rising RTT slope for 3+ consecutive evaluation intervals with 0% packet loss
+  // (preemptive congestion detection before packet drop)
+  RtcpFeedback fb;
+  fb.fraction_lost = 0.0;
+  fb.jitter = 5;
+
+  double rtt_samples[] = {30.0, 40.0, 55.0, 70.0, 85.0};
+  StreamStats updated;
+  for (int i = 0; i < 5; ++i) {
+    fb.rtt_ms = rtt_samples[i];
+    adaptive.OnFeedback(fb);
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    adaptive.CheckAdaptation(updated);
+  }
+
+  // Preemptive downshift must have triggered without any packet loss
+  EXPECT_GT(adaptive.GetCurrentLadderIndex(), initial_rung);
+  EXPECT_LT(adaptive.GetCurrentBitrateKbps(), 8000u);
+}
+
+TEST(AdaptiveTest, RecoveryHysteresisHoldsForEightSeconds) {
+  AdaptiveController adaptive;
+
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 60;
+  initial.bitrate_kbps = 8000;
+  initial.target_delay_ms = 200;
+
+  adaptive.Initialize(initial, QualityPreset::kAuto);
+  adaptive.SetEvaluationIntervalMsForTest(10);
+
+  // Force downshift with severe loss (> 0.15 triggers immediate emergency downshift)
+  RtcpFeedback loss_fb;
+  loss_fb.fraction_lost = 0.20;
+  loss_fb.rtt_ms = 15.0;
+  for (uint16_t i = 0; i < 60; ++i) {
+    loss_fb.nacks.push_back(PacketNack{10, i});
+  }
+  adaptive.OnFeedback(loss_fb);
+  std::this_thread::sleep_for(std::chrono::milliseconds(15));
+  StreamStats updated;
+  ASSERT_TRUE(adaptive.CheckAdaptation(updated));
+  uint32_t dropped_bitrate = adaptive.GetCurrentBitrateKbps();
+  ASSERT_LT(dropped_bitrate, 8000u);
+
+  // Feed clean feedback for 7 intervals (< 8 intervals recovery hysteresis)
+  RtcpFeedback clean_fb;
+  clean_fb.fraction_lost = 0.0;
+  clean_fb.rtt_ms = 15.0;
+  clean_fb.jitter = 2;
+
+  for (int i = 0; i < 7; ++i) {
+    adaptive.OnFeedback(clean_fb);
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    adaptive.CheckAdaptation(updated);
+    // Hysteresis holds: bitrate must NOT have stepped up yet
+    EXPECT_EQ(adaptive.GetCurrentBitrateKbps(), dropped_bitrate);
+  }
+
+  // On the 8th clean interval, hysteresis condition is met and recovery begins
+  adaptive.OnFeedback(clean_fb);
+  std::this_thread::sleep_for(std::chrono::milliseconds(15));
+  EXPECT_TRUE(adaptive.CheckAdaptation(updated));
+  EXPECT_GT(adaptive.GetCurrentBitrateKbps(), dropped_bitrate);
+}
+
+

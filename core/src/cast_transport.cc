@@ -202,10 +202,11 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
       frame_cache[current_fid][pkt.packet_id] = pkt;
     }
 
-    // Keep the last 60 frames for this SSRC only. Audio and video frame IDs
-    // are independent; a shared cache was dropping video packets as soon as
-    // audio's higher frame IDs filled the map.
-    while (frame_cache.size() > 60) {
+    // Retransmit cache: bound memory by dropping oldest frames when cache
+    // exceeds 500 ms of video (30 frames @ 60fps) or 50 audio frames (500ms @ 10ms/frame).
+    // This prevents unbounded memory growth during persistent receiver stalls.
+    const size_t max_frames = is_video_frame ? 30 : 50;
+    while (frame_cache.size() > max_frames) {
       frame_cache.erase(frame_cache.begin());
     }
   }
@@ -595,6 +596,12 @@ void CastTransport::ReceiveLoop() {
       }
     }
   }
+}
+
+size_t CastTransport::GetCachedFrameCount(uint32_t ssrc) const {
+  std::lock_guard<std::mutex> lock(cache_mutex_);
+  auto it = packet_cache_.find(ssrc);
+  return (it != packet_cache_.end()) ? it->second.size() : 0;
 }
 
 StreamStats CastTransport::GetStats() const {

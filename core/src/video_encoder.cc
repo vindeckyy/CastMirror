@@ -406,7 +406,21 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       hw_device_ctx_ = nullptr;
       return false;
     }
-    const AVCodec* codec = avcodec_find_encoder_by_name("h264_vaapi");
+    const AVCodec* codec = nullptr;
+    const char* codec_name = nullptr;
+    if (config_.codec == VideoCodec::kHEVC) {
+      codec = avcodec_find_encoder_by_name("hevc_vaapi");
+      codec_name = "hevc_vaapi";
+    } else if (config_.codec == VideoCodec::kVP9) {
+      codec = avcodec_find_encoder_by_name("vp9_vaapi");
+      codec_name = "vp9_vaapi";
+    } else if (config_.codec == VideoCodec::kVP8) {
+      codec = avcodec_find_encoder_by_name("vp8_vaapi");
+      codec_name = "vp8_vaapi";
+    } else {
+      codec = avcodec_find_encoder_by_name("h264_vaapi");
+      codec_name = "h264_vaapi";
+    }
     if (!codec) {
       av_buffer_unref(&hw_device_ctx_);
       return false;
@@ -454,7 +468,13 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     codec_ctx_->max_b_frames = 0;  // 0 B-frames required for Cast display mirroring
     codec_ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
     codec_ctx_->slices = config_.slices > 0 ? config_.slices : 4;
-    codec_ctx_->profile = AV_PROFILE_H264_HIGH;
+    if (config_.codec == VideoCodec::kHEVC) {
+      codec_ctx_->profile = AV_PROFILE_HEVC_MAIN;
+    } else if (config_.codec == VideoCodec::kVP9) {
+      codec_ctx_->profile = AV_PROFILE_VP9_0;
+    } else if (config_.codec == VideoCodec::kH264) {
+      codec_ctx_->profile = AV_PROFILE_H264_HIGH;
+    }
     codec_ctx_->hw_frames_ctx = av_buffer_ref(hw_frames_ctx_);
     av_opt_set_int(codec_ctx_->priv_data, "slices", codec_ctx_->slices, 0);
     av_opt_set_int(codec_ctx_->priv_data, "async_depth", 1, 0);
@@ -485,7 +505,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     }
 
     use_vaapi_ = true;
-    LOG_INFO << "Initialized Video Encoder: h264_vaapi ("
+    LOG_INFO << "Initialized Video Encoder: " << codec_name << " ("
              << config_.width << "x" << config_.height << " @ " << config_.framerate
              << "fps, " << config_.bitrate_kbps << " kbps)";
     return true;
@@ -496,6 +516,12 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     if (config_.codec == VideoCodec::kVP8) {
       codec = avcodec_find_encoder_by_name("libvpx");
       if (!codec) codec = avcodec_find_encoder(AV_CODEC_ID_VP8);
+    } else if (config_.codec == VideoCodec::kVP9) {
+      codec = avcodec_find_encoder_by_name("libvpx-vp9");
+      if (!codec) codec = avcodec_find_encoder(AV_CODEC_ID_VP9);
+    } else if (config_.codec == VideoCodec::kHEVC) {
+      LOG_WARN << "HEVC software encode not supported (HW-only via VAAPI to preserve GPL hygiene).";
+      return false;
     } else {
       codec = avcodec_find_encoder_by_name("libx264");
       if (!codec) codec = avcodec_find_encoder(AV_CODEC_ID_H264);
@@ -548,6 +574,16 @@ class FFmpegVideoEncoder : public IVideoEncoder {
             << ":bframes=0:rc-lookahead=0:"
                "sync-lookahead=0:sliced-threads=1:aud=1";
       av_opt_set(codec_ctx_->priv_data, "x264-params", x264p.str().c_str(), 0);
+    } else if (config_.codec == VideoCodec::kVP8 || config_.codec == VideoCodec::kVP9) {
+      // VP8/VP9 libvpx real-time low-latency tuning:
+      // VP8E_SET_CPUUSED=-5, deadline=realtime, 0 lag, error_resilient=1
+      av_opt_set(codec_ctx_->priv_data, "deadline", "realtime", 0);
+      av_opt_set(codec_ctx_->priv_data, "quality", "realtime", 0);
+      av_opt_set(codec_ctx_->priv_data, "cpu-used", "-5", 0);
+      av_opt_set(codec_ctx_->priv_data, "lag-in-frames", "0", 0);
+      av_opt_set(codec_ctx_->priv_data, "error-resilient", "1", 0);
+      av_opt_set(codec_ctx_->priv_data, "rc_lookahead", "0", 0);
+      av_opt_set(codec_ctx_->priv_data, "auto-alt-ref", "0", 0);
     }
 
     if (avcodec_open2(codec_ctx_, codec, nullptr) < 0) {
@@ -626,6 +662,10 @@ class FFmpegVideoEncoder : public IVideoEncoder {
 };
 
 std::unique_ptr<IVideoEncoder> VideoEncoderFactory::Create(VideoCodec codec) {
+  if (codec == VideoCodec::kAV1) {
+    LOG_INFO << "AV1 video encoder is deferred / experimental; returning nullptr until validated on real hardware";
+    return nullptr;
+  }
   return std::make_unique<FFmpegVideoEncoder>();
 }
 

@@ -423,11 +423,15 @@ void CastTab::BuildUi() {
   preset_high_btn_ = make_preset_card(copy::kPresetHighTitle, "Best detail · up to 1080p60 or 4K30", QualityPreset::kHigh, preset_auto_btn_);
   preset_balanced_btn_ = make_preset_card(copy::kPresetBalancedTitle, "Sharp picture · moderate network use", QualityPreset::kBalanced, preset_auto_btn_);
   preset_smooth_btn_ = make_preset_card(copy::kPresetSmoothTitle, "Steadier motion on busy Wi‑Fi", QualityPreset::kSmooth, preset_auto_btn_);
+  preset_game_btn_ = make_preset_card("Game (Ultra-Low Latency)", "Low delay (150ms) · lock resolution for responsive input", QualityPreset::kGame, preset_auto_btn_);
+  preset_cinema_btn_ = make_preset_card("Cinema (Max Quality)", "Full quality (400ms buffer) · maximum bit budget for movies", QualityPreset::kCinema, preset_auto_btn_);
 
   gtk_flow_box_append(GTK_FLOW_BOX(preset_flow_box_), preset_auto_btn_);
   gtk_flow_box_append(GTK_FLOW_BOX(preset_flow_box_), preset_high_btn_);
   gtk_flow_box_append(GTK_FLOW_BOX(preset_flow_box_), preset_balanced_btn_);
   gtk_flow_box_append(GTK_FLOW_BOX(preset_flow_box_), preset_smooth_btn_);
+  gtk_flow_box_append(GTK_FLOW_BOX(preset_flow_box_), preset_game_btn_);
+  gtk_flow_box_append(GTK_FLOW_BOX(preset_flow_box_), preset_cinema_btn_);
   gtk_box_append(GTK_BOX(quality_section), preset_flow_box_);
 
   bitrate_note_lbl_ = gtk_label_new("");
@@ -462,6 +466,7 @@ void CastTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.SetPresetBitrateKbps(self->selected_preset_, kbps);
     c.max_bitrate_kbps = kbps;
+    self->SaveSelectedDeviceProfile();
     ConfigStore::Instance().Save();
 
     std::ostringstream val_ss;
@@ -480,7 +485,9 @@ void CastTab::BuildUi() {
   // Set initial preset active
   selected_preset_ = ConfigStore::Instance().Get().quality_preset;
   updating_ui_ = true;
-  if (selected_preset_ == QualityPreset::kHigh) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_high_btn_), TRUE);
+  if (selected_preset_ == QualityPreset::kCinema) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_cinema_btn_), TRUE);
+  else if (selected_preset_ == QualityPreset::kGame) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_game_btn_), TRUE);
+  else if (selected_preset_ == QualityPreset::kHigh) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_high_btn_), TRUE);
   else if (selected_preset_ == QualityPreset::kBalanced) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_balanced_btn_), TRUE);
   else if (selected_preset_ == QualityPreset::kSmooth) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_smooth_btn_), TRUE);
   else gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_auto_btn_), TRUE);
@@ -970,6 +977,27 @@ void CastTab::OnDeviceRowSelected(GtkListBox*, GtkListBoxRow* row) {
       cfg.last_device_id = dev.id;
       cfg.last_device_name = dev.name;
       cfg.last_device_ip = dev.ip_address;
+
+      // Restore per-device profile if exists
+      auto profile = cfg.GetDeviceProfile(dev.id);
+      if (profile.has_value()) {
+        selected_preset_ = profile->preset;
+        updating_ui_ = true;
+        if (selected_preset_ == QualityPreset::kCinema) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_cinema_btn_), TRUE);
+        else if (selected_preset_ == QualityPreset::kGame) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_game_btn_), TRUE);
+        else if (selected_preset_ == QualityPreset::kHigh) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_high_btn_), TRUE);
+        else if (selected_preset_ == QualityPreset::kBalanced) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_balanced_btn_), TRUE);
+        else if (selected_preset_ == QualityPreset::kSmooth) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_smooth_btn_), TRUE);
+        else gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_auto_btn_), TRUE);
+        updating_ui_ = false;
+
+        uint32_t kbps = profile->bitrate_kbps > 0 ? profile->bitrate_kbps : cfg.GetPresetBitrateKbps(selected_preset_);
+        SyncInlineBitrate(kbps);
+        if (profile->target_delay_ms > 0) {
+          cfg.target_delay_ms = profile->target_delay_ms;
+        }
+      }
+
       ConfigStore::Instance().Save();
       break;
     }
@@ -1282,10 +1310,30 @@ void CastTab::OnPresetChanged(QualityPreset preset) {
   selected_preset_ = preset;
   auto& cfg = ConfigStore::Instance().Mutable();
   cfg.quality_preset = preset;
+  if (preset == QualityPreset::kGame) {
+    cfg.target_delay_ms = 150;
+    cfg.adaptive_resolution_enabled = false;
+  } else if (preset == QualityPreset::kCinema) {
+    cfg.target_delay_ms = 400;
+    cfg.adaptive_resolution_enabled = true;
+  }
+  SaveSelectedDeviceProfile();
   ConfigStore::Instance().Save();
   uint32_t kbps = cfg.GetPresetBitrateKbps(preset);
   SyncInlineBitrate(kbps);
   app_->SyncBitrateSlider(kbps);
+}
+
+void CastTab::SaveSelectedDeviceProfile() {
+  if (selected_device_id_.empty()) return;
+  auto& cfg = ConfigStore::Instance().Mutable();
+  DeviceProfile prof;
+  prof.preset = selected_preset_;
+  prof.bitrate_kbps = cfg.GetPresetBitrateKbps(selected_preset_);
+  prof.target_delay_ms = cfg.target_delay_ms;
+  prof.target_fps = cfg.capture_fps;
+  prof.preferred_video_codec = cfg.preferred_video_codec;
+  cfg.SetDeviceProfile(selected_device_id_, prof);
 }
 
 bool CastTab::GetAudioEnabled() const {
@@ -1302,6 +1350,8 @@ void CastTab::SetControlsSensitive(bool sensitive) {
   if (preset_high_btn_) gtk_widget_set_sensitive(preset_high_btn_, sensitive);
   if (preset_balanced_btn_) gtk_widget_set_sensitive(preset_balanced_btn_, sensitive);
   if (preset_smooth_btn_) gtk_widget_set_sensitive(preset_smooth_btn_, sensitive);
+  if (preset_game_btn_) gtk_widget_set_sensitive(preset_game_btn_, sensitive);
+  if (preset_cinema_btn_) gtk_widget_set_sensitive(preset_cinema_btn_, sensitive);
   if (inline_bitrate_scale_) gtk_widget_set_sensitive(inline_bitrate_scale_, sensitive);
   if (rescan_btn_) gtk_widget_set_sensitive(rescan_btn_, sensitive);
   if (add_ip_btn_) gtk_widget_set_sensitive(add_ip_btn_, sensitive);

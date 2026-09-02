@@ -73,7 +73,7 @@ class AdaptiveController {
   void SetEvaluationIntervalMsForTest(int ms) { eval_interval_ms_ = ms; }
   void ResetEvalTimeForTest() {
     last_eval_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-    last_downshift_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    last_downshift_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(20);
   }
 
  private:
@@ -117,6 +117,8 @@ class AdaptiveController {
   int consecutive_clean_seconds_ = 0;
   int consecutive_clean_delay_intervals_ = 0;
   int eval_interval_ms_ = 1000;
+  int rtt_rising_ticks_ = 0;
+  double last_eval_rtt_ = 0.0;
 
   std::chrono::steady_clock::time_point last_eval_time_;
   std::chrono::steady_clock::time_point last_downshift_time_;

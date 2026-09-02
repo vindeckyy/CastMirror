@@ -28,7 +28,9 @@ AppConfig& ConfigStore::Mutable() {
 
 uint32_t AppConfig::GetPresetBitrateOverrideKbps(QualityPreset preset) const {
   switch (preset) {
+    case QualityPreset::kCinema: return bitrate_kbps_cinema;
     case QualityPreset::kHigh: return bitrate_kbps_high;
+    case QualityPreset::kGame: return bitrate_kbps_game;
     case QualityPreset::kBalanced: return bitrate_kbps_balanced;
     case QualityPreset::kSmooth: return bitrate_kbps_smooth;
     case QualityPreset::kAuto:
@@ -43,11 +45,27 @@ uint32_t AppConfig::GetPresetBitrateKbps(QualityPreset preset) const {
 
 void AppConfig::SetPresetBitrateKbps(QualityPreset preset, uint32_t kbps) {
   switch (preset) {
+    case QualityPreset::kCinema: bitrate_kbps_cinema = kbps; break;
     case QualityPreset::kHigh: bitrate_kbps_high = kbps; break;
+    case QualityPreset::kGame: bitrate_kbps_game = kbps; break;
     case QualityPreset::kBalanced: bitrate_kbps_balanced = kbps; break;
     case QualityPreset::kSmooth: bitrate_kbps_smooth = kbps; break;
     case QualityPreset::kAuto:
     default: bitrate_kbps_auto = kbps; break;
+  }
+}
+
+std::optional<DeviceProfile> AppConfig::GetDeviceProfile(const std::string& device_id) const {
+  auto it = device_profiles.find(device_id);
+  if (it != device_profiles.end()) {
+    return it->second;
+  }
+  return std::nullopt;
+}
+
+void AppConfig::SetDeviceProfile(const std::string& device_id, const DeviceProfile& profile) {
+  if (!device_id.empty()) {
+    device_profiles[device_id] = profile;
   }
 }
 
@@ -60,6 +78,8 @@ void AppConfig::Validate() {
   bitrate_kbps_high = clamp_kbps(bitrate_kbps_high);
   bitrate_kbps_balanced = clamp_kbps(bitrate_kbps_balanced);
   bitrate_kbps_smooth = clamp_kbps(bitrate_kbps_smooth);
+  bitrate_kbps_game = clamp_kbps(bitrate_kbps_game);
+  bitrate_kbps_cinema = clamp_kbps(bitrate_kbps_cinema);
   max_bitrate_kbps = std::clamp(max_bitrate_kbps, 1000u, 25000u);
   if (capture_fps < 0 || capture_fps > 60) {
     capture_fps = 0;
@@ -130,6 +150,22 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("bitrate_kbps_high")) config_.bitrate_kbps_high = j["bitrate_kbps_high"].get<uint32_t>();
     if (j.contains("bitrate_kbps_balanced")) config_.bitrate_kbps_balanced = j["bitrate_kbps_balanced"].get<uint32_t>();
     if (j.contains("bitrate_kbps_smooth")) config_.bitrate_kbps_smooth = j["bitrate_kbps_smooth"].get<uint32_t>();
+    if (j.contains("bitrate_kbps_game")) config_.bitrate_kbps_game = j["bitrate_kbps_game"].get<uint32_t>();
+    if (j.contains("bitrate_kbps_cinema")) config_.bitrate_kbps_cinema = j["bitrate_kbps_cinema"].get<uint32_t>();
+
+    if (j.contains("device_profiles") && j["device_profiles"].is_object()) {
+      config_.device_profiles.clear();
+      for (auto& [dev_id, prof_j] : j["device_profiles"].items()) {
+        DeviceProfile prof;
+        if (prof_j.contains("target_width")) prof.target_width = prof_j["target_width"].get<int>();
+        if (prof_j.contains("target_height")) prof.target_height = prof_j["target_height"].get<int>();
+        if (prof_j.contains("target_fps")) prof.target_fps = prof_j["target_fps"].get<int>();
+        if (prof_j.contains("bitrate_kbps")) prof.bitrate_kbps = prof_j["bitrate_kbps"].get<uint32_t>();
+        if (prof_j.contains("target_delay_ms")) prof.target_delay_ms = prof_j["target_delay_ms"].get<int>();
+        if (prof_j.contains("preset")) prof.preset = QualityPresetFromString(prof_j["preset"].get<std::string>());
+        config_.device_profiles[dev_id] = prof;
+      }
+    }
     if (j.contains("enable_tray_on_startup")) config_.enable_tray_on_startup = j["enable_tray_on_startup"].get<bool>();
     if (j.contains("low_latency_mode")) config_.low_latency_mode = j["low_latency_mode"].get<bool>();
     if (j.contains("capture_border_hint")) config_.capture_border_hint = j["capture_border_hint"].get<bool>();
@@ -173,6 +209,8 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("launch_timeout_s")) config_.launch_timeout_s = j["launch_timeout_s"].get<int>();
     if (j.contains("answer_timeout_s")) config_.answer_timeout_s = j["answer_timeout_s"].get<int>();
     if (j.contains("adaptive_resolution_enabled")) config_.adaptive_resolution_enabled = j["adaptive_resolution_enabled"].get<bool>();
+    if (j.contains("verify_device_cert")) config_.verify_device_cert = j["verify_device_cert"].get<bool>();
+    if (j.contains("latency_hud_enabled")) config_.latency_hud_enabled = j["latency_hud_enabled"].get<bool>();
 
     config_.Validate();
     LOG_INFO << "Loaded configuration from " << path_to_load;
@@ -212,6 +250,21 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["bitrate_kbps_high"] = config_.bitrate_kbps_high;
     j["bitrate_kbps_balanced"] = config_.bitrate_kbps_balanced;
     j["bitrate_kbps_smooth"] = config_.bitrate_kbps_smooth;
+    j["bitrate_kbps_game"] = config_.bitrate_kbps_game;
+    j["bitrate_kbps_cinema"] = config_.bitrate_kbps_cinema;
+
+    nlohmann::json profiles_j = nlohmann::json::object();
+    for (const auto& [dev_id, prof] : config_.device_profiles) {
+      nlohmann::json p;
+      p["target_width"] = prof.target_width;
+      p["target_height"] = prof.target_height;
+      p["target_fps"] = prof.target_fps;
+      p["bitrate_kbps"] = prof.bitrate_kbps;
+      p["target_delay_ms"] = prof.target_delay_ms;
+      p["preset"] = QualityPresetToString(prof.preset);
+      profiles_j[dev_id] = p;
+    }
+    j["device_profiles"] = profiles_j;
     j["enable_tray_on_startup"] = config_.enable_tray_on_startup;
     j["low_latency_mode"] = config_.low_latency_mode;
     j["capture_border_hint"] = config_.capture_border_hint;
@@ -233,6 +286,8 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["launch_timeout_s"] = config_.launch_timeout_s;
     j["answer_timeout_s"] = config_.answer_timeout_s;
     j["adaptive_resolution_enabled"] = config_.adaptive_resolution_enabled;
+    j["verify_device_cert"] = config_.verify_device_cert;
+    j["latency_hud_enabled"] = config_.latency_hud_enabled;
 
     // Atomic write: write to tmp + fsync + rename, backup previous
     std::string tmp_path = path_to_save + ".tmp";

@@ -180,6 +180,8 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(fbox), freeze_lbl_);
   gtk_button_set_child(GTK_BUTTON(freeze_btn_), fbox);
   gtk_widget_set_tooltip_text(freeze_btn_, "Freeze video on TV (stops sending new video frames)");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(freeze_btn_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Freeze TV stream", -1);
   g_signal_connect(freeze_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
     auto* self = static_cast<LiveTab*>(user_data);
     bool frozen = gtk_toggle_button_get_active(btn);
@@ -203,6 +205,8 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(mbox), mute_lbl_);
   gtk_button_set_child(GTK_BUTTON(mute_btn_), mbox);
   gtk_widget_set_tooltip_text(mute_btn_, "Mute/unmute stream audio sent to the Cast device");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(mute_btn_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Mute TV audio", -1);
   g_signal_connect(mute_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
     auto* self = static_cast<LiveTab*>(user_data);
     bool muted = gtk_toggle_button_get_active(btn);
@@ -216,6 +220,42 @@ void LiveTab::BuildUi() {
     }
   }), this);
   gtk_box_append(GTK_BOX(live_controls_box_), mute_btn_);
+
+  // Quick-toggle for Game mode (150ms delay, lock resolution)
+  game_mode_btn_ = gtk_button_new();
+  gtk_widget_add_css_class(game_mode_btn_, "cm-live-control-btn");
+  GtkWidget* gbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget* gicon = gtk_image_new_from_icon_name("input-gaming-symbolic");
+  GtkWidget* glbl = gtk_label_new("Game Mode");
+  gtk_box_append(GTK_BOX(gbox), gicon);
+  gtk_box_append(GTK_BOX(gbox), glbl);
+  gtk_button_set_child(GTK_BUTTON(game_mode_btn_), gbox);
+  gtk_widget_set_tooltip_text(game_mode_btn_, "Quick toggle Game mode: ultra-low latency (150ms), locks resolution");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(game_mode_btn_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Switch to Game Mode", -1);
+  g_signal_connect(game_mode_btn_, "clicked", G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+    auto* self = static_cast<LiveTab*>(user_data);
+    self->OnGameModeClicked();
+  }), this);
+  gtk_box_append(GTK_BOX(live_controls_box_), game_mode_btn_);
+
+  // Quick-toggle for Cinema mode (400ms delay, full bit budget)
+  cinema_mode_btn_ = gtk_button_new();
+  gtk_widget_add_css_class(cinema_mode_btn_, "cm-live-control-btn");
+  GtkWidget* cbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  GtkWidget* cicon = gtk_image_new_from_icon_name("video-display-symbolic");
+  GtkWidget* clbl = gtk_label_new("Cinema Mode");
+  gtk_box_append(GTK_BOX(cbox), cicon);
+  gtk_box_append(GTK_BOX(cbox), clbl);
+  gtk_button_set_child(GTK_BUTTON(cinema_mode_btn_), cbox);
+  gtk_widget_set_tooltip_text(cinema_mode_btn_, "Quick toggle Cinema mode: high buffer (400ms), maximum quality budget");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(cinema_mode_btn_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Switch to Cinema Mode", -1);
+  g_signal_connect(cinema_mode_btn_, "clicked", G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+    auto* self = static_cast<LiveTab*>(user_data);
+    self->OnCinemaModeClicked();
+  }), this);
+  gtk_box_append(GTK_BOX(live_controls_box_), cinema_mode_btn_);
 
   gtk_box_append(GTK_BOX(live_controls_box_), hero_status_pill_);
   gtk_box_append(GTK_BOX(hero_card_), live_controls_box_);
@@ -476,6 +516,7 @@ void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats
   if (pipe_network_sub_) {
     std::ostringstream ss_net;
     ss_net << std::fixed << std::setprecision(1) << (stats.bitrate_kbps / 1000.0) << " Mbps";
+    ss_net << " · RTT " << std::fixed << std::setprecision(0) << stats.round_trip_time_ms << " ms";
     if (stats.packet_loss_fraction > 0.001) {
       ss_net << " (" << std::fixed << std::setprecision(1)
              << (stats.packet_loss_fraction * 100.0) << "% loss)";
@@ -494,7 +535,9 @@ void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats
     set_node_state(pipe_screen_node_, "is-live");
     set_node_state(pipe_capture_node_, "is-live");
     set_node_state(pipe_encode_node_, "is-live");
-    if (stats.packet_loss_fraction >= 0.05 || stats.round_trip_time_ms >= 80.0) {
+    if (stats.packet_loss_fraction >= 0.05 || stats.round_trip_time_ms >= 150.0) {
+      set_node_state(pipe_network_node_, "is-error");
+    } else if (stats.round_trip_time_ms >= 80.0) {
       set_node_state(pipe_network_node_, "is-warning");
     } else {
       set_node_state(pipe_network_node_, "is-live");
@@ -562,9 +605,12 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
           << " · " << std::fixed << std::setprecision(1) << (cur.bitrate_kbps / 1000.0) << " Mbps";
   gtk_label_set_text(GTK_LABEL(hero_subtitle_lbl_), ss_hero.str().c_str());
 
-  // 1. Frame rate
+  // 1. Framerate
   std::ostringstream ss_fps;
-  ss_fps << std::fixed << std::setprecision(1) << cur.current_fps << " FPS";
+  ss_fps << std::fixed << std::setprecision(1) << cur.current_fps << " fps";
+  if (cur.video_frames_dropped_capture > 0) {
+    ss_fps << " (" << cur.video_frames_dropped_capture << " dropped)";
+  }
   gtk_label_set_text(GTK_LABEL(val_fps_), ss_fps.str().c_str());
 
   // 2. Video bitrate
@@ -572,19 +618,29 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
   ss_bitrate << std::fixed << std::setprecision(2) << (cur.bitrate_kbps / 1000.0) << " Mbps";
   gtk_label_set_text(GTK_LABEL(val_bitrate_), ss_bitrate.str().c_str());
 
-  // 3. Round-trip time
+  // 3. Round-trip time (Latency HUD: color red when > 150 ms)
   std::ostringstream ss_rtt;
   ss_rtt << std::fixed << std::setprecision(0) << cur.round_trip_time_ms << " ms";
   gtk_label_set_text(GTK_LABEL(val_rtt_), ss_rtt.str().c_str());
+  if (cur.round_trip_time_ms > 150.0) {
+    gtk_widget_add_css_class(val_rtt_, "error");
+    gtk_widget_remove_css_class(val_rtt_, "success");
+  } else if (cur.round_trip_time_ms > 0.0) {
+    gtk_widget_remove_css_class(val_rtt_, "error");
+    gtk_widget_add_css_class(val_rtt_, "success");
+  } else {
+    gtk_widget_remove_css_class(val_rtt_, "error");
+    gtk_widget_remove_css_class(val_rtt_, "success");
+  }
 
   // 4. Packet loss
   std::ostringstream ss_loss;
   ss_loss << std::fixed << std::setprecision(1) << (cur.packet_loss_fraction * 100.0) << "%";
   gtk_label_set_text(GTK_LABEL(val_loss_), ss_loss.str().c_str());
 
-  // 5. Target delay
+  // 5. Target delay (shows live measured RTT alongside target delay)
   std::ostringstream ss_delay;
-  ss_delay << cur.target_delay_ms << " ms";
+  ss_delay << cur.target_delay_ms << " ms (RTT " << static_cast<int>(cur.round_trip_time_ms) << " ms)";
   gtk_label_set_text(GTK_LABEL(val_delay_), ss_delay.str().c_str());
 
   // 6. Output
@@ -608,6 +664,9 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
   // 9. Total sent
   std::ostringstream ss_sent;
   ss_sent << cur.frames_sent << " frames · " << cur.packets_sent << " packets";
+  if (cur.video_queue_overruns > 0) {
+    ss_sent << " · " << cur.video_queue_overruns << " drops";
+  }
   gtk_label_set_text(GTK_LABEL(val_sent_), ss_sent.str().c_str());
 
   // Push real-time telemetry into sparklines
@@ -705,6 +764,8 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
     }
     if (freeze_btn_) gtk_widget_set_sensitive(freeze_btn_, TRUE);
     if (mute_btn_) gtk_widget_set_sensitive(mute_btn_, TRUE);
+    if (game_mode_btn_) gtk_widget_set_sensitive(game_mode_btn_, TRUE);
+    if (cinema_mode_btn_) gtk_widget_set_sensitive(cinema_mode_btn_, TRUE);
     UpdatePipelineDiagram(state, last_stats_);
     gtk_stack_set_visible_child_name(GTK_STACK(root_widget_), "session");
     current_ui_state_ = state;
@@ -829,12 +890,32 @@ void LiveTab::ResetSessionValues() {
     if (mute_lbl_) gtk_label_set_text(GTK_LABEL(mute_lbl_), "Mute TV");
   }
 
+  if (game_mode_btn_) {
+    gtk_widget_set_sensitive(game_mode_btn_, FALSE);
+  }
+  if (cinema_mode_btn_) {
+    gtk_widget_set_sensitive(cinema_mode_btn_, FALSE);
+  }
+
   if (session_scroller_) {
     GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(session_scroller_));
     if (vadj) {
       gtk_adjustment_set_value(vadj, gtk_adjustment_get_lower(vadj));
     }
   }
+}
+
+void LiveTab::OnGameModeClicked() {
+  CastEngine::Instance().SetPlayoutDelayMs(150);
+  CastEngine::Instance().SetAdaptiveResolutionChangeAllowed(false);
+  AppendActivityEvent("Switched to Game Mode: target delay 150 ms, adaptive resolution locked");
+}
+
+void LiveTab::OnCinemaModeClicked() {
+  CastEngine::Instance().SetPlayoutDelayMs(400);
+  CastEngine::Instance().SetAdaptiveResolutionChangeAllowed(true);
+  CastEngine::Instance().SetLiveVideoBitrateKbps(16000);
+  AppendActivityEvent("Switched to Cinema Mode: target delay 400 ms, maximum bitrate budget (16 Mbps)");
 }
 
 #if !defined(NDEBUG)

@@ -33,6 +33,8 @@ class LiveTab {
 
   void OnGoToCastClicked();
   void OnBackToCastClicked();
+  void OnGameModeClicked();
+  void OnCinemaModeClicked();
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;  // GtkStack
@@ -94,6 +96,8 @@ class LiveTab {
   GtkWidget* mute_btn_ = nullptr;
   GtkWidget* mute_icon_ = nullptr;
   GtkWidget* mute_lbl_ = nullptr;
+  GtkWidget* game_mode_btn_ = nullptr;
+  GtkWidget* cinema_mode_btn_ = nullptr;
 
   // Adaptive quality ladder
   GtkWidget* ladder_box_ = nullptr;

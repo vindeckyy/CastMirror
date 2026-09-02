@@ -84,8 +84,10 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
   video_stream["targetDelay"] = target_delay_ms;
   video_stream["aesKey"] = video_keys.aes_key_hex;
   video_stream["aesIvMask"] = video_keys.aes_iv_mask_hex;
-  video_stream["profile"] = "high";
-  video_stream["level"] = "4.2";
+  if (video_codec == VideoCodec::kH264) {
+    video_stream["profile"] = "high";
+    video_stream["level"] = "4.2";
+  }
 
   nlohmann::json resolutions = nlohmann::json::array();
   resolutions.push_back({{"width", video_settings.current_resolution.width},

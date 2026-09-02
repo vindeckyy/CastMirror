@@ -60,3 +60,24 @@ TEST(CapabilityModelTest, UserCaptureFpsIsNotClampedTo60) {
   auto stats = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kAuto, 1920, 1080, 60, 120);
   EXPECT_EQ(stats.current_framerate, 120);
 }
+
+TEST(CapabilityModelTest, GoogleTvStreamerAndUltraCodec4KGating) {
+  CastDevice streamer;
+  streamer.model_name = "Google TV Streamer";
+  auto caps_streamer = CapabilityModel::Evaluate(streamer);
+  EXPECT_EQ(caps_streamer.max_resolution.width, 3840);
+  EXPECT_TRUE(caps_streamer.supports_hevc);
+  EXPECT_TRUE(caps_streamer.supports_vp9);
+
+  CastDevice ultra;
+  ultra.model_name = "Chromecast Ultra";
+  auto caps_ultra = CapabilityModel::Evaluate(ultra);
+  EXPECT_EQ(caps_ultra.max_resolution.width, 3840);
+  EXPECT_TRUE(caps_ultra.supports_vp9);
+
+  CastDevice gen1;
+  gen1.model_name = "H2G2-42";
+  auto caps_gen1 = CapabilityModel::Evaluate(gen1);
+  EXPECT_EQ(caps_gen1.max_resolution.width, 1920);
+  EXPECT_FALSE(caps_gen1.supports_hevc);
+}

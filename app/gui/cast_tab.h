@@ -92,6 +92,7 @@ class CastTab {
   void OnDeviceRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnDisplayRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnPresetChanged(QualityPreset preset);
+  void SaveSelectedDeviceProfile();
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;
@@ -122,6 +123,8 @@ class CastTab {
   GtkWidget* preset_high_btn_ = nullptr;
   GtkWidget* preset_balanced_btn_ = nullptr;
   GtkWidget* preset_smooth_btn_ = nullptr;
+  GtkWidget* preset_game_btn_ = nullptr;
+  GtkWidget* preset_cinema_btn_ = nullptr;
   GtkWidget* bitrate_note_lbl_ = nullptr;
   GtkWidget* inline_bitrate_scale_ = nullptr;
   GtkWidget* inline_bitrate_val_lbl_ = nullptr;

@@ -1,6 +1,7 @@
 #include "castcore/display_capture.h"
 #include "castcore/config.h"
 #include "castcore/logger.h"
+#include "castcore/latency_hud.h"
 
 #if defined(CASTCORE_HAVE_PIPEWIRE)
 
@@ -638,6 +639,9 @@ class PipeWirePortalCapture : public IDisplayCapture {
                 vf.height = self->height_;
                 munmap(mapped, map_size);
                 // Also handle cursor fallback already in vf
+                if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+                  LatencyHud::Render(vf);
+                }
                 FrameCallback cb;
                 {
                   std::lock_guard<std::mutex> lock(self->mutex_);
@@ -664,6 +668,9 @@ class PipeWirePortalCapture : public IDisplayCapture {
                 vf.width = self->width_;
                 vf.height = self->height_;
                 munmap(mapped, map_size);
+                if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+                  LatencyHud::Render(vf);
+                }
                 FrameCallback cb;
                 {
                   std::lock_guard<std::mutex> lock(self->mutex_);
@@ -684,6 +691,9 @@ class PipeWirePortalCapture : public IDisplayCapture {
               vf.stride = src_stride;
               vf.width = self->width_;
               vf.height = self->height_;
+              if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+                LatencyHud::Render(vf);
+              }
               FrameCallback cb;
               {
                 std::lock_guard<std::mutex> lock(self->mutex_);

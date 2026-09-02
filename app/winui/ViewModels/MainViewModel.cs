@@ -2,7 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Microsoft.UI.Xaml.Media;
+using CastMirror.Services;
 
 namespace CastMirror.ViewModels
 {
@@ -63,6 +63,97 @@ namespace CastMirror.ViewModels
         public string StatsBitrateText { get; set; } = "Bitrate: 6.0 Mbps";
         public string StatsLatencyText { get; set; } = "RTT: 12 ms";
         public string StatsLossText { get; set; } = "Loss: 0.0%";
+
+        private readonly StateCallback _stateCallback;
+        private readonly DevicesCallback _devicesCallback;
+        private readonly StatsCallback _statsCallback;
+
+        public MainViewModel()
+        {
+            Displays.Add("Primary Display");
+
+            _stateCallback = OnStateChanged;
+            _devicesCallback = OnDevicesChanged;
+            _statsCallback = OnStatsUpdated;
+
+            try
+            {
+                if (CastCoreBridge.castmirror_init())
+                {
+                    CastCoreBridge.castmirror_set_state_callback(_stateCallback, IntPtr.Zero);
+                    CastCoreBridge.castmirror_set_devices_callback(_devicesCallback, IntPtr.Zero);
+                    CastCoreBridge.castmirror_set_stats_callback(_statsCallback, IntPtr.Zero);
+                    CastCoreBridge.castmirror_start_discovery();
+                }
+            }
+            catch (DllNotFoundException)
+            {
+                // Fallback for standalone XAML preview without native library loaded
+            }
+        }
+
+        public void ToggleCast()
+        {
+            if (IsStreaming)
+            {
+                CastCoreBridge.castmirror_stop_cast();
+                IsStreaming = false;
+            }
+            else if (SelectedDevice != null)
+            {
+                uint bitrate = _presetIndex switch
+                {
+                    1 => 4000,
+                    2 => 2500,
+                    _ => 6000
+                };
+                bool ok = CastCoreBridge.castmirror_start_cast(SelectedDevice.Id, 0, 60, bitrate);
+                if (ok)
+                {
+                    IsStreaming = true;
+                }
+            }
+        }
+
+        private void OnStateChanged(CastMirrorState state, string message, IntPtr userData)
+        {
+            IsStreaming = (state == CastMirrorState.Streaming);
+        }
+
+        private void OnDevicesChanged(int count, IntPtr userData)
+        {
+            Devices.Clear();
+            for (int i = 0; i < count; ++i)
+            {
+                if (CastCoreBridge.castmirror_get_device_info(i, out var dev))
+                {
+                    Devices.Add(new DeviceItem
+                    {
+                        Id = dev.Id,
+                        Name = dev.Name,
+                        ModelName = dev.ModelName,
+                        StatusText = "Ready"
+                    });
+                }
+            }
+            if (SelectedDevice == null && Devices.Count > 0)
+            {
+                SelectedDevice = Devices[0];
+            }
+            OnPropertyChanged(nameof(IsSearchingVisible));
+        }
+
+        private void OnStatsUpdated(ref CastMirrorStreamStats stats, IntPtr userData)
+        {
+            StatsFpsText = $"FPS: {stats.CurrentFps:F1}";
+            StatsBitrateText = $"Bitrate: {stats.BitrateKbps / 1000.0:F1} Mbps";
+            StatsLatencyText = $"RTT: {stats.RoundTripTimeMs:F0} ms";
+            StatsLossText = $"Loss: {stats.PacketLossFraction * 100.0:F1}%";
+            OnPropertyChanged(nameof(StatsFpsText));
+            OnPropertyChanged(nameof(StatsBitrateText));
+            OnPropertyChanged(nameof(StatsLatencyText));
+            OnPropertyChanged(nameof(StatsLossText));
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null)

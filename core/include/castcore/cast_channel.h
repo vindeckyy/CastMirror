@@ -48,6 +48,9 @@ class CastChannel {
   std::string GetConnectedIp() const { return ip_address_; }
   bool HeartbeatTimedOut() const;
 
+  void SetVerifyDeviceCert(bool verify) { verify_device_cert_ = verify; }
+  bool GetVerifyDeviceCert() const { return verify_device_cert_; }
+
  private:
   void NoteIncomingPong();
   void NotifyDisconnected(const std::string& reason);
@@ -60,6 +63,7 @@ class CastChannel {
   uint16_t port_ = 8009;
   std::atomic<bool> is_connected_{false};
   std::atomic<bool> should_stop_{false};
+  bool verify_device_cert_ = true;
 
   int socket_fd_ = -1;
   SSL_CTX* ssl_ctx_ = nullptr;

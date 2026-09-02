@@ -26,6 +26,7 @@ set(CASTCORE_SOURCES
     src/state_machine.cc
     src/capability_model.cc
     src/device_discovery.cc
+    src/device_auth.cc
     src/cast_channel.cc
     src/mirroring_negotiator.cc
     src/frame_crypto.cc
@@ -37,9 +38,15 @@ set(CASTCORE_SOURCES
     src/audio_capture.cc
     src/gpu_processor.cc
     src/video_encoder.cc
+    src/latency_hud.cc
+    src/display_capture_wgc.cc
+    src/video_encoder_mf.cc
+    src/audio_capture_wasapi.cc
+    src/c_api.cc
     src/audio_encoder.cc
     src/adaptive_controller.cc
     src/session_recovery.cc
+    src/http_fallback_server.cc
     src/cast_session.cc
     src/cast_engine.cc
 )
@@ -99,4 +106,19 @@ if(UNIX AND NOT APPLE)
         target_include_directories(castcore PUBLIC ${PIPEWIRE_INCLUDE_DIRS})
         target_link_libraries(castcore PUBLIC ${PIPEWIRE_LIBRARIES})
     endif()
+
+    option(CASTMIRROR_USE_AVAHI "Enable native Avahi client discovery backend" ON)
+    if(CASTMIRROR_USE_AVAHI)
+        pkg_check_modules(AVAHI avahi-client avahi-common)
+        if(AVAHI_FOUND)
+            target_compile_definitions(castcore PUBLIC CASTCORE_HAVE_AVAHI=1)
+            target_include_directories(castcore PUBLIC ${AVAHI_INCLUDE_DIRS})
+            target_link_libraries(castcore PUBLIC ${AVAHI_LIBRARIES})
+            message(STATUS "Found avahi-client: ${AVAHI_VERSION} - enabling native Avahi discovery backend")
+        endif()
+    endif()
+endif()
+
+if(WIN32)
+    target_link_libraries(castcore PUBLIC d3d11 dxgi mfplat mfuuid ole32)
 endif()

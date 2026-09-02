@@ -350,4 +350,23 @@ TEST(DisplayCaptureTest, X11WindowStartInvalidIdFailsCleanly) {
 #endif
 }
 
+#include "castcore/latency_hud.h"
+
+TEST(DisplayCaptureTest, LatencyHudRendersOntoFrameWhenEnabled) {
+  CapturedVideoFrame frame;
+  frame.width = 640;
+  frame.height = 480;
+  frame.stride = 640 * 4;
+  frame.data.assign(static_cast<size_t>(frame.stride) * frame.height, 0);
+
+  EXPECT_EQ(frame.data[25 * frame.stride + 25 * 4 + 0], 0);
+
+  LatencyHud::Render(frame);
+
+  uint8_t b = frame.data[25 * frame.stride + 25 * 4 + 0];
+  uint8_t a = frame.data[25 * frame.stride + 25 * 4 + 3];
+  EXPECT_EQ(a, 255);
+  EXPECT_GT(b, 0);
+}
+
 

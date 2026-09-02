@@ -44,6 +44,7 @@ class CastTransport {
   void SetFeedbackCallback(FeedbackCallback callback);
 
   StreamStats GetStats() const;
+  size_t GetCachedFrameCount(uint32_t ssrc) const;
 
   // Returns the highest frame id that is safe to drop from the retransmit cache.
   // 0 means "do not erase" (bogus wrap / checkpoint too far ahead).

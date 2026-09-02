@@ -1,6 +1,8 @@
 #include "castcore/display_capture.h"
 #include "castcore/logger.h"
 #include "castcore/config.h"
+#include "castcore/latency_hud.h"
+#include "castcore/display_capture_wgc.h"
 #include <chrono>
 #include <cstring>
 #include <cmath>
@@ -201,6 +203,10 @@ class SyntheticDisplayCapture : public IDisplayCapture {
       vf.stride = width_ * 4;
       vf.timestamp = start_time;
       vf.data = frame_buffer;
+
+      if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+        LatencyHud::Render(vf);
+      }
 
       FrameCallback cb;
       {
@@ -1071,6 +1077,9 @@ class X11DisplayCapture : public IDisplayCapture {
         }
 
         if (show_cursor_) CompositeCursor(vf);
+        if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+          LatencyHud::Render(vf);
+        }
 
         FrameCallback cb;
         {
@@ -1153,6 +1162,10 @@ std::unique_ptr<IDisplayCapture> DisplayCaptureFactory::Create() {
   if (wayland_display && wayland_display[0] != '\0') {
     return CreateWaylandPortalCapture();
   }
+#endif
+
+#if defined(_WIN32)
+  return std::make_unique<DisplayCaptureWgc>();
 #endif
 
 #if !defined(_WIN32)

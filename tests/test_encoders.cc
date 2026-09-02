@@ -266,3 +266,170 @@ TEST(EncoderTest, IntraRefreshConfiguration) {
 
   unsetenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE");
 }
+
+TEST(EncoderTest, VP8VideoEncoderProducesValidFrames) {
+  VideoEncoderConfig cfg;
+  cfg.width = 640;
+  cfg.height = 360;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 2000;
+  cfg.codec = VideoCodec::kVP8;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kVP8);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  CapturedVideoFrame frame;
+  frame.width = 640;
+  frame.height = 360;
+  frame.stride = 640 * 4;
+  frame.timestamp = std::chrono::steady_clock::now();
+  frame.data.resize(640 * 360 * 4, 0x77);
+
+  EncodedFrame ef0;
+  EXPECT_TRUE(encoder->Encode(frame, ef0));
+  EXPECT_GT(ef0.data.size(), 0u);
+  EXPECT_EQ(ef0.dependency, FrameDependency::kKeyFrame);
+  EXPECT_EQ(ef0.frame_id, 0u);
+
+  frame.timestamp += std::chrono::milliseconds(33);
+  EncodedFrame ef1;
+  EXPECT_TRUE(encoder->Encode(frame, ef1));
+  EXPECT_GT(ef1.data.size(), 0u);
+  EXPECT_EQ(ef1.dependency, FrameDependency::kDependent);
+  EXPECT_EQ(ef1.frame_id, 1u);
+  EXPECT_EQ(ef1.referenced_frame_id, 0u);
+}
+
+TEST(EncoderTest, VP8VideoEncoderReconfigureKeepsFrameIds) {
+  VideoEncoderConfig cfg;
+  cfg.width = 640;
+  cfg.height = 360;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 2000;
+  cfg.codec = VideoCodec::kVP8;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kVP8);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  CapturedVideoFrame frame;
+  frame.width = 640;
+  frame.height = 360;
+  frame.stride = 640 * 4;
+  frame.timestamp = std::chrono::steady_clock::now();
+  frame.data.resize(640 * 360 * 4, 0x88);
+
+  EncodedFrame ef;
+  ASSERT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_EQ(ef.frame_id, 0u);
+
+  frame.timestamp += std::chrono::milliseconds(33);
+  ASSERT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_EQ(ef.frame_id, 1u);
+
+  // Reconfigure resolution down
+  cfg.width = 480;
+  cfg.height = 270;
+  ASSERT_TRUE(encoder->Reconfigure(cfg));
+
+  frame.width = 480;
+  frame.height = 270;
+  frame.stride = 480 * 4;
+  frame.data.resize(480 * 270 * 4, 0x99);
+  frame.timestamp += std::chrono::milliseconds(33);
+
+  ASSERT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_EQ(ef.frame_id, 2u);
+}
+
+TEST(EncoderTest, VP8RtpTimestampsFollowCaptureClock) {
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 1000;
+  cfg.codec = VideoCodec::kVP8;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kVP8);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  CapturedVideoFrame frame;
+  frame.width = 320;
+  frame.height = 240;
+  frame.stride = 320 * 4;
+  frame.data.resize(320 * 240 * 4, 0x44);
+
+  auto t0 = std::chrono::steady_clock::now();
+  frame.timestamp = t0;
+  EncodedFrame ef0;
+  ASSERT_TRUE(encoder->Encode(frame, ef0));
+
+  frame.timestamp = t0 + std::chrono::milliseconds(100);
+  EncodedFrame ef1;
+  ASSERT_TRUE(encoder->Encode(frame, ef1));
+
+  // 100ms at the 90 kHz Cast video clock = 9000 ticks
+  EXPECT_EQ(ef1.rtp_timestamp - ef0.rtp_timestamp, 9000u);
+}
+
+TEST(EncoderTest, AV1EncoderStubReturnsNullptr) {
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kAV1);
+  EXPECT_EQ(encoder, nullptr);
+}
+
+TEST(EncoderTest, VP9VideoEncoderProducesValidFrames) {
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 1000;
+  cfg.codec = VideoCodec::kVP9;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kVP9);
+  ASSERT_NE(encoder, nullptr);
+  if (encoder->Initialize(cfg)) {
+    CapturedVideoFrame frame;
+    frame.width = 320;
+    frame.height = 240;
+    frame.stride = 320 * 4;
+    frame.data.resize(320 * 240 * 4, 0x55);
+    frame.timestamp = std::chrono::steady_clock::now();
+
+    EncodedFrame ef;
+    EXPECT_TRUE(encoder->Encode(frame, ef));
+    EXPECT_GT(ef.data.size(), 0u);
+    EXPECT_EQ(ef.dependency, FrameDependency::kKeyFrame);
+    EXPECT_EQ(ef.frame_id, 0u);
+  } else {
+    // If libvpx-vp9 is not built into system ffmpeg, verify clean rejection
+    SUCCEED() << "VP9 encoder not available in system ffmpeg";
+  }
+}
+
+TEST(EncoderTest, HEVCVideoEncoderHardwareGatedFailsGracefullyWithoutHardware) {
+  VideoEncoderConfig cfg;
+  cfg.width = 1920;
+  cfg.height = 1080;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 8000;
+  cfg.codec = VideoCodec::kHEVC;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kHEVC);
+  ASSERT_NE(encoder, nullptr);
+  // HEVC is strictly HW-only (no software fallback to preserve GPL boundary).
+  // Either VAAPI is available and it initializes, or it returns false cleanly.
+  bool ok = encoder->Initialize(cfg);
+  if (ok) {
+    CapturedVideoFrame frame;
+    frame.width = 1920;
+    frame.height = 1080;
+    frame.stride = 1920 * 4;
+    frame.data.resize(1920 * 1080 * 4, 0x11);
+    frame.timestamp = std::chrono::steady_clock::now();
+
+    EncodedFrame ef;
+    EXPECT_TRUE(encoder->Encode(frame, ef));
+  } else {
+    SUCCEED() << "HEVC rejected gracefully when VAAPI hardware is absent";
+  }
+}
+

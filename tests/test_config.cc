@@ -84,3 +84,50 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   EXPECT_FALSE(cfg.close_to_tray);
   std::filesystem::remove(temp_path);
 }
+
+TEST(ConfigTest, PerDeviceProfilesPersistenceAndPresets) {
+  std::string temp_path = "/tmp/castmirror_test_device_profiles.json";
+  if (std::filesystem::exists(temp_path)) {
+    std::filesystem::remove(temp_path);
+  }
+
+  auto& store = ConfigStore::Instance();
+  auto& cfg = store.Mutable();
+
+  DeviceProfile living_room;
+  living_room.preset = QualityPreset::kCinema;
+  living_room.bitrate_kbps = 16000;
+  living_room.target_delay_ms = 400;
+  living_room.target_fps = 60;
+  cfg.SetDeviceProfile("dev-living-room", living_room);
+
+  DeviceProfile bedroom;
+  bedroom.preset = QualityPreset::kGame;
+  bedroom.bitrate_kbps = 8000;
+  bedroom.target_delay_ms = 150;
+  bedroom.target_fps = 60;
+  cfg.SetDeviceProfile("dev-bedroom", bedroom);
+
+  EXPECT_TRUE(store.Save(temp_path));
+
+  // Clear profiles in memory
+  cfg.device_profiles.clear();
+  EXPECT_FALSE(cfg.GetDeviceProfile("dev-living-room").has_value());
+
+  // Load back
+  EXPECT_TRUE(store.Load(temp_path));
+
+  auto lr_loaded = cfg.GetDeviceProfile("dev-living-room");
+  ASSERT_TRUE(lr_loaded.has_value());
+  EXPECT_EQ(lr_loaded->preset, QualityPreset::kCinema);
+  EXPECT_EQ(lr_loaded->bitrate_kbps, 16000u);
+  EXPECT_EQ(lr_loaded->target_delay_ms, 400);
+
+  auto br_loaded = cfg.GetDeviceProfile("dev-bedroom");
+  ASSERT_TRUE(br_loaded.has_value());
+  EXPECT_EQ(br_loaded->preset, QualityPreset::kGame);
+  EXPECT_EQ(br_loaded->bitrate_kbps, 8000u);
+  EXPECT_EQ(br_loaded->target_delay_ms, 150);
+
+  std::filesystem::remove(temp_path);
+}

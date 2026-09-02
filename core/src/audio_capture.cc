@@ -554,11 +554,13 @@ class PulseAudioCapture : public IAudioCapture {
 };
 #endif
 
+#include "castcore/audio_capture_wasapi.h"
+
 std::unique_ptr<IAudioCapture> AudioCaptureFactory::Create() {
-#if !defined(_WIN32)
-  return std::make_unique<PulseAudioCapture>();
+#if defined(_WIN32)
+  return std::make_unique<WasapiAudioCapture>();
 #else
-  return std::make_unique<SyntheticAudioCapture>();
+  return std::make_unique<PulseAudioCapture>();
 #endif
 }
 

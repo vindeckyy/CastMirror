@@ -24,6 +24,9 @@ set(TEST_SOURCES
     test_capture_source.cc
     test_portal_source.cc
     test_source_selection.cc
+    test_device_auth.cc
+    test_c_api.cc
+    test_http_fallback.cc
 )
 
 add_executable(castmirror_tests ${TEST_SOURCES})

@@ -46,6 +46,7 @@ class SettingsTab {
   GtkWidget* delay_row_ = nullptr;
   GtkWidget* delay_scale_ = nullptr;
   GtkWidget* delay_val_lbl_ = nullptr;
+  GtkWidget* latency_hud_row_ = nullptr;
 
   // Device discovery
   GtkWidget* subnet_scan_row_ = nullptr;

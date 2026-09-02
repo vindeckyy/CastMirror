@@ -463,3 +463,37 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
   transport.Stop();
   close(recv_fd);
 }
+
+TEST(CastTransportTest, RetransmitCacheBoundedTo500msWorthOfFrames) {
+  CastTransport transport;
+  ASSERT_TRUE(transport.Start("127.0.0.1", 34599));
+
+  uint32_t ssrc = 2; // video SSRC
+  for (uint32_t fid = 0; fid < 80; ++fid) {
+    RtpPacket pkt;
+    pkt.frame_id = fid;
+    pkt.packet_id = 0;
+    pkt.max_packet_id = 0;
+    pkt.data.resize(100, 0);
+    pkt.data[1] = 96; // Video payload type
+    // Write RTP timestamp (fid * 1500 ticks @ 90kHz = 16.6ms / frame = 60fps)
+    uint32_t ts = fid * 1500;
+    pkt.data[4] = (ts >> 24) & 0xFF;
+    pkt.data[5] = (ts >> 16) & 0xFF;
+    pkt.data[6] = (ts >> 8) & 0xFF;
+    pkt.data[7] = ts & 0xFF;
+    // Write SSRC
+    pkt.data[8] = (ssrc >> 24) & 0xFF;
+    pkt.data[9] = (ssrc >> 16) & 0xFF;
+    pkt.data[10] = (ssrc >> 8) & 0xFF;
+    pkt.data[11] = ssrc & 0xFF;
+
+    transport.SendPackets({pkt});
+  }
+
+  // Cache must not exceed 30 video frames (500 ms @ 60fps)
+  EXPECT_LE(transport.GetCachedFrameCount(ssrc), 30u);
+  EXPECT_GT(transport.GetCachedFrameCount(ssrc), 0u);
+  transport.Stop();
+}
+

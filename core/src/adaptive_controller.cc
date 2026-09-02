@@ -182,6 +182,8 @@ void AdaptiveController::ResetFeedbackWindow() {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     recent_nack_keys_.clear();
   }
+  rtt_rising_ticks_ = 0;
+  last_eval_rtt_ = 0.0;
   consecutive_loss_events_ = 0;
   consecutive_clean_seconds_ = 0;
   consecutive_clean_delay_intervals_ = 0;
@@ -299,8 +301,22 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
     }
   }
 
-  if (recent_loss > 0.03 || recent_rtt > 120.0 || nack_pressure || recent_pli) {
-    consecutive_loss_events_ = std::min(2, consecutive_loss_events_ + (severe_feedback ? 2 : 1));
+  // Delay-gradient / RTT-trend detector:
+  // Track consecutive rising RTT ticks (EWMA slope > 0). If RTT rises consistently for
+  // 3 ticks (with >= 2ms increase per tick), treat as preemptive congestion
+  // before actual packet loss occurs.
+  double current_rtt_sample = recent_rtt > 0.0 ? recent_rtt : ewma_rtt_ms_;
+  if (last_eval_rtt_ > 0.0 && current_rtt_sample > last_eval_rtt_ + 2.0) {
+    rtt_rising_ticks_++;
+  } else if (current_rtt_sample <= last_eval_rtt_) {
+    rtt_rising_ticks_ = 0;
+  }
+  last_eval_rtt_ = current_rtt_sample;
+
+  const bool rtt_trend_pressure = (rtt_rising_ticks_ >= 3);
+
+  if (recent_loss > 0.03 || recent_rtt > 120.0 || nack_pressure || recent_pli || rtt_trend_pressure) {
+    consecutive_loss_events_ = std::min(2, consecutive_loss_events_ + ((severe_feedback || rtt_trend_pressure) ? 2 : 1));
     consecutive_clean_seconds_ = 0;
 
     // Immediate emergency downshift on severe congestion — don't wait for
@@ -317,6 +333,7 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
       last_downshift_time_ = now;
       apply_caps();
       consecutive_loss_events_ = 0;
+      rtt_rising_ticks_ = 0;
       LOG_WARN << "Emergency bitrate downshift -> " << current_bitrate_kbps_
                << " kbps (rung " << current_rung_idx_
                << ") due to severe feedback: unique_nacks=" << recent_nacks
@@ -333,11 +350,13 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
         last_downshift_time_ = now;
         apply_caps();
         consecutive_loss_events_ = 0;
+        rtt_rising_ticks_ = 0;
 
         LOG_WARN << "Adaptive bitrate downshift -> " << current_bitrate_kbps_
                  << " kbps (rung " << current_rung_idx_ << ") due to feedback: loss="
                  << (recent_loss * 100.0) << "%, rtt=" << recent_rtt
                  << "ms, unique_nacks=" << recent_nacks
+                 << ", rtt_trend=" << (rtt_trend_pressure ? "rising_3_ticks" : "stable")
                  << ", pli=" << (recent_pli ? "yes" : "no");
       } else if (last_floor_warning_time_.time_since_epoch().count() == 0 ||
                  now - last_floor_warning_time_ >= std::chrono::seconds(10)) {
@@ -357,13 +376,10 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
       stability_cap_kbps_ = 0;
     }
 
-    // Aggressive bitrate ramp-back to the user's custom target.
-    // After 3 clean seconds, step bitrate up by ~50% of the remaining gap
-    // to custom_target_kbps_ each evaluation (1 s). This reaches an 8 Mbps
-    // target from 4 Mbps in ~5-8 s without waiting for the slow resolution
-    // upshift cadence. Bitrate-only recovery avoids keyframe storms.
-    if (custom_target_kbps_ > 0 && consecutive_clean_seconds_ >= 3 &&
-        current_bitrate_kbps_ < custom_target_kbps_) {
+    // Recovery hysteresis: require 8 s of stable RTT (slope <= 0) + 0 loss before stepping up.
+    // This prevents oscillation on borderline links.
+    if (custom_target_kbps_ > 0 && consecutive_clean_seconds_ >= 8 &&
+        rtt_rising_ticks_ == 0 && current_bitrate_kbps_ < custom_target_kbps_) {
       uint32_t gap = custom_target_kbps_ - current_bitrate_kbps_;
       uint32_t step = std::max<uint32_t>(500, gap / 2);
       uint32_t before = current_bitrate_kbps_;

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "castcore/mirroring_negotiator.h"
 #include <nlohmann/json.hpp>
+#include <fstream>
 
 using namespace castcore;
 
@@ -94,3 +95,64 @@ TEST(OfferAnswerTest, CreateStatusJsonForGetStatus) {
   EXPECT_TRUE(j["status"].is_array());
   EXPECT_EQ(j["status"][0]["ssrc"], 2);
 }
+
+TEST(OfferAnswerTest, OfferMatchesChromeGoldenNetlogSchema) {
+  std::string golden_path = "tests/data/chrome_offer_golden.json";
+  std::ifstream golden_file(golden_path);
+  if (!golden_file.is_open()) {
+    golden_path = "../tests/data/chrome_offer_golden.json";
+    golden_file.open(golden_path);
+  }
+  ASSERT_TRUE(golden_file.is_open()) << "Failed to open chrome_offer_golden.json";
+
+  nlohmann::json golden = nlohmann::json::parse(golden_file);
+
+  StreamStats stats;
+  stats.current_resolution = {1920, 1080};
+  stats.current_framerate = 60;
+  stats.bitrate_kbps = 6000;
+  stats.target_delay_ms = 400;
+
+  StreamEncryptionKeys v_keys;
+  v_keys.aes_key_hex = "0123456789abcdef0123456789abcdef";
+  v_keys.aes_iv_mask_hex = "fedcba9876543210fedcba9876543210";
+
+  StreamEncryptionKeys a_keys;
+  a_keys.aes_key_hex = "0123456789abcdef0123456789abcdef";
+  a_keys.aes_iv_mask_hex = "fedcba9876543210fedcba9876543210";
+
+  std::string actual_str = MirroringNegotiator::CreateOfferJson(
+      1001, stats, true, v_keys, a_keys, VideoCodec::kH264, 400, 192000);
+
+  nlohmann::json actual = nlohmann::json::parse(actual_str);
+
+  // Assert top-level keys
+  EXPECT_EQ(actual["type"], golden["type"]);
+  EXPECT_EQ(actual["seqNum"], golden["seqNum"]);
+  ASSERT_TRUE(actual.contains("offer"));
+
+  const auto& actual_offer = actual["offer"];
+  const auto& golden_offer = golden["offer"];
+  EXPECT_EQ(actual_offer["castMode"], golden_offer["castMode"]);
+  EXPECT_EQ(actual_offer["receiverGetStatus"], golden_offer["receiverGetStatus"]);
+
+  // Assert stream count
+  ASSERT_EQ(actual_offer["supportedStreams"].size(), golden_offer["supportedStreams"].size());
+
+  // Check audio stream schema
+  const auto& actual_audio = actual_offer["supportedStreams"][0];
+  const auto& golden_audio = golden_offer["supportedStreams"][0];
+  for (auto it = golden_audio.begin(); it != golden_audio.end(); ++it) {
+    EXPECT_TRUE(actual_audio.contains(it.key())) << "Missing audio field: " << it.key();
+    EXPECT_EQ(actual_audio[it.key()], it.value()) << "Audio field mismatch on: " << it.key();
+  }
+
+  // Check video stream schema
+  const auto& actual_video = actual_offer["supportedStreams"][1];
+  const auto& golden_video = golden_offer["supportedStreams"][1];
+  for (auto it = golden_video.begin(); it != golden_video.end(); ++it) {
+    EXPECT_TRUE(actual_video.contains(it.key())) << "Missing video field: " << it.key();
+    EXPECT_EQ(actual_video[it.key()], it.value()) << "Video field mismatch on: " << it.key();
+  }
+}
+

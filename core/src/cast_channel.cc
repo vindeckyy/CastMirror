@@ -1,4 +1,5 @@
 #include "castcore/cast_channel.h"
+#include "castcore/device_auth.h"
 #include "castcore/logger.h"
 #include <nlohmann/json.hpp>
 
@@ -128,8 +129,8 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     return false;
   }
 
-  // Allow self-signed Cast device certificates (standard Cast v2 sender behavior)
-  SSL_CTX_set_verify(ssl_ctx_, SSL_VERIFY_NONE, nullptr);
+  // Configure Cast device certificate verification policy
+  DeviceAuth::ConfigureSslContext(ssl_ctx_, verify_device_cert_);
 
   // Pin to TLS 1.2: real Chromecasts never offer 1.3, and under 1.3 the
   // client's SSL_read can emit post-handshake records (NewSessionTicket /

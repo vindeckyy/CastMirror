@@ -28,7 +28,9 @@ void PrintHelp() {
             << "  --preset <preset>       Quality preset: Auto, High, Balanced, Smooth (default: Auto)\n"
             << "  --no-audio              Disable audio mirroring\n"
             << "  --bitrate <kbps>        Custom video bitrate in kbps\n"
+            << "  --codec <h264|vp8>      Select video codec (h264 or vp8, default: h264)\n"
             << "  --low-latency           Force 200ms target playout delay\n"
+            << "  --no-verify             Bypass Cast device certificate verification (dev escape hatch)\n"
             << "  --help                  Show this help message\n\n";
 }
 
@@ -39,9 +41,11 @@ int main(int argc, char** argv) {
   bool list_windows = false;
   bool list_displays = false;
   QualityPreset preset_arg = QualityPreset::kAuto;
+  VideoCodec video_codec_arg = VideoCodec::kH264;
   bool audio_enabled_arg = true;
   uint32_t bitrate_arg = 0;
   int target_delay_arg = 0;
+  bool verify_device_cert = true;
   bool interactive_mode = true;
 
   for (int i = 1; i < argc; ++i) {
@@ -67,8 +71,17 @@ int main(int argc, char** argv) {
       audio_enabled_arg = false;
     } else if (arg == "--bitrate" && i + 1 < argc) {
       try { bitrate_arg = static_cast<uint32_t>(std::stoul(argv[++i])); } catch (...) {}
+    } else if (arg == "--codec" && i + 1 < argc) {
+      std::string c = argv[++i];
+      if (c == "vp8" || c == "VP8") {
+        video_codec_arg = VideoCodec::kVP8;
+      } else {
+        video_codec_arg = VideoCodec::kH264;
+      }
     } else if (arg == "--low-latency") {
       target_delay_arg = 200;
+    } else if (arg == "--no-verify") {
+      verify_device_cert = false;
     }
   }
 
@@ -126,8 +139,10 @@ int main(int argc, char** argv) {
       SessionOptions opts;
       opts.preset = preset_arg;
       opts.enable_audio = audio_enabled_arg;
+      opts.video_codec = video_codec_arg;
       opts.video_bitrate_kbps = bitrate_arg;
       if (target_delay_arg > 0) opts.target_delay_ms = target_delay_arg;
+      opts.verify_device_cert = verify_device_cert;
       bool ok = engine.StartCasting(target_device_arg, source, opts);
       if (!ok) {
         std::cerr << "Failed to start casting to " << target_device_arg << "\n";
@@ -139,8 +154,10 @@ int main(int argc, char** argv) {
       SessionOptions opts;
       opts.preset = preset_arg;
       opts.enable_audio = audio_enabled_arg;
+      opts.video_codec = video_codec_arg;
       opts.video_bitrate_kbps = bitrate_arg;
       if (target_delay_arg > 0) opts.target_delay_ms = target_delay_arg;
+      opts.verify_device_cert = verify_device_cert;
       bool ok = engine.StartCasting(target_device_arg, display_id_arg, opts);
       if (!ok) {
         std::cerr << "Failed to start casting to " << target_device_arg << "\n";

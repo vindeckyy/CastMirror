@@ -249,6 +249,9 @@ void GuiApp::BuildUi() {
   gtk_widget_add_css_class(cast_button_, "cm-primary-action");
   gtk_widget_set_size_request(cast_button_, 220, 40);
   gtk_actionable_set_action_name(GTK_ACTIONABLE(cast_button_), "win.cast");
+  gtk_widget_set_tooltip_text(cast_button_, "Start or stop casting to the selected display");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(cast_button_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Cast display", -1);
 
   GtkWidget* cast_inner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_widget_set_halign(cast_inner, GTK_ALIGN_CENTER);

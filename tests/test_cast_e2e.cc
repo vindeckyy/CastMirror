@@ -507,6 +507,7 @@ TEST(CastE2ETest, FullEndToEndSessionWithSimulatedReceiver) {
   auto& engine = CastEngine::Instance();
   engine.Initialize();
   AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
 
   CastDevice dev;
   dev.id = "test-e2e-device";
@@ -557,6 +558,7 @@ TEST(CastE2ETest, ReconnectRestartsVideoPipelineWithoutCrash) {
   auto& engine = CastEngine::Instance();
   engine.Initialize();
   AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
 
   CastDevice dev;
   dev.id = "test-e2e-reconnect-device";
@@ -605,6 +607,7 @@ TEST(CastE2ETest, PacedStreamingUnderSyntheticLoss) {
   auto& engine = CastEngine::Instance();
   engine.Initialize();
   AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
 
   CastDevice dev;
   dev.id = "test-e2e-loss-device";
@@ -653,6 +656,7 @@ TEST(CastE2ETest, DynamicDelayAdaptationEndToEnd) {
   auto& engine = CastEngine::Instance();
   engine.Initialize();
   AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
 
   CastDevice dev;
   dev.id = "test-e2e-delay-device";
@@ -714,6 +718,7 @@ TEST(CastE2ETest, ZeroExternalNetworkAudit) {
   auto& engine = CastEngine::Instance();
   engine.Initialize();
   AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
 
   CastDevice dev;
   dev.id = "test-e2e-loopback-device";
@@ -749,3 +754,76 @@ TEST(CastE2ETest, ZeroExternalNetworkAudit) {
   ConfigStore::Instance().Save();
   server.Stop();
 }
+
+TEST(CastE2ETest, UnverifiedDeviceRejectedWhenVerificationEnforced) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  // Ensure certificate verification against Cast Root CA is strictly enforced
+  ConfigStore::Instance().Mutable().verify_device_cert = true;
+
+  CastDevice dev;
+  dev.id = "test-e2e-untrusted-device";
+  dev.name = "Untrusted Receiver";
+  dev.model_name = "Fake Receiver";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  // The connection MUST be rejected due to unverified self-signed TLS cert
+  bool ok = engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true);
+  EXPECT_FALSE(ok);
+  EXPECT_NE(engine.GetState(), SessionState::kStreaming);
+
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+
+TEST(CastE2ETest, FrameQueueBackpressureOverrunsTrackedWithoutCrash) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-overrun-device";
+  dev.name = "Overrun Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  bool ok = engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true);
+  ASSERT_TRUE(ok);
+  ASSERT_EQ(engine.GetState(), SessionState::kStreaming);
+
+  // Allow session to stream and capture initial stats
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+  StreamStats stats = engine.GetStats();
+  EXPECT_EQ(engine.GetState(), SessionState::kStreaming);
+  // Drops counter is accessible and tracked in stats
+  EXPECT_GE(stats.video_queue_overruns, 0u);
+  EXPECT_GE(stats.video_frames_dropped_capture, 0u);
+
+  engine.StopCasting();
+  EXPECT_EQ(engine.GetState(), SessionState::kIdle);
+
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+

@@ -1,4 +1,5 @@
 #include "castcore/cast_session.h"
+#include "castcore/cast_app_ids.h"
 #include "castcore/capability_model.h"
 #include "castcore/config.h"
 #include "castcore/logger.h"
@@ -34,12 +35,12 @@ bool CastSession::IsActive() const {
 }
 
 void CastSession::SetDeviceLookup(DeviceLookupCallback callback) {
-  std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
   device_lookup_ = std::move(callback);
 }
 
 void CastSession::SetErrorCallback(ErrorCallback callback) {
-  std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
   error_callback_ = std::move(callback);
 }
 
@@ -58,7 +59,7 @@ bool CastSession::Start(const CastDevice& device,
 }
 
 bool CastSession::Start(const CastDevice& device, int display_id, const SessionOptions& options) {
-  std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+  std::lock_guard<std::mutex> lock(params_mutex_);
 
   if (state_machine_.IsActive()) {
     LOG_WARN << "CastSession::Start called while session already active";
@@ -220,6 +221,7 @@ bool CastSession::NegotiateControlPlane() {
   state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
       "Opening a secure Cast channel to " + target_device_.name + " (" + target_device_.ip_address + ":" + std::to_string(target_device_.port) + ")");
 
+  cast_channel_->SetVerifyDeviceCert(options_.verify_device_cert);
   if (!cast_channel_->Connect(target_device_.ip_address, target_device_.port)) {
     return false;
   }
@@ -229,7 +231,7 @@ bool CastSession::NegotiateControlPlane() {
 
 
   const char* app_id = (enable_audio_ && !target_device_.HasVideoOut())
-      ? kMirroringAudioOnlyAppId : kMirroringAudioVideoAppId;
+      ? kCastMirroringAudioOnlyAppId : kCastMirroringAudioVideoAppId;
 
   launch_received_ = false;
   answer_received_ = false;
@@ -242,6 +244,10 @@ bool CastSession::NegotiateControlPlane() {
           return launch_received_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for RECEIVER_STATUS from " << target_device_.name;
+      if (options_.allow_http_fallback) {
+        LOG_WARN << "Mirroring app launch timed out; falling back to HTTP CAF streaming";
+        return FallbackToHttpCafStreaming();
+      }
       return false;
     }
   }
@@ -273,11 +279,72 @@ bool CastSession::NegotiateControlPlane() {
           return answer_received_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for ANSWER from " << target_device_.name;
+      if (options_.allow_http_fallback) {
+        LOG_WARN << "Mirroring OFFER/ANSWER timed out; falling back to HTTP CAF streaming";
+        return FallbackToHttpCafStreaming();
+      }
       return false;
     }
   }
 
   return !stop_requested_ && !fail_requested_;
+}
+
+bool CastSession::FallbackToHttpCafStreaming() {
+  http_fallback_server_ = std::make_unique<HttpFallbackServer>();
+  if (!http_fallback_server_->Start(0)) {
+    LOG_ERROR << "Failed to start HTTP fallback server";
+    return false;
+  }
+
+  std::string stream_url = http_fallback_server_->GetStreamUrl("");
+  const std::string& caf_app = options_.caf_receiver_app_id.empty() ? "CC1AD845" : options_.caf_receiver_app_id;
+  LOG_INFO << "Launching CAF fallback receiver app " << caf_app << " for HTTP streaming at " << stream_url;
+
+  launch_received_ = false;
+  cast_channel_->LaunchApp(caf_app.c_str());
+
+  {
+    std::unique_lock<std::mutex> lk(cv_mutex_);
+    cv_.wait_for(lk, std::chrono::seconds(8), [this] {
+      return launch_received_ || stop_requested_.load() || fail_requested_.load();
+    });
+  }
+
+  if (stop_requested_ || fail_requested_) {
+    return false;
+  }
+
+  cast_channel_->SetAppTransportId(app_transport_id_);
+  cast_channel_->ConnectVirtual(app_transport_id_, "fallback_sender");
+
+  std::string load_msg = HttpFallbackServer::FormatCafLoadMessage(stream_url);
+  cast_channel_->SendCastMessage(kNamespaceMedia, load_msg, app_transport_id_, "fallback_sender");
+
+  state_machine_.TransitionTo(SessionState::kStreaming, "Streaming desktop via HTTP fallback receiver");
+  is_streaming_ = true;
+
+  VideoEncoderConfig venc_cfg;
+  venc_cfg.width = current_stats_.current_resolution.width > 0 ? current_stats_.current_resolution.width : 1920;
+  venc_cfg.height = current_stats_.current_resolution.height > 0 ? current_stats_.current_resolution.height : 1080;
+  venc_cfg.framerate = current_stats_.current_framerate > 0 ? current_stats_.current_framerate : 30;
+  venc_cfg.bitrate_kbps = current_stats_.bitrate_kbps > 0 ? current_stats_.bitrate_kbps : 4000;
+  venc_cfg.codec = VideoCodec::kH264;
+
+  video_encoder_ = VideoEncoderFactory::Create(VideoCodec::kH264);
+  if (!video_encoder_ || !video_encoder_->Initialize(venc_cfg)) {
+    LOG_ERROR << "Failed to initialize video encoder for HTTP fallback";
+    return false;
+  }
+
+  display_capture_ = DisplayCaptureFactory::Create();
+  display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
+    QueueCapturedVideoFrame(vf);
+  });
+  display_capture_->Start(display_id_, venc_cfg.framerate);
+
+  video_encode_thread_ = std::thread(&CastSession::VideoEncodeLoop, this);
+  return true;
 }
 
 bool CastSession::StartStreamingMedia() {
@@ -450,6 +517,10 @@ void CastSession::QueueCapturedVideoFrame(CapturedVideoFrame frame) {
   }
   {
     std::lock_guard<std::mutex> lock(video_queue_mutex_);
+    if (pending_video_frame_.has_value()) {
+      video_queue_overruns_++;
+      video_frames_dropped_capture_++;
+    }
     pending_video_frame_ = std::move(frame);
   }
   video_queue_cv_.notify_one();
@@ -508,6 +579,14 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     if (!ok) {
       return;
     }
+  }
+
+  if (http_fallback_server_ && http_fallback_server_->IsRunning()) {
+    http_fallback_server_->PushVideoFrame(raw_frame);
+  }
+
+  if (!video_crypto_ || !video_packetizer_ || !transport_) {
+    return;
   }
 
   // Synchronize adaptive playout delay target with video frame emission
@@ -729,7 +808,7 @@ void CastSession::AdaptationLoop() {
     MaybeLogSessionStats();
 
     StreamStats updated;
-    std::lock_guard<std::recursive_mutex> session_lock(session_mutex_);
+    std::lock_guard<std::mutex> session_lock(params_mutex_);
     if (adaptive_controller_.CheckAdaptation(updated)) {
       current_stats_.bitrate_kbps = updated.bitrate_kbps;
       current_stats_.target_delay_ms = updated.target_delay_ms;
@@ -828,6 +907,10 @@ void CastSession::StopMediaPipeline() {
   if (transport_) {
     transport_->Stop();
   }
+  if (http_fallback_server_) {
+    http_fallback_server_->Stop();
+    http_fallback_server_.reset();
+  }
 
   std::lock_guard<std::mutex> elock(video_encoder_mutex_);
   video_encoder_.reset();
@@ -861,7 +944,7 @@ void CastSession::FailSession(const std::string& reason) {
   LOG_ERROR << reason;
   ErrorCallback cb;
   {
-    std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+    std::lock_guard<std::mutex> lock(callbacks_mutex_);
     cb = error_callback_;
   }
   if (cb) {
@@ -881,7 +964,7 @@ void CastSession::SetLiveVideoBitrateKbps(uint32_t kbps) {
   const auto caps = CapabilityModel::Evaluate(target_device_);
   kbps = std::min(kbps, caps.max_bitrate_kbps);
 
-  std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+  std::lock_guard<std::mutex> lock(params_mutex_);
   bitrate_override_kbps_ = kbps;
   options_.video_bitrate_kbps = kbps;
   adaptive_controller_.SetBitrateCapKbps(kbps);
@@ -923,7 +1006,7 @@ void CastSession::SetLiveAudioBitrateBps(uint32_t bps) {
   if (bps == 0) {
     return;
   }
-  std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+  std::lock_guard<std::mutex> lock(params_mutex_);
   options_.audio_bitrate_bps = bps;
   if (audio_encoder_) {
     audio_encoder_->SetBitrate(static_cast<int>(bps));
@@ -946,6 +1029,16 @@ void CastSession::SetAudioMuted(bool muted) {
 
 bool CastSession::IsAudioMuted() const {
   return is_audio_muted_.load();
+}
+
+void CastSession::SetPlayoutDelayMs(int delay_ms) {
+  adaptive_controller_.SetPlayoutDelayMs(delay_ms);
+  LOG_INFO << "[Session] Live playout delay target set to " << delay_ms << " ms";
+}
+
+void CastSession::SetAdaptiveResolutionChangeAllowed(bool allow) {
+  adaptive_controller_.SetAllowResolutionChange(allow);
+  LOG_INFO << "[Session] Live adaptive resolution change allowed: " << (allow ? "YES" : "NO");
 }
 
 void CastSession::Stop() {
@@ -1129,8 +1222,10 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
 }
 
 StreamStats CastSession::GetStats() const {
-  std::lock_guard<std::recursive_mutex> lock(session_mutex_);
+  std::lock_guard<std::mutex> lock(params_mutex_);
   StreamStats s = current_stats_;
+  s.video_frames_dropped_capture = video_frames_dropped_capture_.load();
+  s.video_queue_overruns = video_queue_overruns_.load();
   s.target_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
   if (transport_) {
     StreamStats t_stats = transport_->GetStats();

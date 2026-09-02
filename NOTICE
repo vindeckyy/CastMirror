@@ -28,8 +28,9 @@ nlohmann/json
   https://github.com/nlohmann/json
   MIT License
 
-GTK 3
+GTK 4 and libadwaita
   https://www.gtk.org/
+  https://gitlab.gnome.org/GNOME/libadwaita
   GNU Lesser General Public License v2.1 or later
 
 FFmpeg (libavcodec, libswscale, libavutil) and libx264

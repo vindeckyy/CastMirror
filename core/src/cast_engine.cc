@@ -55,7 +55,7 @@ CastEngine::CastEngine() {
   state_machine_.RegisterCallback([this](SessionState old_s, SessionState new_s, const std::string& msg) {
     StateChangedCallback cb;
     {
-      std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+      std::lock_guard<std::mutex> lock(callbacks_mutex_);
       cb = state_cb_;
     }
     if (cb) {
@@ -66,7 +66,7 @@ CastEngine::CastEngine() {
   discovery_.SetCallback([this](const std::vector<CastDevice>& devices) {
     DevicesChangedCallback cb;
     {
-      std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+      std::lock_guard<std::mutex> lock(callbacks_mutex_);
       cb = devices_cb_;
     }
     if (cb) {
@@ -172,12 +172,11 @@ bool CastEngine::StartCasting(const std::string& device_id,
   options.silence_host_speakers = cfg.silence_host_speakers;
   options.adaptive_enabled = cfg.adaptive_enabled;
   options.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
+  options.verify_device_cert = cfg.verify_device_cert;
   return StartCasting(device_id, display_id, options);
 }
 
 bool CastEngine::StartCasting(const std::string& device_id, int display_id, const SessionOptions& options) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
-
   auto dev_opt = discovery_.FindDeviceById(device_id);
   if (!dev_opt.has_value()) {
     dev_opt = discovery_.FindDeviceByIp(device_id);
@@ -256,19 +255,27 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   ConfigStore::Instance().Save();
 
   EnterSessionLogging();
-  active_session_ = std::make_unique<CastSession>(state_machine_);
-  active_session_->SetDeviceLookup([this](const std::string& id, const std::string& ip) {
-    auto dev = discovery_.FindDeviceById(id);
-    if (!dev) dev = discovery_.FindDeviceByIp(ip);
-    return dev;
-  });
-  active_session_->SetErrorCallback([this](const std::string& err) {
-    std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
-    last_error_ = err;
-  });
-  last_error_.clear();
+  {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    active_session_ = std::make_unique<CastSession>(state_machine_);
+    active_session_->SetDeviceLookup([this](const std::string& id, const std::string& ip) {
+      auto d = discovery_.FindDeviceById(id);
+      if (!d) d = discovery_.FindDeviceByIp(ip);
+      return d;
+    });
+    active_session_->SetErrorCallback([this](const std::string& err) {
+      std::lock_guard<std::mutex> lock(callbacks_mutex_);
+      last_error_ = err;
+    });
+    {
+      std::lock_guard<std::mutex> clock(callbacks_mutex_);
+      last_error_.clear();
+    }
+  }
+
   bool ok = active_session_->Start(dev, display_id, options);
   if (!ok) {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
     active_session_.reset();
     LeaveSessionLogging();
   }
@@ -332,7 +339,7 @@ bool CastEngine::StartCastingLastDevice() {
 }
 
 void CastEngine::StopCasting() {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     active_session_->Stop();
     active_session_.reset();
@@ -341,7 +348,7 @@ void CastEngine::StopCasting() {
 }
 
 void CastEngine::SetLiveVideoBitrateKbps(uint32_t kbps) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     active_session_->SetLiveVideoBitrateKbps(kbps);
   }
@@ -352,7 +359,7 @@ void CastEngine::SetLiveVideoBitrateKbps(uint32_t kbps) {
 }
 
 void CastEngine::SetLiveAudioBitrateBps(uint32_t bps) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     active_session_->SetLiveAudioBitrateBps(bps);
   }
@@ -361,14 +368,14 @@ void CastEngine::SetLiveAudioBitrateBps(uint32_t bps) {
 }
 
 void CastEngine::SetFreezeStream(bool freeze) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     active_session_->SetStreamFrozen(freeze);
   }
 }
 
 bool CastEngine::IsStreamFrozen() const {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     return active_session_->IsStreamFrozen();
   }
@@ -376,18 +383,32 @@ bool CastEngine::IsStreamFrozen() const {
 }
 
 void CastEngine::SetLiveAudioMuted(bool muted) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     active_session_->SetAudioMuted(muted);
   }
 }
 
 bool CastEngine::IsLiveAudioMuted() const {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     return active_session_->IsAudioMuted();
   }
   return false;
+}
+
+void CastEngine::SetPlayoutDelayMs(int delay_ms) {
+  std::lock_guard<std::mutex> lock(engine_mutex_);
+  if (active_session_) {
+    active_session_->SetPlayoutDelayMs(delay_ms);
+  }
+}
+
+void CastEngine::SetAdaptiveResolutionChangeAllowed(bool allow) {
+  std::lock_guard<std::mutex> lock(engine_mutex_);
+  if (active_session_) {
+    active_session_->SetAdaptiveResolutionChangeAllowed(allow);
+  }
 }
 
 SessionState CastEngine::GetState() const {
@@ -395,7 +416,7 @@ SessionState CastEngine::GetState() const {
 }
 
 StreamStats CastEngine::GetStats() const {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(engine_mutex_);
   if (active_session_) {
     return active_session_->GetStats();
   }
@@ -407,22 +428,22 @@ const AppConfig& CastEngine::GetConfig() const {
 }
 
 std::string CastEngine::GetLastError() const {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
   return last_error_;
 }
 
 void CastEngine::SetOnDevicesChanged(DevicesChangedCallback callback) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
   devices_cb_ = std::move(callback);
 }
 
 void CastEngine::SetOnStateChanged(StateChangedCallback callback) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
   state_cb_ = std::move(callback);
 }
 
 void CastEngine::SetOnStatsUpdated(StatsUpdatedCallback callback) {
-  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  std::lock_guard<std::mutex> lock(callbacks_mutex_);
   stats_cb_ = std::move(callback);
 }
 

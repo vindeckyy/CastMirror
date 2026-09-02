@@ -40,6 +40,13 @@ jobs:
       - name: Test
         working-directory: build
         run: xvfb-run -a ./tests/castmirror_tests
+
+      - name: License Surface & GPL Hygiene Check
+        run: ./scripts/check_license_surface.sh
+
+      - name: Accessibility Audit
+        run: ./scripts/audit_a11y.sh
+
   build-test-asan:
     name: Ubuntu ASan / UBSan Debug
     runs-on: ubuntu-latest
@@ -74,5 +81,107 @@ jobs:
         working-directory: build-asan
         run: ASAN_OPTIONS=detect_leaks=0 CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
 
+  build-test-tsan:
+    name: Ubuntu TSan Debug
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-[You have received this identical output 3 times. Re-reading '.github/workflows/ci.yml:raw' will not change it — use a narrower selector (path:A-B), or proceed with the edit.]
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+            libxcomposite-dev libxdamage-dev \
+            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
+
+      - name: Install GoogleTest (Ubuntu source package)
+        run: |
+          if [ -d /usr/src/googletest ]; then
+            cmake -S /usr/src/googletest -B /tmp/gtest-build
+            cmake --build /tmp/gtest-build -j"$(nproc)"
+            sudo cmake --install /tmp/gtest-build
+          fi
+
+      - name: Configure
+        run: cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCASTMIRROR_ENABLE_TRAY=OFF -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
+
+      - name: Build
+        run: cmake --build build-tsan -j"$(nproc)"
+
+      - name: Test
+        working-directory: build-tsan
+        run: TSAN_OPTIONS="suppressions=${GITHUB_WORKSPACE}/tests/tsan_suppressions.txt" CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+            libxcomposite-dev libxdamage-dev \
+            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb gcovr
+
+      - name: Install GoogleTest (Ubuntu source package)
+        run: |
+          if [ -d /usr/src/googletest ]; then
+            cmake -S /usr/src/googletest -B /tmp/gtest-build
+            cmake --build /tmp/gtest-build -j"$(nproc)"
+            sudo cmake --install /tmp/gtest-build
+          fi
+
+      - name: Configure
+        run: cmake -S . -B build-cov -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCASTMIRROR_ENABLE_TRAY=OFF -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
+
+      - name: Build
+        run: cmake --build build-cov -j"$(nproc)"
+
+      - name: Run Tests
+        working-directory: build-cov
+        run: CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
+
+      - name: Generate Coverage Report
+        run: |
+          gcovr -r . --filter 'core/' --html --html-details -o build-cov/coverage.html
+          gcovr -r . --filter 'core/' --txt
+
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build-cov/coverage.html
+
+  fedora:
+    name: Fedora Latest Container
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc-c++ cmake ninja-build pkgconf-pkg-config protobuf-compiler protobuf-devel \
+            openssl-devel opus-devel pulseaudio-libs-devel libX11-devel libXext-devel libXrandr-devel \
+            libXfixes-devel libXcomposite-devel libXdamage-devel libva-devel pipewire-devel \
+            glib2-devel ffmpeg-free-devel json-devel gtest-devel gtk4-devel libadwaita-devel xorg-x11-server-Xvfb
+
+      - name: Configure
+        run: cmake -S . -B build-fedora -G Ninja -DCMAKE_BUILD_TYPE=Release -DCASTMIRROR_ENABLE_TRAY=OFF
+
+      - name: Build
+        run: cmake --build build-fedora -j"$(nproc)"
+
+      - name: Test
+        working-directory: build-fedora
+        run: xvfb-run -a ./tests/castmirror_tests

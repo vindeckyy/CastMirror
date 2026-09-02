@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    name: Build Debian/Ubuntu Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+            libxcomposite-dev libxdamage-dev \
+            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
+
+      - name: Install GoogleTest (Ubuntu source package)
+        run: |
+          if [ -d /usr/src/googletest ]; then
+            cmake -S /usr/src/googletest -B /tmp/gtest-build
+            cmake --build /tmp/gtest-build -j"$(nproc)"
+            sudo cmake --install /tmp/gtest-build
+          fi
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCASTMIRROR_ENABLE_TRAY=OFF
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        working-directory: build
+        run: xvfb-run -a ./tests/castmirror_tests
+
+      - name: Package DEB
+        working-directory: build
+        run: cpack -G DEB
+
+      - name: Upload DEB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: build/*.deb
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: build/*.deb
+          generate_release_notes: true
