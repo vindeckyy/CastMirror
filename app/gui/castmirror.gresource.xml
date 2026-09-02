@@ -5,5 +5,9 @@
     <file alias="logo.svg">docs/assets/logo.svg</file>
     <file alias="icons/scalable/apps/io.github.vindeckyy.CastMirror.svg">docs/assets/logo.svg</file>
     <file alias="icons/scalable/actions/castmirror-signal-symbolic.svg">app/gui/icons/castmirror-signal-symbolic.svg</file>
+    <file alias="icons/scalable/actions/castmirror-cast-symbolic.svg">app/gui/icons/castmirror-signal-symbolic.svg</file>
+    <file alias="icons/scalable/actions/castmirror-live-symbolic.svg">app/gui/icons/castmirror-live-symbolic.svg</file>
+    <file alias="icons/scalable/actions/castmirror-settings-symbolic.svg">app/gui/icons/castmirror-settings-symbolic.svg</file>
+    <file alias="icons/scalable/actions/castmirror-logs-symbolic.svg">app/gui/icons/castmirror-logs-symbolic.svg</file>
   </gresource>
 </gresources>

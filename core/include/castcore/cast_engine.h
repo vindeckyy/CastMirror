@@ -53,6 +53,10 @@ class CastEngine {
 
   void SetLiveVideoBitrateKbps(uint32_t kbps);
   void SetLiveAudioBitrateBps(uint32_t bps);
+  void SetFreezeStream(bool freeze);
+  bool IsStreamFrozen() const;
+  void SetLiveAudioMuted(bool muted);
+  bool IsLiveAudioMuted() const;
 
   SessionState GetState() const;
   StreamStats GetStats() const;

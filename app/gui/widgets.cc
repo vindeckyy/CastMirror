@@ -145,6 +145,18 @@ GtkWidget* MakeStatCard(const char* title,
   return card;
 }
 
+GtkWidget* MakeStatCardWithSparkline(const char* title,
+                                     const char* icon_name,
+                                     const char* help_text,
+                                     GtkWidget** out_value_label,
+                                     GtkWidget* sparkline_widget) {
+  GtkWidget* card = MakeStatCard(title, icon_name, help_text, out_value_label);
+  if (sparkline_widget) {
+    gtk_box_append(GTK_BOX(card), sparkline_widget);
+  }
+  return card;
+}
+
 void UpdateStatusBadge(GtkWidget* pill, GtkWidget* dot, GtkWidget* label, SessionState state) {
   if (!pill || !label) {
     return;

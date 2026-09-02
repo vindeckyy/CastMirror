@@ -26,6 +26,7 @@ class SettingsTab {
   void UpdateBitrateLabel(uint32_t kbps);
   void UpdateDelayLabel(int ms);
   void UpdateDependentSensitivities();
+  void RunSelfTestDialog();
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;

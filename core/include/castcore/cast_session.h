@@ -50,6 +50,10 @@ class CastSession {
   void SetErrorCallback(ErrorCallback callback);
   void SetLiveVideoBitrateKbps(uint32_t kbps);
   void SetLiveAudioBitrateBps(uint32_t bps);
+  void SetStreamFrozen(bool freeze);
+  bool IsStreamFrozen() const;
+  void SetAudioMuted(bool muted);
+  bool IsAudioMuted() const;
 
  private:
   void OnChannelMessage(const std::string& ns, const std::string& payload,
@@ -130,6 +134,8 @@ class CastSession {
   std::atomic<int64_t> last_video_send_ms_{0};
   std::atomic<int64_t> last_audio_send_ms_{0};
   std::atomic<bool> fail_requested_{false};
+  std::atomic<bool> is_frozen_{false};
+  std::atomic<bool> is_audio_muted_{false};
   std::string fail_reason_;
   std::chrono::steady_clock::time_point last_session_log_{};
   std::chrono::steady_clock::time_point last_video_stall_warn_{};

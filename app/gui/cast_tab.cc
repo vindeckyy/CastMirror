@@ -434,6 +434,47 @@ void CastTab::BuildUi() {
   gtk_widget_set_halign(bitrate_note_lbl_, GTK_ALIGN_START);
   gtk_widget_add_css_class(bitrate_note_lbl_, "cm-section-description");
   gtk_box_append(GTK_BOX(quality_section), bitrate_note_lbl_);
+
+  GtkWidget* bitrate_adjust_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+  gtk_widget_set_margin_top(bitrate_adjust_box, 4);
+
+  GtkWidget* slider_lbl = gtk_label_new("Target bitrate cap:");
+  gtk_widget_add_css_class(slider_lbl, "dim-label");
+  gtk_box_append(GTK_BOX(bitrate_adjust_box), slider_lbl);
+
+  inline_bitrate_scale_ = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 1.0, 25.0, 0.5);
+  gtk_scale_set_digits(GTK_SCALE(inline_bitrate_scale_), 1);
+  gtk_scale_set_draw_value(GTK_SCALE(inline_bitrate_scale_), FALSE);
+  gtk_widget_set_hexpand(inline_bitrate_scale_, TRUE);
+  gtk_box_append(GTK_BOX(bitrate_adjust_box), inline_bitrate_scale_);
+
+  inline_bitrate_val_lbl_ = gtk_label_new("8.0 Mbps");
+  gtk_widget_set_size_request(inline_bitrate_val_lbl_, 72, -1);
+  gtk_widget_set_halign(inline_bitrate_val_lbl_, GTK_ALIGN_END);
+  gtk_widget_add_css_class(inline_bitrate_val_lbl_, "heading");
+  gtk_box_append(GTK_BOX(bitrate_adjust_box), inline_bitrate_val_lbl_);
+
+  g_signal_connect(inline_bitrate_scale_, "value-changed", G_CALLBACK(+[](GtkRange* range, gpointer user_data) {
+    auto* self = static_cast<CastTab*>(user_data);
+    if (self->updating_ui_) return;
+    double mbps = gtk_range_get_value(range);
+    uint32_t kbps = std::max<uint32_t>(1000, static_cast<uint32_t>(mbps * 1000.0 + 0.5));
+    auto& c = ConfigStore::Instance().Mutable();
+    c.SetPresetBitrateKbps(self->selected_preset_, kbps);
+    c.max_bitrate_kbps = kbps;
+    ConfigStore::Instance().Save();
+
+    std::ostringstream val_ss;
+    val_ss << std::fixed << std::setprecision(1) << mbps << " Mbps";
+    gtk_label_set_text(GTK_LABEL(self->inline_bitrate_val_lbl_), val_ss.str().c_str());
+    self->UpdateBitrateNote();
+
+    if (self->app_) {
+      self->app_->SyncBitrateSlider(kbps);
+    }
+  }), this);
+
+  gtk_box_append(GTK_BOX(quality_section), bitrate_adjust_box);
   gtk_box_append(GTK_BOX(content_box), quality_section);
 
   // Set initial preset active
@@ -444,15 +485,28 @@ void CastTab::BuildUi() {
   else if (selected_preset_ == QualityPreset::kSmooth) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_smooth_btn_), TRUE);
   else gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_auto_btn_), TRUE);
   updating_ui_ = false;
-  UpdateBitrateNote();
 
+  uint32_t init_kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(selected_preset_);
+  SyncInlineBitrate(init_kbps);
+}
+
+void CastTab::SyncInlineBitrate(uint32_t kbps) {
+  if (!inline_bitrate_scale_ || !inline_bitrate_val_lbl_) return;
+  updating_ui_ = true;
+  double mbps = kbps / 1000.0;
+  gtk_range_set_value(GTK_RANGE(inline_bitrate_scale_), mbps);
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(1) << mbps << " Mbps";
+  gtk_label_set_text(GTK_LABEL(inline_bitrate_val_lbl_), ss.str().c_str());
+  UpdateBitrateNote();
+  updating_ui_ = false;
 }
 
 void CastTab::UpdateBitrateNote() {
   uint32_t kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(selected_preset_);
   std::ostringstream ss;
   ss << "Holds at " << std::fixed << std::setprecision(1) << (kbps / 1000.0)
-     << " Mbps · drops on congestion, ramps back automatically · adjust in Settings";
+     << " Mbps · drops on congestion, ramps back automatically";
   if (bitrate_note_lbl_) {
     gtk_label_set_text(GTK_LABEL(bitrate_note_lbl_), ss.str().c_str());
   }
@@ -506,7 +560,18 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
 
   GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
   gtk_widget_add_css_class(row_box, "cm-device-row");
-  GtkWidget* device_glyph = MakeCircularGlyph("video-display-symbolic", 48, 22);
+
+  const char* dev_icon = "video-display-symbolic";
+  std::string lower_model = dev.model_name;
+  std::transform(lower_model.begin(), lower_model.end(), lower_model.begin(), ::tolower);
+  if (lower_model.find("hub") != std::string::npos || lower_model.find("display") != std::string::npos) {
+    dev_icon = "computer-symbolic";
+  } else if (lower_model.find("tv") != std::string::npos || lower_model.find("streamer") != std::string::npos || lower_model.find("google") != std::string::npos) {
+    dev_icon = "tv-symbolic";
+  } else if (dev.model_name == "saved" || dev.model_name == "Custom Chromecast") {
+    dev_icon = "bookmark-symbolic";
+  }
+  GtkWidget* device_glyph = MakeCircularGlyph(dev_icon, 48, 22);
   gtk_widget_set_valign(device_glyph, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(row_box), device_glyph);
 
@@ -972,7 +1037,18 @@ CastTab::WindowRowWidgets CastTab::CreateWindowRow(const WindowInfo& win, int ra
 
   GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
   gtk_widget_add_css_class(row_box, "cm-display-row");
-  GtkWidget* win_glyph = MakeCircularGlyph("application-window-symbolic", 40, 18);
+
+  std::string win_icon = "application-window-symbolic";
+  std::string lower_class = win.app_class;
+  std::transform(lower_class.begin(), lower_class.end(), lower_class.begin(), ::tolower);
+  GdkDisplay* gdk_disp = gdk_display_get_default();
+  if (gdk_disp && !lower_class.empty()) {
+    GtkIconTheme* theme = gtk_icon_theme_get_for_display(gdk_disp);
+    if (theme && gtk_icon_theme_has_icon(theme, lower_class.c_str())) {
+      win_icon = lower_class;
+    }
+  }
+  GtkWidget* win_glyph = MakeCircularGlyph(win_icon.c_str(), 40, 18);
   gtk_widget_set_valign(win_glyph, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(row_box), win_glyph);
 
@@ -1207,8 +1283,9 @@ void CastTab::OnPresetChanged(QualityPreset preset) {
   auto& cfg = ConfigStore::Instance().Mutable();
   cfg.quality_preset = preset;
   ConfigStore::Instance().Save();
-  UpdateBitrateNote();
-  app_->SyncBitrateSlider(cfg.GetPresetBitrateKbps(preset));
+  uint32_t kbps = cfg.GetPresetBitrateKbps(preset);
+  SyncInlineBitrate(kbps);
+  app_->SyncBitrateSlider(kbps);
 }
 
 bool CastTab::GetAudioEnabled() const {
@@ -1225,6 +1302,7 @@ void CastTab::SetControlsSensitive(bool sensitive) {
   if (preset_high_btn_) gtk_widget_set_sensitive(preset_high_btn_, sensitive);
   if (preset_balanced_btn_) gtk_widget_set_sensitive(preset_balanced_btn_, sensitive);
   if (preset_smooth_btn_) gtk_widget_set_sensitive(preset_smooth_btn_, sensitive);
+  if (inline_bitrate_scale_) gtk_widget_set_sensitive(inline_bitrate_scale_, sensitive);
   if (rescan_btn_) gtk_widget_set_sensitive(rescan_btn_, sensitive);
   if (add_ip_btn_) gtk_widget_set_sensitive(add_ip_btn_, sensitive);
   if (remove_btn_) gtk_widget_set_sensitive(remove_btn_, sensitive && IsSelectedDeviceRemovable());

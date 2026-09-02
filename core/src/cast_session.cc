@@ -478,6 +478,9 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
   if (!is_streaming_.load() || !video_crypto_ || !video_packetizer_ || !transport_) {
     return;
   }
+  if (is_frozen_.load()) {
+    return;
+  }
 
   // The capturer signals that the source disappeared (e.g. the shared window
   // was closed). Fail the session with a clear message instead of stalling.
@@ -544,6 +547,10 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
 
 void CastSession::ProcessAudioFrame(const CapturedAudioFrame& af) {
   if (!is_streaming_.load() || !audio_encoder_ || !audio_crypto_ || !audio_packetizer_ || !transport_) {
+    return;
+  }
+  if (is_audio_muted_.load()) {
+    InjectSilenceAudioFrame();
     return;
   }
 
@@ -803,6 +810,8 @@ void CastSession::RequestReconnect(const std::string& reason) {
 void CastSession::StopMediaPipeline() {
   auto pipeline_start = std::chrono::steady_clock::now();
   is_streaming_ = false;
+  is_frozen_ = false;
+  is_audio_muted_ = false;
   {
     std::lock_guard<std::mutex> qlock(video_queue_mutex_);
     pending_video_frame_.reset();
@@ -919,6 +928,24 @@ void CastSession::SetLiveAudioBitrateBps(uint32_t bps) {
   if (audio_encoder_) {
     audio_encoder_->SetBitrate(static_cast<int>(bps));
   }
+}
+
+void CastSession::SetStreamFrozen(bool freeze) {
+  is_frozen_.store(freeze);
+  LOG_INFO << "[Session] Stream freeze set to " << (freeze ? "ON" : "OFF");
+}
+
+bool CastSession::IsStreamFrozen() const {
+  return is_frozen_.load();
+}
+
+void CastSession::SetAudioMuted(bool muted) {
+  is_audio_muted_.store(muted);
+  LOG_INFO << "[Session] Live audio mute set to " << (muted ? "MUTED" : "UNMUTED");
+}
+
+bool CastSession::IsAudioMuted() const {
+  return is_audio_muted_.load();
 }
 
 void CastSession::Stop() {

@@ -360,6 +360,36 @@ void CastEngine::SetLiveAudioBitrateBps(uint32_t bps) {
   ConfigStore::Instance().Save();
 }
 
+void CastEngine::SetFreezeStream(bool freeze) {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  if (active_session_) {
+    active_session_->SetStreamFrozen(freeze);
+  }
+}
+
+bool CastEngine::IsStreamFrozen() const {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  if (active_session_) {
+    return active_session_->IsStreamFrozen();
+  }
+  return false;
+}
+
+void CastEngine::SetLiveAudioMuted(bool muted) {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  if (active_session_) {
+    active_session_->SetAudioMuted(muted);
+  }
+}
+
+bool CastEngine::IsLiveAudioMuted() const {
+  std::lock_guard<std::recursive_mutex> lock(engine_mutex_);
+  if (active_session_) {
+    return active_session_->IsAudioMuted();
+  }
+  return false;
+}
+
 SessionState CastEngine::GetState() const {
   return state_machine_.GetState();
 }

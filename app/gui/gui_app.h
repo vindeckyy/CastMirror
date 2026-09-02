@@ -78,11 +78,11 @@ class GuiApp {
   GtkWidget* window_ = nullptr;
   GtkWidget* toast_overlay_ = nullptr;
   GtkWidget* header_title_ = nullptr;
+  GtkWidget* view_switcher_bar_ = nullptr;
   GtkWidget* status_badge_ = nullptr;
   GtkWidget* status_badge_dot_ = nullptr;
   GtkWidget* status_badge_lbl_ = nullptr;
   GtkWidget* view_stack_ = nullptr;
-  GtkWidget* view_switcher_ = nullptr;
   GtkWidget* footer_status_label_ = nullptr;
   GtkWidget* cast_button_ = nullptr;
   GtkWidget* cast_button_icon_ = nullptr;

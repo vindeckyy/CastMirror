@@ -40,6 +40,7 @@ class CastTab {
 
   void OnAddIpClicked();
   void RemoveSelectedDevice();
+  void SyncInlineBitrate(uint32_t kbps);
 
  private:
   struct DeviceRowWidgets {
@@ -122,6 +123,8 @@ class CastTab {
   GtkWidget* preset_balanced_btn_ = nullptr;
   GtkWidget* preset_smooth_btn_ = nullptr;
   GtkWidget* bitrate_note_lbl_ = nullptr;
+  GtkWidget* inline_bitrate_scale_ = nullptr;
+  GtkWidget* inline_bitrate_val_lbl_ = nullptr;
 
   std::vector<CastDevice> devices_;
   std::vector<DisplayInfo> displays_;

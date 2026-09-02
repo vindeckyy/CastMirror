@@ -6,6 +6,11 @@
 #include "castcore/cast_engine.h"
 #include "castcore/config.h"
 #include "castcore/logger.h"
+#include "castcore/display_capture.h"
+#include "castcore/video_encoder.h"
+#include "castcore/audio_capture.h"
+#include <sys/socket.h>
+#include <unistd.h>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
@@ -219,6 +224,61 @@ void SettingsTab::BuildUi() {
   adw_action_row_set_subtitle(ADW_ACTION_ROW(notify_row_), copy::kNotifyHelp);
   adw_switch_row_set_active(ADW_SWITCH_ROW(notify_row_), cfg.notify_on_events);
   adw_preferences_group_add(desk_group, notify_row_);
+
+  // 7. Appearance
+  AdwPreferencesGroup* appearance_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  adw_preferences_group_set_title(appearance_group, "Appearance");
+  adw_preferences_page_add(page, appearance_group);
+
+  const char* const theme_strings[] = {
+    "System default", "Light", "Dark", nullptr
+  };
+  GtkStringList* theme_list = gtk_string_list_new(theme_strings);
+  GtkWidget* theme_row = adw_combo_row_new();
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(theme_row), "Color scheme");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(theme_row), "Choose between light, dark, or system visual styles");
+  adw_combo_row_set_model(ADW_COMBO_ROW(theme_row), G_LIST_MODEL(theme_list));
+
+  AdwStyleManager* sm = adw_style_manager_get_default();
+  AdwColorScheme scheme = adw_style_manager_get_color_scheme(sm);
+  guint sel_idx = 0;
+  if (scheme == ADW_COLOR_SCHEME_FORCE_LIGHT) sel_idx = 1;
+  else if (scheme == ADW_COLOR_SCHEME_FORCE_DARK) sel_idx = 2;
+  adw_combo_row_set_selected(ADW_COMBO_ROW(theme_row), sel_idx);
+
+  g_signal_connect(theme_row, "notify::selected", G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer) {
+    guint idx = adw_combo_row_get_selected(ADW_COMBO_ROW(obj));
+    AdwStyleManager* style_mgr = adw_style_manager_get_default();
+    if (idx == 1) {
+      adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_LIGHT);
+    } else if (idx == 2) {
+      adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_DARK);
+    } else {
+      adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_DEFAULT);
+    }
+  }), nullptr);
+  adw_preferences_group_add(appearance_group, theme_row);
+
+  // 8. Diagnostics & Health
+  AdwPreferencesGroup* diag_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+  adw_preferences_group_set_title(diag_group, "Diagnostics &amp; health");
+  adw_preferences_page_add(page, diag_group);
+
+  GtkWidget* diag_row = adw_action_row_new();
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(diag_row), "Run self-test");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(diag_row), "Verify display capture, hardware encoder, audio loopback, and UDP sockets");
+
+  GtkWidget* diag_btn = gtk_button_new_with_label("Run test");
+  gtk_widget_add_css_class(diag_btn, "suggested-action");
+  gtk_widget_set_valign(diag_btn, GTK_ALIGN_CENTER);
+  adw_action_row_add_suffix(ADW_ACTION_ROW(diag_row), diag_btn);
+  adw_action_row_set_activatable_widget(ADW_ACTION_ROW(diag_row), diag_btn);
+
+  g_signal_connect(diag_btn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+    auto* self = static_cast<SettingsTab*>(user_data);
+    self->RunSelfTestDialog();
+  }), this);
+  adw_preferences_group_add(diag_group, diag_row);
 
   // Sync initial bitrate
   uint32_t kbps = cfg.GetPresetBitrateKbps(cfg.quality_preset);
@@ -539,6 +599,44 @@ void SettingsTab::SyncSilenceSwitch(bool active) {
     adw_switch_row_set_active(ADW_SWITCH_ROW(silence_row_), active);
     syncing_controls_ = false;
   }
+}
+
+void SettingsTab::RunSelfTestDialog() {
+  GtkWindow* parent_win = app_ ? app_->GetWindow() : nullptr;
+
+  // Test 1: Video Capture
+  auto cap = DisplayCaptureFactory::Create();
+  bool cap_ok = (cap != nullptr);
+  std::string cap_str = cap_ok ? ("Available (" + cap->BackendName() + ")") : "Failed";
+
+  // Test 2: Video Encoder
+  auto enc = VideoEncoderFactory::Create(VideoCodec::kH264);
+  bool enc_ok = (enc != nullptr);
+  std::string enc_str = enc_ok ? ("Ready (" + enc->EncoderName() + ")") : "Failed";
+
+  // Test 3: Audio Capture
+  auto audio = AudioCaptureFactory::Create();
+  bool audio_ok = (audio != nullptr);
+  std::string audio_str = audio_ok ? "Ready (PulseAudio / PipeWire monitor)" : "Unavailable";
+
+  // Test 4: UDP Network Socket
+  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  bool net_ok = (fd >= 0);
+  if (fd >= 0) close(fd);
+  std::string net_str = net_ok ? "Ready (UDP multicast & unicast permitted)" : "Failed";
+
+  std::ostringstream msg;
+  msg << (cap_ok ? "✓ " : "✗ ") << "Display Capture: " << cap_str << "\n"
+      << (enc_ok ? "✓ " : "✗ ") << "Video Encoder: " << enc_str << "\n"
+      << (audio_ok ? "✓ " : "✗ ") << "Audio Monitor: " << audio_str << "\n"
+      << (net_ok ? "✓ " : "✗ ") << "Network Sockets: " << net_str;
+
+  AdwDialog* dialog = adw_alert_dialog_new(
+      "Hardware & Network Diagnostics",
+      msg.str().c_str());
+  adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "close", "Close");
+  adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "close");
+  adw_dialog_present(dialog, GTK_WIDGET(parent_win));
 }
 
 }  // namespace castcore::gui

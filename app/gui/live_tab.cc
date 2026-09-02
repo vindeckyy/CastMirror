@@ -167,7 +167,58 @@ void LiveTab::BuildUi() {
   hero_status_lbl_ = gtk_label_new("Connecting");
   gtk_box_append(GTK_BOX(hero_status_pill_), hero_status_dot_);
   gtk_box_append(GTK_BOX(hero_status_pill_), hero_status_lbl_);
-  gtk_box_append(GTK_BOX(hero_card_), hero_status_pill_);
+
+  live_controls_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_valign(live_controls_box_, GTK_ALIGN_CENTER);
+
+  freeze_btn_ = gtk_toggle_button_new();
+  gtk_widget_add_css_class(freeze_btn_, "cm-live-control-btn");
+  GtkWidget* fbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  freeze_icon_ = gtk_image_new_from_icon_name("media-playback-pause-symbolic");
+  freeze_lbl_ = gtk_label_new("Freeze");
+  gtk_box_append(GTK_BOX(fbox), freeze_icon_);
+  gtk_box_append(GTK_BOX(fbox), freeze_lbl_);
+  gtk_button_set_child(GTK_BUTTON(freeze_btn_), fbox);
+  gtk_widget_set_tooltip_text(freeze_btn_, "Freeze video on TV (stops sending new video frames)");
+  g_signal_connect(freeze_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
+    auto* self = static_cast<LiveTab*>(user_data);
+    bool frozen = gtk_toggle_button_get_active(btn);
+    CastEngine::Instance().SetFreezeStream(frozen);
+    if (self->freeze_lbl_) {
+      gtk_label_set_text(GTK_LABEL(self->freeze_lbl_), frozen ? "Resume" : "Freeze");
+    }
+    if (self->freeze_icon_) {
+      gtk_image_set_from_icon_name(GTK_IMAGE(self->freeze_icon_),
+                                   frozen ? "media-playback-start-symbolic" : "media-playback-pause-symbolic");
+    }
+  }), this);
+  gtk_box_append(GTK_BOX(live_controls_box_), freeze_btn_);
+
+  mute_btn_ = gtk_toggle_button_new();
+  gtk_widget_add_css_class(mute_btn_, "cm-live-control-btn");
+  GtkWidget* mbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  mute_icon_ = gtk_image_new_from_icon_name("audio-volume-high-symbolic");
+  mute_lbl_ = gtk_label_new("Mute TV");
+  gtk_box_append(GTK_BOX(mbox), mute_icon_);
+  gtk_box_append(GTK_BOX(mbox), mute_lbl_);
+  gtk_button_set_child(GTK_BUTTON(mute_btn_), mbox);
+  gtk_widget_set_tooltip_text(mute_btn_, "Mute/unmute stream audio sent to the Cast device");
+  g_signal_connect(mute_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
+    auto* self = static_cast<LiveTab*>(user_data);
+    bool muted = gtk_toggle_button_get_active(btn);
+    CastEngine::Instance().SetLiveAudioMuted(muted);
+    if (self->mute_lbl_) {
+      gtk_label_set_text(GTK_LABEL(self->mute_lbl_), muted ? "Unmute TV" : "Mute TV");
+    }
+    if (self->mute_icon_) {
+      gtk_image_set_from_icon_name(GTK_IMAGE(self->mute_icon_),
+                                   muted ? "audio-volume-muted-symbolic" : "audio-volume-high-symbolic");
+    }
+  }), this);
+  gtk_box_append(GTK_BOX(live_controls_box_), mute_btn_);
+
+  gtk_box_append(GTK_BOX(live_controls_box_), hero_status_pill_);
+  gtk_box_append(GTK_BOX(hero_card_), live_controls_box_);
 
   gtk_box_append(GTK_BOX(content_box), hero_card_);
 
@@ -250,14 +301,23 @@ void LiveTab::BuildUi() {
   gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(flow_box), 12);
   gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(flow_box), 12);
 
+  spark_fps_ = std::make_unique<Sparkline>(40, 0.0f, 65.0f, 0.46, 0.84, 0.63);      // Green #75D6A1
+  spark_bitrate_ = std::make_unique<Sparkline>(40, 0.0f, 25.0f, 0.0, 0.82, 1.0);    // Cyan #00D2FF
+  spark_rtt_ = std::make_unique<Sparkline>(40, 0.0f, 100.0f, 0.64, 0.47, 1.0);      // Purple #A277FF
+  spark_loss_ = std::make_unique<Sparkline>(40, 0.0f, 10.0f, 0.95, 0.78, 0.43);     // Amber #F2C66D
+
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Frame rate", "media-playback-start-symbolic", copy::kStatFpsHelp, &val_fps_));
+                      MakeStatCardWithSparkline("Frame rate", "media-playback-start-symbolic",
+                                               copy::kStatFpsHelp, &val_fps_, spark_fps_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Video bitrate", "network-transmit-symbolic", copy::kStatBitrateHelp, &val_bitrate_));
+                      MakeStatCardWithSparkline("Video bitrate", "network-transmit-symbolic",
+                                               copy::kStatBitrateHelp, &val_bitrate_, spark_bitrate_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Round-trip time", "alarm-symbolic", copy::kStatRttHelp, &val_rtt_));
+                      MakeStatCardWithSparkline("Round-trip time", "alarm-symbolic",
+                                               copy::kStatRttHelp, &val_rtt_, spark_rtt_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Packet loss", "network-error-symbolic", copy::kStatLossHelp, &val_loss_));
+                      MakeStatCardWithSparkline("Packet loss", "network-error-symbolic",
+                                               copy::kStatLossHelp, &val_loss_, spark_loss_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
                       MakeStatCard("Target delay", "preferences-system-time-symbolic", copy::kStatDelayHelp, &val_delay_));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
@@ -550,6 +610,12 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
   ss_sent << cur.frames_sent << " frames · " << cur.packets_sent << " packets";
   gtk_label_set_text(GTK_LABEL(val_sent_), ss_sent.str().c_str());
 
+  // Push real-time telemetry into sparklines
+  if (spark_fps_) spark_fps_->PushValue(static_cast<float>(cur.current_fps));
+  if (spark_bitrate_) spark_bitrate_->PushValue(static_cast<float>(cur.bitrate_kbps / 1000.0));
+  if (spark_rtt_) spark_rtt_->PushValue(static_cast<float>(cur.round_trip_time_ms));
+  if (spark_loss_) spark_loss_->PushValue(static_cast<float>(cur.packet_loss_fraction * 100.0));
+
   SessionState current_state = app_ ? app_->GetCurrentState() : SessionState::kStreaming;
   UpdatePipelineDiagram(current_state, cur);
   UpdateLadderVisualization(cur.adaptive_rung_index, cur.adaptive_rung_count, cur.adaptive_enabled);
@@ -637,6 +703,8 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
     } else {
       SetHealthState(copy::kHealthHealthy, "is-live", "emblem-ok-symbolic");
     }
+    if (freeze_btn_) gtk_widget_set_sensitive(freeze_btn_, TRUE);
+    if (mute_btn_) gtk_widget_set_sensitive(mute_btn_, TRUE);
     UpdatePipelineDiagram(state, last_stats_);
     gtk_stack_set_visible_child_name(GTK_STACK(root_widget_), "session");
     current_ui_state_ = state;
@@ -744,6 +812,22 @@ void LiveTab::ResetSessionValues() {
 
   SetHealthState("Waiting for stream data…", "is-idle", "dialog-information-symbolic");
   UpdateLadderVisualization(-1, 8, false);
+
+  if (spark_fps_) spark_fps_->Reset();
+  if (spark_bitrate_) spark_bitrate_->Reset();
+  if (spark_rtt_) spark_rtt_->Reset();
+  if (spark_loss_) spark_loss_->Reset();
+
+  if (freeze_btn_) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(freeze_btn_), FALSE);
+    gtk_widget_set_sensitive(freeze_btn_, FALSE);
+    if (freeze_lbl_) gtk_label_set_text(GTK_LABEL(freeze_lbl_), "Freeze");
+  }
+  if (mute_btn_) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mute_btn_), FALSE);
+    gtk_widget_set_sensitive(mute_btn_, FALSE);
+    if (mute_lbl_) gtk_label_set_text(GTK_LABEL(mute_lbl_), "Mute TV");
+  }
 
   if (session_scroller_) {
     GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(session_scroller_));

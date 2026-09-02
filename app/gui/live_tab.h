@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "castcore/types.h"
+#include "sparkline.h"
 
 namespace castcore::gui {
 
@@ -78,6 +79,21 @@ class LiveTab {
   GtkWidget* val_encoder_ = nullptr;
   GtkWidget* val_repairs_ = nullptr;
   GtkWidget* val_sent_ = nullptr;
+
+  // Real-time telemetry sparklines
+  std::unique_ptr<Sparkline> spark_fps_;
+  std::unique_ptr<Sparkline> spark_bitrate_;
+  std::unique_ptr<Sparkline> spark_rtt_;
+  std::unique_ptr<Sparkline> spark_loss_;
+
+  // Live in-session controls
+  GtkWidget* live_controls_box_ = nullptr;
+  GtkWidget* freeze_btn_ = nullptr;
+  GtkWidget* freeze_icon_ = nullptr;
+  GtkWidget* freeze_lbl_ = nullptr;
+  GtkWidget* mute_btn_ = nullptr;
+  GtkWidget* mute_icon_ = nullptr;
+  GtkWidget* mute_lbl_ = nullptr;
 
   // Adaptive quality ladder
   GtkWidget* ladder_box_ = nullptr;

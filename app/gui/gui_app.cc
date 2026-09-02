@@ -101,10 +101,10 @@ void GuiApp::BuildUi() {
   gtk_window_set_icon_name(GTK_WINDOW(window_), "io.github.vindeckyy.CastMirror");
   gtk_widget_add_css_class(window_, "cm-window");
 
-  int init_w = std::clamp(cfg.window_width, 760, 1600);
-  int init_h = std::clamp(cfg.window_height, 560, 1200);
+  int init_w = std::clamp(cfg.window_width, 440, 1600);
+  int init_h = std::clamp(cfg.window_height, 500, 1200);
   gtk_window_set_default_size(GTK_WINDOW(window_), init_w, init_h);
-  gtk_widget_set_size_request(GTK_WIDGET(window_), 760, 560);
+  gtk_widget_set_size_request(GTK_WIDGET(window_), 440, 500);
 
   g_signal_connect(window_, "close-request", G_CALLBACK(OnCloseRequest), this);
 
@@ -117,24 +117,23 @@ void GuiApp::BuildUi() {
   adw_toast_overlay_set_child(ADW_TOAST_OVERLAY(toast_overlay_), toolbar_view);
 
   GtkWidget* header_bar = adw_header_bar_new();
-  adw_header_bar_set_show_title(ADW_HEADER_BAR(header_bar), FALSE);
-  // Desktop gtk-decoration-layout includes "icon,menu", which would draw a 16px
-  // window icon beside our packed 48px brand logo. Keep native window buttons only.
+  adw_header_bar_set_show_title(ADW_HEADER_BAR(header_bar), TRUE);
   adw_header_bar_set_decoration_layout(ADW_HEADER_BAR(header_bar), ":minimize,maximize,close");
 
-  GtkWidget* brand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+  GtkWidget* brand = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_widget_set_valign(brand, GTK_ALIGN_CENTER);
   GtkWidget* logo = gtk_image_new_from_resource("/io/github/vindeckyy/CastMirror/logo.svg");
-  gtk_image_set_pixel_size(GTK_IMAGE(logo), 48);
+  gtk_image_set_pixel_size(GTK_IMAGE(logo), 32);
   gtk_widget_add_css_class(logo, "cm-header-logo");
   gtk_widget_set_valign(logo, GTK_ALIGN_CENTER);
+  gtk_widget_set_tooltip_text(logo, "CastMirror");
   gtk_box_append(GTK_BOX(brand), logo);
-
-  header_title_ = adw_window_title_new(copy::kAppTitle, copy::kAppSubtitleDefault);
-  gtk_widget_add_css_class(header_title_, "cm-header-title");
-  gtk_widget_set_valign(header_title_, GTK_ALIGN_CENTER);
-  gtk_box_append(GTK_BOX(brand), header_title_);
   adw_header_bar_pack_start(ADW_HEADER_BAR(header_bar), brand);
+
+  header_title_ = adw_view_switcher_title_new();
+  adw_view_switcher_title_set_title(ADW_VIEW_SWITCHER_TITLE(header_title_), copy::kAppTitle);
+  adw_view_switcher_title_set_subtitle(ADW_VIEW_SWITCHER_TITLE(header_title_), copy::kAppSubtitleDefault);
+  adw_header_bar_set_title_widget(ADW_HEADER_BAR(header_bar), header_title_);
 
   GtkWidget* menu_btn = gtk_menu_button_new();
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu_btn), "open-menu-symbolic");
@@ -169,18 +168,24 @@ void GuiApp::BuildUi() {
 
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar_view), header_bar);
 
-  GtkWidget* switcher_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_widget_add_css_class(switcher_box, "toolbar");
-  view_switcher_ = adw_view_switcher_new();
-  gtk_widget_add_css_class(view_switcher_, "cm-view-switcher");
-  adw_view_switcher_set_policy(ADW_VIEW_SWITCHER(view_switcher_), ADW_VIEW_SWITCHER_POLICY_WIDE);
-  gtk_widget_set_hexpand(view_switcher_, TRUE);
-  gtk_widget_set_halign(view_switcher_, GTK_ALIGN_CENTER);
-  gtk_box_append(GTK_BOX(switcher_box), view_switcher_);
-  adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar_view), switcher_box);
-
   view_stack_ = adw_view_stack_new();
-  adw_view_switcher_set_stack(ADW_VIEW_SWITCHER(view_switcher_), ADW_VIEW_STACK(view_stack_));
+  adw_view_switcher_title_set_stack(ADW_VIEW_SWITCHER_TITLE(header_title_), ADW_VIEW_STACK(view_stack_));
+
+  view_switcher_bar_ = adw_view_switcher_bar_new();
+  adw_view_switcher_bar_set_stack(ADW_VIEW_SWITCHER_BAR(view_switcher_bar_), ADW_VIEW_STACK(view_stack_));
+  g_object_bind_property(header_title_, "title-visible",
+                         view_switcher_bar_, "reveal",
+                         G_BINDING_SYNC_CREATE);
+  adw_toolbar_view_add_bottom_bar(ADW_TOOLBAR_VIEW(toolbar_view), view_switcher_bar_);
+
+  AdwBreakpoint* breakpoint = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 680px"));
+  GValue val_true = G_VALUE_INIT;
+  g_value_init(&val_true, G_TYPE_BOOLEAN);
+  g_value_set_boolean(&val_true, TRUE);
+  adw_breakpoint_add_setter(breakpoint, G_OBJECT(header_title_), "title-visible", &val_true);
+  g_value_unset(&val_true);
+  adw_application_window_add_breakpoint(ADW_APPLICATION_WINDOW(window_), breakpoint);
+
   g_signal_connect(view_stack_, "notify::visible-child", G_CALLBACK(+[](GObject*, GParamSpec*, gpointer user_data) {
     static_cast<GuiApp*>(user_data)->UpdateViewLiveVisibility();
   }), this);
@@ -199,17 +204,17 @@ void GuiApp::BuildUi() {
                                       live_tab_->GetRootWidget(),
                                       "live",
                                       "Live session",
-                                      "media-record-symbolic");
+                                      "castmirror-live-symbolic");
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(view_stack_),
                                       settings_tab_->GetRootWidget(),
                                       "settings",
                                       "Settings",
-                                      "preferences-system-symbolic");
+                                      "castmirror-settings-symbolic");
   adw_view_stack_add_titled_with_icon(ADW_VIEW_STACK(view_stack_),
                                       logs_tab_->GetRootWidget(),
                                       "logs",
                                       "Logs",
-                                      "text-x-generic-symbolic");
+                                      "castmirror-logs-symbolic");
 
   adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar_view), view_stack_);
 
@@ -459,6 +464,9 @@ void GuiApp::SyncBitrateSlider(uint32_t kbps) {
   if (settings_tab_) {
     settings_tab_->SyncBitrateSlider(kbps);
   }
+  if (cast_tab_) {
+    cast_tab_->SyncInlineBitrate(kbps);
+  }
 }
 
 void GuiApp::ShowToast(const std::string& title) {
@@ -687,7 +695,7 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
   } else if (!display_msg.empty()) {
     subtitle = display_msg.c_str();
   }
-  adw_window_title_set_subtitle(ADW_WINDOW_TITLE(header_title_), subtitle);
+  adw_view_switcher_title_set_subtitle(ADW_VIEW_SWITCHER_TITLE(header_title_), subtitle);
 
   switch (new_state) {
     case SessionState::kStreaming:
@@ -796,14 +804,14 @@ void GuiApp::SaveWindowGeometry() {
   gtk_window_get_default_size(GTK_WINDOW(window_), &width, &height);
   int allocated_w = gtk_widget_get_width(window_);
   int allocated_h = gtk_widget_get_height(window_);
-  if (allocated_w >= 760) {
+  if (allocated_w >= 440) {
     width = allocated_w;
   }
-  if (allocated_h >= 560) {
+  if (allocated_h >= 500) {
     height = allocated_h;
   }
-  width = std::clamp(width, 760, 1600);
-  height = std::clamp(height, 560, 1200);
+  width = std::clamp(width, 440, 1600);
+  height = std::clamp(height, 500, 1200);
 
   auto& cfg = ConfigStore::Instance().Mutable();
   if (cfg.window_width != width || cfg.window_height != height) {

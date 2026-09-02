@@ -41,6 +41,9 @@ add_custom_command(
     ${CMAKE_CURRENT_SOURCE_DIR}/gui/castmirror.css
     ${CMAKE_SOURCE_DIR}/docs/assets/logo.svg
     ${CMAKE_CURRENT_SOURCE_DIR}/gui/icons/castmirror-signal-symbolic.svg
+    ${CMAKE_CURRENT_SOURCE_DIR}/gui/icons/castmirror-live-symbolic.svg
+    ${CMAKE_CURRENT_SOURCE_DIR}/gui/icons/castmirror-settings-symbolic.svg
+    ${CMAKE_CURRENT_SOURCE_DIR}/gui/icons/castmirror-logs-symbolic.svg
   VERBATIM
 )
 
@@ -56,6 +59,7 @@ set(GUI_SOURCES
   gui/tray.cc
   gui/notify.cc
   gui/first_run.cc
+  gui/sparkline.cc
   ${CASTMIRROR_GRESOURCE_C}
 )
 
