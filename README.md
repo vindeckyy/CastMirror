@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-ready.png" width="720" alt="CastMirror GTK app">
+  <img src="docs/assets/screenshot-ready.png" width="720" alt="CastMirror GTK app — Cast tab">
 </p>
 
 ## What it is
@@ -44,7 +44,8 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 - **Screen or window sharing** — cast an entire monitor or pick a single application window. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
 - Quality presets **Auto / High / Balanced / Smooth** plus a **per-profile bitrate slider** (1–25 Mbps). The slider is locked while connecting or live
 - Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop
-- Adaptive bitrate from RTCP (CAST checkpoints, NACK / CST2, PLI keyframes)
+- Audio controls live in **Settings** so the Cast page stays focused on picking a device and source
+- **Adaptive bitrate is always on**: it holds your selected bitrate target, drops on congestion, and ramps back up aggressively once the link recovers
 - AES-128-CTR per-frame media crypto as required by Cast Streaming
 - TLS control plane on port **8009**
 - Stop budget under **500 ms** (capture does not run except during a live session)
@@ -70,12 +71,19 @@ Full package notes, firewall, and audio behavior: [docs/building.md](docs/buildi
 
 ## Usage
 
+The GUI is split into four tabs: **Cast**, **Live session**, **Settings**, and **Logs**.
+
 1. Start `castmirror-gui`
-2. Pick a Cast device (Rescan or Add IP)
-3. Choose what to share — a **Screen** or a **Window** (toggle at the top of the "What to share" section), then pick the specific monitor or window from the list. On Wayland the system portal picker handles selection when you press Cast
-4. Choose quality preset and bitrate (defaults are the profile normal until you move the slider)
-5. Cast — host speakers stay quiet if audio mirroring is on
-6. Stop restores local playback
+2. On **Cast**, pick a device (Rescan or Add IP)
+3. Choose what to share — a **Screen** or a **Window** (toggle in the "What to share" section), then pick the specific monitor or window from the list. On Wayland the system portal picker handles selection when you press Cast
+4. Choose a quality preset and bitrate; the per-profile cap is the target the adaptive controller will hold and recover to
+5. Cast — host speakers stay quiet if audio mirroring is on (toggle audio in **Settings**)
+6. The **Live session** tab shows the pipeline, bitrate, and loss during a cast
+7. Stop restores local playback
+
+<p align="center">
+  <img src="docs/assets/screenshot-live.png" width="720" alt="CastMirror Live session tab — idle">
+</p>
 
 CLI:
 
