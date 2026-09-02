@@ -33,7 +33,6 @@
   <text class="s" x="980" y="152" text-anchor="middle">TLS 8009 + media UDP</text>
   <path class="a" d="M166 68 H230"/>
   <path class="a" d="M166 212 H230"/>
-  <path class="a" d="M380 68 H444 68 140"/>
   <path class="a" d="M380 68 C410 68 420 140 444 140"/>
   <path class="a" d="M380 212 C410 212 420 140 444 140"/>
   <path class="a" d="M594 140 H658"/>
