@@ -74,12 +74,24 @@ if(UNIX AND NOT APPLE)
     pkg_check_modules(XEXT REQUIRED xext)
     pkg_check_modules(XRANDR REQUIRED xrandr)
     pkg_check_modules(XFIXES REQUIRED xfixes)
+    pkg_check_modules(XDAMAGE xdamage)
+    if(XDAMAGE_FOUND)
+        target_compile_definitions(castcore PUBLIC CASTCORE_HAVE_XDAMAGE=1)
+        message(STATUS "Found xdamage: ${XDAMAGE_VERSION} - enabling Damage-aware capture")
+    endif()
+    pkg_check_modules(XCOMPOSITE xcomposite)
+    if(XCOMPOSITE_FOUND)
+        target_compile_definitions(castcore PUBLIC CASTCORE_HAVE_XCOMPOSITE=1)
+        message(STATUS "Found xcomposite: ${XCOMPOSITE_VERSION} - enabling occluded-window capture")
+    endif()
     target_include_directories(castcore PUBLIC
         ${PULSE_INCLUDE_DIRS} ${X11_INCLUDE_DIR}
-        ${XEXT_INCLUDE_DIRS} ${XRANDR_INCLUDE_DIRS} ${XFIXES_INCLUDE_DIRS})
+        ${XEXT_INCLUDE_DIRS} ${XRANDR_INCLUDE_DIRS} ${XFIXES_INCLUDE_DIRS}
+        ${XDAMAGE_INCLUDE_DIRS} ${XCOMPOSITE_INCLUDE_DIRS})
     target_link_libraries(castcore PUBLIC
         ${PULSE_LIBRARIES} ${X11_LIBRARIES}
-        ${XEXT_LIBRARIES} ${XRANDR_LIBRARIES} ${XFIXES_LIBRARIES})
+        ${XEXT_LIBRARIES} ${XRANDR_LIBRARIES} ${XFIXES_LIBRARIES}
+        ${XDAMAGE_LIBRARIES} ${XCOMPOSITE_LIBRARIES})
 
     pkg_check_modules(PIPEWIRE libpipewire-0.3 gio-2.0)
     if(PIPEWIRE_FOUND)

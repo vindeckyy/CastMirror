@@ -1,0 +1,37 @@
+{
+  "app-id": "io.github.vindeckyy.CastMirror",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "48",
+  "sdk": "org.gnome.Sdk",
+  "command": "castmirror-gui",
+  "finish-args": [
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--share=network",
+    "--share=ipc",
+    "--talk-name=org.freedesktop.portal.*",
+    "--talk-name=org.a11y.Bus",
+    "--filesystem=xdg-config/castmirror:rw",
+    "--filesystem=xdg-run/pipewire-0:ro",
+    "--device=dri",
+    "--talk-name=org.freedesktop.Notifications"
+  ],
+  "modules": [
+    {
+      "name": "castmirror",
+      "buildsystem": "cmake-ninja",
+      "config-opts": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCASTMIRROR_ENABLE_TRAY=OFF",
+        "-DFLATPAK_BUILD=1"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "..",
+          "skip": [".git", "build", "build-*", "flatpak/.flatpak-builder"]
+        }
+      ]
+    }
+  ]
+}

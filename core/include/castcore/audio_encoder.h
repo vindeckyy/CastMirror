@@ -4,6 +4,7 @@
 #include "castcore/types.h"
 #include <vector>
 #include <memory>
+#include <chrono>
 
 namespace castcore {
 
@@ -22,6 +23,10 @@ class IAudioEncoder {
   virtual bool Initialize(const AudioEncoderConfig& config) = 0;
   virtual bool Encode(const CapturedAudioFrame& frame, EncodedFrame& out_encoded_frame) = 0;
   virtual void SetBitrate(int bitrate_bps) = 0;
+
+  // Set a shared clock origin for RTP timestamp generation. See
+  // IVideoEncoder::SetClockOrigin for details.
+  virtual void SetClockOrigin(std::chrono::steady_clock::time_point origin) = 0;
 
   virtual const AudioEncoderConfig& GetConfig() const = 0;
 };

@@ -70,6 +70,7 @@ class GpuProcessor {
 
   ::SwsContext* sws_ctx_ = nullptr;       // BGRA -> YUV420P at fit rect
   ::SwsContext* sws_ctx_nv12_ = nullptr;  // BGRA -> NV12 at fit rect
+  ::SwsContext* sws_nv12_direct_ = nullptr; // NV12 -> NV12 direct (DMA-BUF zero-copy, 0 extra GPU copies)
 };
 
 } // namespace castcore

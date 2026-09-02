@@ -79,6 +79,7 @@ class CastSession {
 
   CastDevice target_device_;
   int display_id_ = 0;
+  CaptureSource source_{CaptureSourceKind::kMonitor, 0, ""};
   SessionOptions options_;
   QualityPreset preset_ = QualityPreset::kAuto;
   bool enable_audio_ = true;

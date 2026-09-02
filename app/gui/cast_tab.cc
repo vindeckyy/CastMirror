@@ -98,7 +98,7 @@ void CastTab::BuildUi() {
   gtk_widget_set_halign(title_lbl, GTK_ALIGN_START);
   gtk_box_append(GTK_BOX(heading), title_lbl);
 
-  GtkWidget* desc_lbl = gtk_label_new("Choose a nearby display, a screen, and the quality you want.");
+  GtkWidget* desc_lbl = gtk_label_new("Pick a display, a screen, and a quality — then Cast.");
   gtk_widget_add_css_class(desc_lbl, "cm-page-description");
   gtk_widget_set_halign(desc_lbl, GTK_ALIGN_START);
   gtk_label_set_wrap(GTK_LABEL(desc_lbl), TRUE);
@@ -229,15 +229,45 @@ void CastTab::BuildUi() {
   gtk_box_append(GTK_BOX(dev_section_), device_list_box_);
   gtk_box_append(GTK_BOX(content_box), dev_section_);
 
-  // 2. Screen to share Section
+  // 2. What to share Section (Screen / Window selector + list)
   disp_section_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
   gtk_widget_add_css_class(disp_section_, "cm-section-card");
 
   GtkWidget* disp_header_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  GtkWidget* disp_header = MakeSectionHeader("Screen to share", copy::kSectionDisplayHelp);
+  GtkWidget* disp_header = MakeSectionHeader("What to share", copy::kSectionDisplayHelp);
   gtk_widget_set_hexpand(disp_header, TRUE);
   gtk_box_append(GTK_BOX(disp_header_box), disp_header);
   gtk_box_append(GTK_BOX(disp_section_), disp_header_box);
+
+  // Source kind segmented toggle: Screen | Window
+  source_toggle_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_add_css_class(source_toggle_box_, "cm-segmented");
+  gtk_widget_set_halign(source_toggle_box_, GTK_ALIGN_FILL);
+
+  source_screen_btn_ = gtk_toggle_button_new_with_label("Screen");
+  gtk_widget_add_css_class(source_screen_btn_, "cm-segmented-btn");
+  gtk_widget_set_hexpand(source_screen_btn_, TRUE);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_screen_btn_), TRUE);
+  g_signal_connect(source_screen_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
+    auto* self = static_cast<CastTab*>(user_data);
+    if (gtk_toggle_button_get_active(btn)) {
+      self->OnSourceKindChanged(CaptureSourceKind::kMonitor);
+    }
+  }), this);
+  gtk_box_append(GTK_BOX(source_toggle_box_), source_screen_btn_);
+
+  source_window_btn_ = gtk_toggle_button_new_with_label("Window");
+  gtk_widget_add_css_class(source_window_btn_, "cm-segmented-btn");
+  gtk_widget_set_hexpand(source_window_btn_, TRUE);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), FALSE);
+  g_signal_connect(source_window_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
+    auto* self = static_cast<CastTab*>(user_data);
+    if (gtk_toggle_button_get_active(btn)) {
+      self->OnSourceKindChanged(CaptureSourceKind::kWindow);
+    }
+  }), this);
+  gtk_box_append(GTK_BOX(source_toggle_box_), source_window_btn_);
+  gtk_box_append(GTK_BOX(disp_section_), source_toggle_box_);
 
   // Empty screens box
   disp_empty_box_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -286,6 +316,33 @@ void CastTab::BuildUi() {
     static_cast<CastTab*>(user_data)->OnDisplayRowSelected(box, row);
   }), this);
   gtk_box_append(GTK_BOX(disp_section_), display_list_box_);
+
+  // Window ListBox (hidden until the user picks the Window toggle and the
+  // backend advertises window support).
+  window_list_box_ = gtk_list_box_new();
+  gtk_widget_add_css_class(window_list_box_, "cm-choice-list");
+  gtk_list_box_set_selection_mode(GTK_LIST_BOX(window_list_box_), GTK_SELECTION_SINGLE);
+  gtk_list_box_set_show_separators(GTK_LIST_BOX(window_list_box_), FALSE);
+  g_signal_connect(window_list_box_, "row-selected", G_CALLBACK(+[](GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {
+    static_cast<CastTab*>(user_data)->OnWindowRowSelected(box, row);
+  }), this);
+  gtk_widget_set_visible(window_list_box_, FALSE);
+  gtk_box_append(GTK_BOX(disp_section_), window_list_box_);
+
+  // Window empty state (hidden by default).
+  window_empty_box_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_add_css_class(window_empty_box_, "cm-empty-state");
+  gtk_widget_set_visible(window_empty_box_, FALSE);
+  GtkWidget* win_empty_title = gtk_label_new("No windows available");
+  gtk_widget_add_css_class(win_empty_title, "cm-section-title");
+  gtk_widget_set_halign(win_empty_title, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(window_empty_box_), win_empty_title);
+  GtkWidget* win_empty_body = gtk_label_new("Window sharing is not available with the current capture backend. On Wayland, the system dialog will let you pick a window when casting.");
+  gtk_widget_add_css_class(win_empty_body, "cm-section-description");
+  gtk_widget_set_halign(win_empty_body, GTK_ALIGN_CENTER);
+  gtk_label_set_wrap(GTK_LABEL(win_empty_body), TRUE);
+  gtk_box_append(GTK_BOX(window_empty_box_), win_empty_body);
+  gtk_box_append(GTK_BOX(disp_section_), window_empty_box_);
 
   // Wayland info banner
   const char* wayland_env = std::getenv("WAYLAND_DISPLAY");
@@ -389,70 +446,13 @@ void CastTab::BuildUi() {
   updating_ui_ = false;
   UpdateBitrateNote();
 
-  // 4. Sound Section
-  sound_section_ = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-  gtk_widget_add_css_class(sound_section_, "cm-section-card");
-
-  GtkWidget* s_header_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  GtkWidget* s_header = MakeSectionHeader("Sound", copy::kSectionSoundHelp);
-  gtk_widget_set_hexpand(s_header, TRUE);
-  gtk_box_append(GTK_BOX(s_header_box), s_header);
-  GtkWidget* s_info_btn = MakeInfoButton("Sound", copy::kSoundPopover);
-  gtk_box_append(GTK_BOX(s_header_box), s_info_btn);
-  gtk_box_append(GTK_BOX(sound_section_), s_header_box);
-
-  GtkWidget* sound_list = gtk_list_box_new();
-  gtk_widget_add_css_class(sound_list, "cm-choice-list");
-  gtk_list_box_set_selection_mode(GTK_LIST_BOX(sound_list), GTK_SELECTION_NONE);
-  gtk_list_box_set_show_separators(GTK_LIST_BOX(sound_list), FALSE);
-
-  const auto& sound_cfg = ConfigStore::Instance().Get();
-
-  audio_switch_row_ = adw_switch_row_new();
-  gtk_widget_add_css_class(audio_switch_row_, "cm-sound-row");
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_switch_row_), copy::kComputerSoundTitle);
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_switch_row_), copy::kComputerSoundHelp);
-  adw_switch_row_set_active(ADW_SWITCH_ROW(audio_switch_row_), sound_cfg.audio_enabled);
-
-  g_signal_connect(audio_switch_row_, "notify::active", G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer user_data) {
-    auto* self = static_cast<CastTab*>(user_data);
-    if (self->syncing_audio_ || self->updating_ui_) return;
-    gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(obj));
-    auto& cfg = ConfigStore::Instance().Mutable();
-    cfg.audio_enabled = (state != FALSE);
-    ConfigStore::Instance().Save();
-    self->app_->SyncAudioEnabled(state != FALSE);
-    self->UpdateSoundRowSensitivity();
-  }), this);
-
-  silence_switch_row_ = adw_switch_row_new();
-  gtk_widget_add_css_class(silence_switch_row_, "cm-sound-row");
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(silence_switch_row_), copy::kSilenceTitle);
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(silence_switch_row_), copy::kSilenceHelp);
-  adw_switch_row_set_active(ADW_SWITCH_ROW(silence_switch_row_), sound_cfg.silence_host_speakers);
-
-  g_signal_connect(silence_switch_row_, "notify::active", G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer user_data) {
-    auto* self = static_cast<CastTab*>(user_data);
-    if (self->syncing_audio_ || self->updating_ui_) return;
-    gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(obj));
-    auto& cfg = ConfigStore::Instance().Mutable();
-    cfg.silence_host_speakers = (state != FALSE);
-    ConfigStore::Instance().Save();
-    self->app_->SyncSilenceHost(state != FALSE);
-  }), this);
-
-  gtk_list_box_append(GTK_LIST_BOX(sound_list), audio_switch_row_);
-  gtk_list_box_append(GTK_LIST_BOX(sound_list), silence_switch_row_);
-  gtk_box_append(GTK_BOX(sound_section_), sound_list);
-  gtk_box_append(GTK_BOX(content_box), sound_section_);
-  UpdateSoundRowSensitivity();
 }
 
 void CastTab::UpdateBitrateNote() {
   uint32_t kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(selected_preset_);
   std::ostringstream ss;
-  ss << "Video budget: " << std::fixed << std::setprecision(1) << (kbps / 1000.0)
-     << " Mbps · Adjust in Settings";
+  ss << "Holds at " << std::fixed << std::setprecision(1) << (kbps / 1000.0)
+     << " Mbps · drops on congestion, ramps back automatically · adjust in Settings";
   if (bitrate_note_lbl_) {
     gtk_label_set_text(GTK_LABEL(bitrate_note_lbl_), ss.str().c_str());
   }
@@ -573,6 +573,9 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
 
   w.status_dot = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_add_css_class(w.status_dot, "cm-status-dot");
+  gtk_widget_set_halign(w.status_dot, GTK_ALIGN_CENTER);
+  gtk_widget_set_valign(w.status_dot, GTK_ALIGN_CENTER);
+  gtk_widget_set_vexpand(w.status_dot, FALSE);
   gtk_box_append(GTK_BOX(w.status_pill), w.status_dot);
 
   w.status_lbl = gtk_label_new(status_text.c_str());
@@ -899,6 +902,7 @@ void CastTab::RefreshDisplays() {
   }
 
   updating_ui_ = false;
+  UpdateSourceToggleVisibility();
   app_->OnDestinationSelectionChanged();
 }
 
@@ -950,6 +954,9 @@ void CastTab::OnDisplayRowSelected(GtkListBox*, GtkListBoxRow* row) {
 
   auto& cfg = ConfigStore::Instance().Mutable();
   cfg.last_display_id = selected_display_id_;
+  cfg.last_source_kind = "monitor";
+  cfg.last_source_id = selected_display_id_;
+  cfg.last_source_name.clear();
   ConfigStore::Instance().Save();
 
   for (auto& [disp_id, w] : display_row_widgets_) {
@@ -967,6 +974,247 @@ void CastTab::OnDisplayRowSelected(GtkListBox*, GtkListBoxRow* row) {
   app_->OnDestinationSelectionChanged();
 }
 
+CastTab::WindowRowWidgets CastTab::CreateWindowRow(const WindowInfo& win, int rank) {
+  WindowRowWidgets w;
+  w.rank = rank;
+  w.window = win;
+
+  GtkWidget* row = gtk_list_box_row_new();
+  w.row = row;
+  gtk_widget_set_size_request(row, -1, 72);
+  g_object_set_data(G_OBJECT(row), "cm_win_id", GINT_TO_POINTER(win.id));
+
+  GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+  gtk_widget_add_css_class(row_box, "cm-display-row");
+  GtkWidget* win_glyph = MakeCircularGlyph("application-window-symbolic", 40, 18);
+  gtk_widget_set_valign(win_glyph, GTK_ALIGN_CENTER);
+  gtk_box_append(GTK_BOX(row_box), win_glyph);
+
+  GtkWidget* text_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  gtk_widget_set_hexpand(text_box, TRUE);
+  gtk_widget_set_valign(text_box, GTK_ALIGN_CENTER);
+
+  w.title_lbl = gtk_label_new(win.title.c_str());
+  gtk_widget_set_halign(w.title_lbl, GTK_ALIGN_START);
+  gtk_label_set_ellipsize(GTK_LABEL(w.title_lbl), PANGO_ELLIPSIZE_END);
+  gtk_widget_add_css_class(w.title_lbl, "heading");
+  gtk_box_append(GTK_BOX(text_box), w.title_lbl);
+
+  std::ostringstream ss;
+  if (!win.app_class.empty()) {
+    ss << win.app_class;
+  }
+  if (win.width > 0 && win.height > 0) {
+    if (!win.app_class.empty()) ss << " · ";
+    ss << win.width << " × " << win.height;
+  }
+  w.sub_lbl = gtk_label_new(ss.str().c_str());
+  gtk_widget_set_halign(w.sub_lbl, GTK_ALIGN_START);
+  gtk_label_set_ellipsize(GTK_LABEL(w.sub_lbl), PANGO_ELLIPSIZE_END);
+  gtk_widget_add_css_class(w.sub_lbl, "dim-label");
+  gtk_box_append(GTK_BOX(text_box), w.sub_lbl);
+
+  gtk_box_append(GTK_BOX(row_box), text_box);
+
+  GtkWidget* right_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_valign(right_box, GTK_ALIGN_CENTER);
+  w.select_icon = gtk_image_new_from_icon_name("object-select-symbolic");
+  gtk_image_set_pixel_size(GTK_IMAGE(w.select_icon), 18);
+  gtk_widget_set_visible(w.select_icon, FALSE);
+  gtk_box_append(GTK_BOX(right_box), w.select_icon);
+  gtk_box_append(GTK_BOX(row_box), right_box);
+
+  gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), row_box);
+  return w;
+}
+
+void CastTab::RefreshWindows() {
+  auto new_windows = CastEngine::Instance().GetWindows();
+
+  updating_ui_ = true;
+  windows_ = std::move(new_windows);
+
+  // Clear and rebuild the window list.
+  for (auto it = window_row_widgets_.begin(); it != window_row_widgets_.end();) {
+    gtk_list_box_remove(GTK_LIST_BOX(window_list_box_), it->second.row);
+    it = window_row_widgets_.erase(it);
+  }
+
+  if (windows_.empty()) {
+    has_selected_window_ = false;
+    selected_window_id_ = 0;
+    selected_window_name_.clear();
+    gtk_widget_set_visible(window_list_box_, FALSE);
+    gtk_widget_set_visible(window_empty_box_, TRUE);
+  } else {
+    gtk_widget_set_visible(window_empty_box_, FALSE);
+    gtk_widget_set_visible(window_list_box_, TRUE);
+
+    for (size_t i = 0; i < windows_.size(); ++i) {
+      WindowRowWidgets w = CreateWindowRow(windows_[i], static_cast<int>(i));
+      gtk_list_box_append(GTK_LIST_BOX(window_list_box_), w.row);
+      window_row_widgets_[windows_[i].id] = w;
+    }
+
+    // Select the first window by default (or the previously selected one
+    // if it's still present).
+    int prefer = has_selected_window_ ? selected_window_id_ : windows_[0].id;
+    bool found = false;
+    for (const auto& win : windows_) {
+      if (win.id == prefer) { found = true; break; }
+    }
+    if (!found) prefer = windows_[0].id;
+
+    selected_window_id_ = prefer;
+    has_selected_window_ = true;
+    for (const auto& win : windows_) {
+      if (win.id == prefer) { selected_window_name_ = win.title; break; }
+    }
+
+    auto it = window_row_widgets_.find(selected_window_id_);
+    if (it != window_row_widgets_.end()) {
+      gtk_list_box_select_row(GTK_LIST_BOX(window_list_box_), GTK_LIST_BOX_ROW(it->second.row));
+    }
+    for (auto& [id, w] : window_row_widgets_) {
+      bool is_selected = (id == selected_window_id_);
+      if (w.select_icon) gtk_widget_set_visible(w.select_icon, is_selected);
+      if (is_selected) gtk_widget_add_css_class(w.row, "is-selected");
+      else gtk_widget_remove_css_class(w.row, "is-selected");
+    }
+  }
+
+  updating_ui_ = false;
+  app_->OnDestinationSelectionChanged();
+}
+
+void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
+  if (updating_ui_) return;
+  // Mutual exclusion: only one toggle active at a time.
+  if (kind == CaptureSourceKind::kMonitor) {
+    if (source_window_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_window_btn_))) {
+      g_signal_handlers_block_by_func(source_window_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), FALSE);
+      g_signal_handlers_unblock_by_func(source_window_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+    }
+    StopWindowRefreshTimer();
+    gtk_widget_set_visible(display_list_box_, TRUE);
+    gtk_widget_set_visible(window_list_box_, FALSE);
+    gtk_widget_set_visible(window_empty_box_, FALSE);
+    if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, TRUE);
+  } else {
+    if (source_screen_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_screen_btn_))) {
+      g_signal_handlers_block_by_func(source_screen_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_screen_btn_), FALSE);
+      g_signal_handlers_unblock_by_func(source_screen_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+    }
+    gtk_widget_set_visible(display_list_box_, FALSE);
+    if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, FALSE);
+    RefreshWindows();
+    StartWindowRefreshTimer();
+  }
+  selected_source_kind_ = kind;
+
+  auto& cfg = ConfigStore::Instance().Mutable();
+  cfg.last_source_kind = CaptureSourceKindToString(kind);
+  if (kind == CaptureSourceKind::kMonitor) {
+    cfg.last_source_id = selected_display_id_;
+    cfg.last_source_name.clear();
+  } else {
+    cfg.last_source_id = selected_window_id_;
+    cfg.last_source_name = selected_window_name_;
+  }
+  ConfigStore::Instance().Save();
+
+  app_->OnDestinationSelectionChanged();
+}
+
+void CastTab::OnWindowRowSelected(GtkListBox*, GtkListBoxRow* row) {
+  if (updating_ui_ || !row) return;
+  gpointer p = g_object_get_data(G_OBJECT(row), "cm_win_id");
+  int id = GPOINTER_TO_INT(p);
+  if (has_selected_window_ && selected_window_id_ == id) return;
+
+  selected_window_id_ = id;
+  has_selected_window_ = true;
+  for (const auto& win : windows_) {
+    if (win.id == id) { selected_window_name_ = win.title; break; }
+  }
+
+  auto& cfg = ConfigStore::Instance().Mutable();
+  cfg.last_source_kind = "window";
+  cfg.last_source_id = selected_window_id_;
+  cfg.last_source_name = selected_window_name_;
+  ConfigStore::Instance().Save();
+
+  for (auto& [wid, w] : window_row_widgets_) {
+    bool is_selected = (wid == selected_window_id_);
+    if (w.select_icon) gtk_widget_set_visible(w.select_icon, is_selected);
+    if (is_selected) gtk_widget_add_css_class(w.row, "is-selected");
+    else gtk_widget_remove_css_class(w.row, "is-selected");
+  }
+
+  app_->OnDestinationSelectionChanged();
+}
+
+void CastTab::UpdateSourceToggleVisibility() {
+  bool supported = CastEngine::Instance().WindowCaptureSupported();
+  gtk_widget_set_visible(source_toggle_box_, supported);
+  if (!supported && selected_source_kind_ == CaptureSourceKind::kWindow) {
+    // Backend lost window support mid-session: fall back to screen.
+    OnSourceKindChanged(CaptureSourceKind::kMonitor);
+    if (source_screen_btn_) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_screen_btn_), TRUE);
+  }
+}
+
+void CastTab::StartWindowRefreshTimer() {
+  if (window_refresh_timer_id_ != 0) return;
+  window_refresh_timer_id_ = g_timeout_add_seconds(2, +[](gpointer user_data) -> gboolean {
+    auto* self = static_cast<CastTab*>(user_data);
+    // Only refresh while the window toggle is active and no session is live
+    // (avoid UI churn during streaming).
+    if (self->selected_source_kind_ == CaptureSourceKind::kWindow &&
+        self->session_controls_sensitive_) {
+      self->RefreshWindows();
+    }
+    return G_SOURCE_CONTINUE;
+  }, this);
+}
+
+void CastTab::StopWindowRefreshTimer() {
+  if (window_refresh_timer_id_ != 0) {
+    g_source_remove(window_refresh_timer_id_);
+    window_refresh_timer_id_ = 0;
+  }
+}
+
+bool CastTab::HasSelectedSource() const {
+  if (selected_source_kind_ == CaptureSourceKind::kWindow) {
+    return has_selected_window_;
+  }
+  return has_selected_display_;
+}
+
+CaptureSource CastTab::GetSelectedSource() const {
+  if (selected_source_kind_ == CaptureSourceKind::kWindow && has_selected_window_) {
+    // Find geometry from the cached window list.
+    for (const auto& win : windows_) {
+      if (win.id == selected_window_id_) {
+        return CaptureSource{CaptureSourceKind::kWindow, win.id, win.title,
+                             win.x, win.y, win.width, win.height};
+      }
+    }
+    return CaptureSource{CaptureSourceKind::kWindow, selected_window_id_, selected_window_name_};
+  }
+  // Monitor: find geometry from the cached display list.
+  for (const auto& disp : displays_) {
+    if (disp.id == selected_display_id_) {
+      return CaptureSource{CaptureSourceKind::kMonitor, disp.id, disp.name,
+                           disp.x, disp.y, disp.width, disp.height};
+    }
+  }
+  return CaptureSource{CaptureSourceKind::kMonitor, selected_display_id_, ""};
+}
+
 void CastTab::OnPresetChanged(QualityPreset preset) {
   if (updating_ui_) return;
   selected_preset_ = preset;
@@ -977,48 +1225,20 @@ void CastTab::OnPresetChanged(QualityPreset preset) {
   app_->SyncBitrateSlider(cfg.GetPresetBitrateKbps(preset));
 }
 
-void CastTab::SyncAudioSwitch(bool active) {
-  if (!audio_switch_row_) return;
-  syncing_audio_ = true;
-  if (adw_switch_row_get_active(ADW_SWITCH_ROW(audio_switch_row_)) != static_cast<gboolean>(active)) {
-    adw_switch_row_set_active(ADW_SWITCH_ROW(audio_switch_row_), active);
-  }
-  syncing_audio_ = false;
-  UpdateSoundRowSensitivity();
-}
-
-void CastTab::SyncSilenceSwitch(bool active) {
-  if (!silence_switch_row_) return;
-  syncing_audio_ = true;
-  if (adw_switch_row_get_active(ADW_SWITCH_ROW(silence_switch_row_)) != static_cast<gboolean>(active)) {
-    adw_switch_row_set_active(ADW_SWITCH_ROW(silence_switch_row_), active);
-  }
-  syncing_audio_ = false;
-}
-
 bool CastTab::GetAudioEnabled() const {
-  return audio_switch_row_ ? (adw_switch_row_get_active(ADW_SWITCH_ROW(audio_switch_row_)) != FALSE) : true;
-}
-
-void CastTab::UpdateSoundRowSensitivity() {
-  const bool audio_on = GetAudioEnabled();
-  if (audio_switch_row_) {
-    gtk_widget_set_sensitive(audio_switch_row_, session_controls_sensitive_);
-  }
-  if (silence_switch_row_) {
-    gtk_widget_set_sensitive(silence_switch_row_, session_controls_sensitive_ && audio_on);
-  }
+  return ConfigStore::Instance().Get().audio_enabled;
 }
 
 void CastTab::SetControlsSensitive(bool sensitive) {
   session_controls_sensitive_ = sensitive;
   gtk_widget_set_sensitive(device_list_box_, sensitive);
   gtk_widget_set_sensitive(display_list_box_, sensitive);
+  gtk_widget_set_sensitive(window_list_box_, sensitive);
+  if (source_toggle_box_) gtk_widget_set_sensitive(source_toggle_box_, sensitive);
   if (preset_auto_btn_) gtk_widget_set_sensitive(preset_auto_btn_, sensitive);
   if (preset_high_btn_) gtk_widget_set_sensitive(preset_high_btn_, sensitive);
   if (preset_balanced_btn_) gtk_widget_set_sensitive(preset_balanced_btn_, sensitive);
   if (preset_smooth_btn_) gtk_widget_set_sensitive(preset_smooth_btn_, sensitive);
-  UpdateSoundRowSensitivity();
   if (rescan_btn_) gtk_widget_set_sensitive(rescan_btn_, sensitive);
   if (add_ip_btn_) gtk_widget_set_sensitive(add_ip_btn_, sensitive);
   if (remove_btn_) gtk_widget_set_sensitive(remove_btn_, sensitive && IsSelectedDeviceRemovable());

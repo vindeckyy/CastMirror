@@ -21,11 +21,10 @@ class CastTab {
 
   void RefreshDevices();
   void RefreshDisplays();
+  void RefreshWindows();
   void UpdateSessionState(SessionState state, const std::string& message);
 
   void SetControlsSensitive(bool sensitive);
-  void SyncAudioSwitch(bool active);
-  void SyncSilenceSwitch(bool active);
   void SetScanInProgress(bool scanning);
 
   std::string GetSelectedDeviceId() const { return selected_device_id_; }
@@ -33,6 +32,8 @@ class CastTab {
   int GetSelectedDisplayId() const { return selected_display_id_; }
   std::string GetSelectedDisplayName() const;
   bool HasSelectedDisplay() const { return has_selected_display_; }
+  bool HasSelectedSource() const;
+  CaptureSource GetSelectedSource() const;
   bool IsSelectedDeviceRemovable() const;
   QualityPreset GetSelectedPreset() const { return selected_preset_; }
   bool GetAudioEnabled() const;
@@ -64,18 +65,32 @@ class CastTab {
     DisplayInfo display;
   };
 
+  struct WindowRowWidgets {
+    GtkWidget* row = nullptr;
+    GtkWidget* title_lbl = nullptr;
+    GtkWidget* sub_lbl = nullptr;
+    GtkWidget* select_icon = nullptr;
+    int rank = 0;
+    WindowInfo window;
+  };
+
   void BuildUi();
   void UpdateBitrateNote();
   void UpdateDeviceSectionState();
   DeviceRowWidgets CreateDeviceRow(const CastDevice& dev, int rank);
   DisplayRowWidgets CreateDisplayRow(const DisplayInfo& disp, int rank);
+  WindowRowWidgets CreateWindowRow(const WindowInfo& win, int rank);
   int GetDeviceRank(const std::string& id) const;
   int GetDisplayRank(int id) const;
+  void UpdateSourceToggleVisibility();
+  void OnSourceKindChanged(CaptureSourceKind kind);
+  void OnWindowRowSelected(GtkListBox* box, GtkListBoxRow* row);
+  void StartWindowRefreshTimer();
+  void StopWindowRefreshTimer();
 
   void OnDeviceRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnDisplayRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnPresetChanged(QualityPreset preset);
-  void UpdateSoundRowSensitivity();
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;
@@ -93,6 +108,14 @@ class CastTab {
   GtkWidget* display_list_box_ = nullptr;
   GtkWidget* wayland_banner_ = nullptr;
 
+  // Source selector (Screen / Window segmented toggle + window list).
+  GtkWidget* source_toggle_box_ = nullptr;
+  GtkWidget* source_screen_btn_ = nullptr;
+  GtkWidget* source_window_btn_ = nullptr;
+  GtkWidget* window_list_box_ = nullptr;
+  GtkWidget* window_empty_box_ = nullptr;
+  guint window_refresh_timer_id_ = 0;
+
   GtkWidget* preset_flow_box_ = nullptr;
   GtkWidget* preset_auto_btn_ = nullptr;
   GtkWidget* preset_high_btn_ = nullptr;
@@ -100,22 +123,23 @@ class CastTab {
   GtkWidget* preset_smooth_btn_ = nullptr;
   GtkWidget* bitrate_note_lbl_ = nullptr;
 
-  GtkWidget* sound_section_ = nullptr;
-  GtkWidget* audio_switch_row_ = nullptr;
-  GtkWidget* silence_switch_row_ = nullptr;
-
   std::vector<CastDevice> devices_;
   std::vector<DisplayInfo> displays_;
+  std::vector<WindowInfo> windows_;
   std::unordered_map<std::string, DeviceRowWidgets> device_row_widgets_;
   std::unordered_map<int, DisplayRowWidgets> display_row_widgets_;
+  std::unordered_map<int, WindowRowWidgets> window_row_widgets_;
 
   std::string selected_device_id_;
   int selected_display_id_ = 0;
   bool has_selected_display_ = false;
+  CaptureSourceKind selected_source_kind_ = CaptureSourceKind::kMonitor;
+  int selected_window_id_ = 0;
+  std::string selected_window_name_;
+  bool has_selected_window_ = false;
   QualityPreset selected_preset_ = QualityPreset::kAuto;
   bool updating_ui_ = false;
   bool scan_in_progress_ = false;
-  bool syncing_audio_ = false;
   bool session_controls_sensitive_ = true;
 };
 

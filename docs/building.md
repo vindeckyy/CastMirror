@@ -8,11 +8,14 @@ Linux is the supported v1 platform. You need a C++20 compiler, CMake 3.20+, Ninj
 sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+    libxcomposite-dev libxdamage-dev \
     libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
     libgtk-4-dev libadwaita-1-dev
 ```
 
 `libgtk-4-dev` and `libadwaita-1-dev` are required for `castmirror-gui`. The CLI (`castmirror`) links only `castcore`.
+
+`libxcomposite-dev` and `libxdamage-dev` are optional but recommended — they enable occluded-window capture and efficient damage tracking for X11 window sharing. The build succeeds without them (window capture degrades gracefully).
 
 ## Configure and build
 

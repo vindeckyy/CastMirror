@@ -7,6 +7,7 @@
 #include <memory>
 #include <functional>
 #include <atomic>
+#include <chrono>
 
 namespace castcore {
 
@@ -18,8 +19,11 @@ struct VideoEncoderConfig {
   VideoCodec codec = VideoCodec::kH264;
   std::string profile = "high";
   std::string level = "4.2";
-  int gop_size = 60; // 1 second keyframe interval
+  int gop_size = 0; // 0 = auto (intra_refresh avoids periodic IDRs)
   int playout_delay_ms = 200;
+  int slices = 4;
+  bool intra_refresh = true;
+  bool low_latency_tune = true;
 };
 
 class IVideoEncoder {
@@ -31,6 +35,11 @@ class IVideoEncoder {
   virtual void ForceKeyFrame() = 0;
   virtual void SetBitrate(uint32_t bitrate_kbps) = 0;
   virtual void SetFramerate(int fps) = 0;
+
+  // Set a shared clock origin for RTP timestamp generation. When set before
+  // the first Encode() call, both audio and video RTP timestamps reference
+  // the same absolute time, keeping A/V in sync on the receiver.
+  virtual void SetClockOrigin(std::chrono::steady_clock::time_point origin) = 0;
 
   // Reopen the encoder at a new size/fps/bitrate (adaptive ladder). Cast
   // frame ids and the RTP clock origin are preserved so the receiver never

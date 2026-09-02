@@ -444,18 +444,12 @@ void GuiApp::OnPageAction(const char* page_name) {
 }
 
 void GuiApp::SyncAudioEnabled(bool enabled) {
-  if (cast_tab_) {
-    cast_tab_->SyncAudioSwitch(enabled);
-  }
   if (settings_tab_) {
     settings_tab_->SyncAudioSwitch(enabled);
   }
 }
 
 void GuiApp::SyncSilenceHost(bool enabled) {
-  if (cast_tab_) {
-    cast_tab_->SyncSilenceSwitch(enabled);
-  }
   if (settings_tab_) {
     settings_tab_->SyncSilenceSwitch(enabled);
   }
@@ -591,12 +585,12 @@ void GuiApp::TriggerCastAction() {
     PresentAlert("Choose a Cast display", "Select a TV or add one by IP before casting.");
     return;
   }
-  if (!cast_tab_ || !cast_tab_->HasSelectedDisplay()) {
-    PresentAlert("Choose a screen", "Select a screen before casting.");
+  if (!cast_tab_ || !cast_tab_->HasSelectedSource()) {
+    PresentAlert("Choose what to share", "Select a screen or window before casting.");
     return;
   }
 
-  int display_id = cast_tab_->GetSelectedDisplayId();
+  CaptureSource source = cast_tab_->GetSelectedSource();
   QualityPreset preset = cast_tab_->GetSelectedPreset();
   bool audio_on = cast_tab_->GetAudioEnabled();
   last_device_name_ = cast_tab_->GetSelectedDeviceName();
@@ -615,10 +609,11 @@ void GuiApp::TriggerCastAction() {
   opts.silence_host_speakers = cfg.silence_host_speakers;
   opts.adaptive_enabled = cfg.adaptive_enabled;
 
-  LOG_INFO << "[UI] Starting Cast Session to device id " << device_id << "...";
+  LOG_INFO << "[UI] Starting Cast Session to device id " << device_id
+           << " (source: " << CaptureSourceKindToString(source.kind) << " id=" << source.id << ")...";
 
-  std::thread([this, device_id, display_id, opts]() {
-    bool ok = CastEngine::Instance().StartCasting(device_id, display_id, opts);
+  std::thread([this, device_id, source, opts]() {
+    bool ok = CastEngine::Instance().StartCasting(device_id, source, opts);
     if (ok) {
       return;
     }

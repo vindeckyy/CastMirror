@@ -32,6 +32,32 @@ These are the user-visible profiles in the GTK GUI and CLI. Resolution is still 
 
 ---
 
+## Capture sources: screen vs window
+
+CastMirror supports two capture source kinds:
+
+| Kind | X11 | Wayland (portal) |
+|---|---|---|
+| **Screen (monitor)** | XRandR per-monitor crop from root window | Portal `SelectSources` with type bitmask `1` (monitor) |
+| **Window** | Direct window capture via XGetImage/XShmGetImage on the window drawable, with XComposite `CompositeRedirectManual` for occluded-window correctness. Window geometry is tracked via `ConfigureNotify`; window destruction/unmap is detected via `DestroyNotify`/`UnmapNotify` and signals `source_lost` | Portal `SelectSources` with type bitmask `2` (window). The compositor's native picker handles selection |
+
+### X11 window capture notes
+
+- Windows are enumerated by walking the toplevel tree and filtering to viewable, managed windows (`WM_STATE == NormalState`) with non-empty titles. Override-redirect windows (popups, docks, tooltips) are excluded.
+- Window IDs are X11 XIDs (cast to `int`). They are **not stable across application restarts** — CastMirror persists the window title and re-resolves by name when restoring the last source. If the window is no longer open, it falls back to the last monitor.
+- XComposite redirection (`CompositeRedirectManual`) is used so occluded windows still capture correctly. If XComposite is unavailable, capture proceeds but may tear for occluded windows.
+- XDamage is used on the window drawable (not root) for efficient change detection.
+- Cursor compositing (XFixes) is offset by the window's root-relative position so the cursor appears in the right place.
+- When a shared window is closed, the session fails with the message "Shared window was closed" rather than silently falling back to monitor capture.
+
+### Wayland portal window notes
+
+- The system portal picker (e.g. `xdg-desktop-portal`) handles window selection natively. CastMirror passes the window source type to `SelectSources`; the user picks the window in the compositor's dialog.
+- Portal restore tokens are scoped to the source kind. Switching between screen and window may trigger a new picker dialog.
+- Not all compositors/portal implementations support window selection. CastMirror hides the Window toggle in the GUI when the backend reports `SupportsWindowCapture() == false`.
+
+---
+
 ## Adaptation Ladder Profiles
 
 CastMirror dynamically steps down or up along the following 8 rungs depending on RTCP packet loss and round-trip time:

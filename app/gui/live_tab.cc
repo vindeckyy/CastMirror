@@ -35,7 +35,13 @@ GtkWidget* MakePipelineNode(const char* title,
   GtkWidget* node = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   gtk_widget_add_css_class(node, "cm-pipeline-node");
   gtk_widget_add_css_class(node, "is-idle");
-  gtk_widget_set_hexpand(node, TRUE);
+  // Fixed minimum width so long subtitles (device names, capture backend,
+  // resolution) don't compress the node and get clipped vertically. The
+  // horizontal scroller handles overflow when 5 nodes + chevrons exceed
+  // the viewport.
+  gtk_widget_set_size_request(node, 220, -1);
+  gtk_widget_set_hexpand(node, FALSE);
+  gtk_widget_set_halign(node, GTK_ALIGN_FILL);
 
   GtkWidget* icon = gtk_image_new_from_icon_name(icon_name);
   gtk_image_set_pixel_size(GTK_IMAGE(icon), 24);
@@ -49,7 +55,12 @@ GtkWidget* MakePipelineNode(const char* title,
 
   GtkWidget* slbl = gtk_label_new(default_sub);
   gtk_widget_set_halign(slbl, GTK_ALIGN_CENTER);
+  gtk_widget_set_valign(slbl, GTK_ALIGN_FILL);
+  gtk_widget_set_vexpand(slbl, TRUE);
   gtk_label_set_wrap(GTK_LABEL(slbl), TRUE);
+  gtk_label_set_ellipsize(GTK_LABEL(slbl), PANGO_ELLIPSIZE_END);
+  gtk_label_set_lines(GTK_LABEL(slbl), 2);
+  gtk_label_set_max_width_chars(GTK_LABEL(slbl), 28);
   gtk_widget_add_css_class(slbl, "cm-section-description");
   gtk_box_append(GTK_BOX(node), slbl);
 
@@ -174,7 +185,6 @@ void LiveTab::BuildUi() {
                                  GTK_POLICY_NEVER);
 
   GtkWidget* pipe_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  gtk_widget_set_hexpand(pipe_hbox, TRUE);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pipe_scroller), pipe_hbox);
 
   auto make_chevron = []() -> GtkWidget* {
@@ -380,17 +390,27 @@ void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats
   // Update node labels
   if (!stats.display_name.empty() && pipe_screen_sub_) {
     std::string s = stats.display_name;
+    if (!stats.source_kind.empty() && stats.source_kind == "window") {
+      s = "Window: " + s;
+    }
     if (stats.current_resolution.width > 0 && stats.current_resolution.height > 0) {
       s += " (" + std::to_string(stats.current_resolution.width) + " × " +
            std::to_string(stats.current_resolution.height) + ")";
     }
     gtk_label_set_text(GTK_LABEL(pipe_screen_sub_), s.c_str());
+    gtk_widget_set_tooltip_text(pipe_screen_sub_, s.c_str());
   }
   if (!stats.capture_backend.empty() && pipe_capture_sub_) {
     gtk_label_set_text(GTK_LABEL(pipe_capture_sub_), stats.capture_backend.c_str());
+    gtk_widget_set_tooltip_text(pipe_capture_sub_, stats.capture_backend.c_str());
   }
   if (!stats.encoder_name.empty() && pipe_encode_sub_) {
-    gtk_label_set_text(GTK_LABEL(pipe_encode_sub_), stats.encoder_name.c_str());
+    std::string enc_text = stats.encoder_name;
+    if (!stats.active_codec.empty()) {
+      enc_text += " · " + stats.active_codec;
+    }
+    gtk_label_set_text(GTK_LABEL(pipe_encode_sub_), enc_text.c_str());
+    gtk_widget_set_tooltip_text(pipe_encode_sub_, enc_text.c_str());
   }
 
   if (pipe_network_sub_) {
@@ -401,10 +421,12 @@ void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats
              << (stats.packet_loss_fraction * 100.0) << "% loss)";
     }
     gtk_label_set_text(GTK_LABEL(pipe_network_sub_), ss_net.str().c_str());
+    gtk_widget_set_tooltip_text(pipe_network_sub_, ss_net.str().c_str());
   }
 
   if (!stats.device_name.empty() && pipe_tv_sub_) {
     gtk_label_set_text(GTK_LABEL(pipe_tv_sub_), stats.device_name.c_str());
+    gtk_widget_set_tooltip_text(pipe_tv_sub_, stats.device_name.c_str());
   }
 
   // Update active highlighting

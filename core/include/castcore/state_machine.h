@@ -34,6 +34,22 @@ class StateMachine {
     return GetState() == SessionState::kStreaming;
   }
 
+  // Phase 0.5: assertion helper — verify IsActive() matches external capture state.
+  // Call with display_capture->IsCapturing() (or synthetic equivalent).
+  void AssertCaptureInvariant(bool capture_running) const {
+    bool active = IsActive();
+    // Use global helper from types.h via qualified name to avoid hiding.
+    ::castcore::CheckCaptureInvariant(active, capture_running);
+    if (active != capture_running) {
+      // Caller may LOG_WARN additionally; helper already asserts in debug.
+    }
+  }
+
+  // Convenience: check if transition would be valid without mutating state.
+  bool CanTransitionVia(const SessionState from, SessionState to) const {
+    return IsValidTransition(from, to);
+  }
+
  private:
   bool IsValidTransition(SessionState from, SessionState to) const;
 

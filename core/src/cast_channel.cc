@@ -138,6 +138,17 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   // ("bad record mac"). 1.2 keeps read and write cipher states independent.
   SSL_CTX_set_options(ssl_ctx_, SSL_OP_NO_TLSv1_3);
 
+  // Chromecast routinely closes the TCP socket without sending a TLS
+  // close_notify alert (e.g. on a WiFi glitch or when it tears down a
+  // mirroring session). OpenSSL 3.0+ turns that into a hard
+  // SSL_ERROR_SSL ("unexpected eof while reading") instead of a clean EOF,
+  // which both pollutes diagnostics and can leave the SSL* in a state where
+  // SSL_shutdown misbehaves. Treat an abrupt peer close as a clean EOF so we
+  // can distinguish "peer closed" (expected) from a real protocol error.
+#ifdef SSL_OP_IGNORE_UNEXPECTED_EOF
+  SSL_CTX_set_options(ssl_ctx_, SSL_OP_IGNORE_UNEXPECTED_EOF);
+#endif
+
   ssl_ = SSL_new(ssl_ctx_);
   if (!ssl_) {
     LOG_ERROR << "Failed to create SSL structure";
@@ -347,6 +358,15 @@ void CastChannel::ReceiveLoop() {
       if (ret <= 0) {
         if (should_stop_.load() || !is_connected_.load()) return;
         int err = SSL_get_error(ssl_, ret);
+        // Transient retry, NOT a disconnect. The cast-channel socket uses a
+        // 6s SO_RCVTIMEO, so when the control channel is idle (common while
+        // media flows over UDP and the Chromecast has nothing to send),
+        // SSL_read returns -1 with WANT_READ. Tearing the channel down here
+        // would cause spurious full reconnects on a perfectly healthy link.
+        // Loop and keep waiting for the next real message.
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+          continue;
+        }
         char err_buf[256];
         ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
         LOG_WARN << "Cast Channel socket disconnected while reading header: ret=" << ret << " err=" << err << " (" << err_buf << ")";
@@ -373,7 +393,13 @@ void CastChannel::ReceiveLoop() {
     while (body_read < msg_len) {
       int ret = SSL_read(ssl_, payload_buf.data() + body_read, static_cast<int>(msg_len - body_read));
       if (ret <= 0) {
-        if (should_stop_.load()) return;
+        if (should_stop_.load() || !is_connected_.load()) return;
+        int err = SSL_get_error(ssl_, ret);
+        // Same transient-retry rationale as the header read: a 6s control-
+        // channel idle timeout (WANT_READ) is not a disconnect.
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+          continue;
+        }
         LOG_WARN << "Cast Channel socket disconnected while reading body";
         is_connected_ = false;
         NotifyDisconnected("TLS socket closed");

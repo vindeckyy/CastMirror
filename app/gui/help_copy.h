@@ -15,8 +15,8 @@ inline constexpr const char* kAboutLicense =
 // Cast Tab - Sections
 inline constexpr const char* kSectionTelevision = "Where to cast";
 inline constexpr const char* kSectionTelevisionHelp = "Choose the Google Cast, Android TV, or Nest display on your LAN.";
-inline constexpr const char* kSectionDisplay = "Screen to share";
-inline constexpr const char* kSectionDisplayHelp = "CastMirror sends this monitor, cropped to its XRandR / portal rectangle — not a browser tab.";
+inline constexpr const char* kSectionDisplay = "What to share";
+inline constexpr const char* kSectionDisplayHelp = "CastMirror sends the selected screen or window, cropped to its XRandR / portal rectangle — not a browser tab.";
 inline constexpr const char* kWaylandPortalNote =
     "On Wayland, clicking Cast will open the desktop portal so you can pick a screen or window. CastMirror then matches that size before talking to the TV.";
 inline constexpr const char* kSectionQuality = "Picture quality";
@@ -60,9 +60,9 @@ inline constexpr const char* kLiveEmptyBody =
     "Start from the Cast tab. Capture does not run until a session is live, so your screen is never shared in the background.";
 inline constexpr const char* kHealthHealthy = "Stream looks healthy.";
 inline constexpr const char* kLadderCaption =
-    "Adaptive may step down this ladder when Wi-Fi is lossy. It will not go above the quality you picked or this TV's limit. A ladder change does not reconnect — the TV just gets a new keyframe.";
+    "Adaptive steps down this ladder when Wi-Fi is lossy, then ramps your bitrate back to the target once the link recovers. It will not go above the quality you picked or this TV's limit. A ladder change does not reconnect — the TV just gets a new keyframe.";
 inline constexpr const char* kLadderDisabledCaption =
-    "Adaptive quality is disabled in Settings. The encoder stays on the fixed quality you selected.";
+    "Adaptive quality is always on. The encoder holds your bitrate and ramps back to it after any congestion drop.";
 
 // Stat Tile Help
 inline constexpr const char* kStatFpsHelp = "How many video frames the PC is capturing and transmitting each second.";
@@ -78,19 +78,15 @@ inline constexpr const char* kStatSentHelp = "Total video frames and RTP media p
 
 // Settings Tab
 inline constexpr const char* kBitrateTitle = "Video bitrate cap";
-inline constexpr const char* kBitrateHelp = "Highest bitrate Adaptive is allowed to use for this preset.";
+inline constexpr const char* kBitrateHelp =
+    "Bitrate CastMirror holds while streaming. Drops only on network congestion and ramps back up quickly when the link recovers.";
 inline constexpr const char* kBitratePopover =
-    "Applies immediately while Live without reconnecting. Adaptive bitrate can dynamically lower the rate below this cap if packet loss occurs.";
+    "Applies immediately while Live without reconnecting. CastMirror holds this bitrate on a clean link, drops below it only when the TV reports packet loss, and aggressively ramps back up to your target once the connection recovers.";
 
 inline constexpr const char* kFpsTitle = "Capture frame rate";
 inline constexpr const char* kFpsHelp = "0 means follow the monitor's refresh rate, clamped to what the TV supports.";
 inline constexpr const char* kFpsPopover =
     "Most Chromecast devices only accept 30 or 60 fps. Framerates above 60 are rejected by the TV decoder.";
-
-inline constexpr const char* kAdaptiveTitle = "Adaptive quality";
-inline constexpr const char* kAdaptiveHelp = "Automatically lowers resolution, fps, and bitrate when the TV reports packet loss.";
-inline constexpr const char* kAdaptivePopover =
-    "When enabled, CastMirror smoothly steps down the quality ladder during Wi-Fi drops to prevent stuttering and retransmission storms.";
 
 inline constexpr const char* kAudioQualityTitle = "Audio quality";
 inline constexpr const char* kAudioQualityHelp = "Opus bitrate. 192 kbps is recommended; 64 kbps is best for weak Wi-Fi.";
@@ -102,9 +98,6 @@ inline constexpr const char* kDelayTitle = "Target delay";
 inline constexpr const char* kDelayHelp = "How long the TV waits before drawing each frame (buffer depth).";
 inline constexpr const char* kDelayPopover =
     "200 ms gives responsive cursor movement; 400 ms is Chrome's default buffer to withstand Wi-Fi packet retransmits.";
-
-inline constexpr const char* kLowLatencyTitle = "Prefer low latency (200 ms)";
-inline constexpr const char* kLowLatencyHelp = "Forces the target playout delay to 200 ms for snappier interaction.";
 
 inline constexpr const char* kSubnetScanTitle = "Scan LAN for silent TVs";
 inline constexpr const char* kSubnetScanHelp = "TCP-probes port 8009 on your local /24 subnet if mDNS discovery is blocked.";

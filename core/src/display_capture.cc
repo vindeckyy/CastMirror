@@ -8,13 +8,21 @@
 #include <atomic>
 #include <algorithm>
 #include <thread>
+#include <unordered_set>
 
 #if !defined(_WIN32)
   #include <X11/Xlib.h>
+  #include <X11/Xatom.h>
   #include <X11/Xutil.h>
   #include <X11/extensions/XShm.h>
   #include <X11/extensions/Xrandr.h>
   #include <X11/extensions/Xfixes.h>
+#if defined(CASTCORE_HAVE_XDAMAGE)
+  #include <X11/extensions/Xdamage.h>
+#endif
+#if defined(CASTCORE_HAVE_XCOMPOSITE)
+  #include <X11/extensions/Xcomposite.h>
+#endif
   #include <sys/ipc.h>
   #include <sys/shm.h>
 #endif
@@ -43,8 +51,21 @@ class SyntheticDisplayCapture : public IDisplayCapture {
   }
 
   bool Start(int display_id, int target_fps) override {
+    return Start(CaptureSource{CaptureSourceKind::kMonitor, display_id, "Synthetic Primary Display"}, target_fps);
+  }
+
+  bool Start(const CaptureSource& source, int target_fps) override {
     Stop();
     target_fps_.store(target_fps > 0 ? target_fps : 60);
+    active_source_ = source;
+    if (source.IsWindow() && source.width > 0 && source.height > 0) {
+      win_w_ = source.width & ~1;
+      win_h_ = source.height & ~1;
+    } else {
+      // Monitor (or window with no geometry): use the full synthetic frame.
+      win_w_ = 0;
+      win_h_ = 0;
+    }
     running_ = true;
     capture_thread_ = std::thread(&SyntheticDisplayCapture::CaptureLoop, this);
     LOG_INFO << "Started Synthetic Display Capture (" << width_ << "x" << height_ << " @ " << target_fps_.load() << "fps)";
@@ -86,6 +107,31 @@ class SyntheticDisplayCapture : public IDisplayCapture {
     callback_ = std::move(callback);
   }
 
+  uint64_t GetCaptureSkipped() const override {
+    return 0;
+  }
+
+  // Synthetic window support: used by tests and the GUI fallback path to
+  // exercise the window-selector flow without a real X11/portal backend.
+  bool SupportsWindowCapture() const override { return true; }
+
+  std::vector<WindowInfo> EnumerateWindows() override {
+    std::vector<WindowInfo> list;
+    WindowInfo w;
+    w.id = 1;
+    w.title = "Synthetic Window";
+    w.app_class = "Synthetic";
+    w.x = 0;
+    w.y = 0;
+    w.width = width_;
+    w.height = height_;
+    w.visible = true;
+    list.push_back(w);
+    return list;
+  }
+
+  CaptureSource ActiveSource() const override { return active_source_; }
+
  private:
   void CaptureLoop() {
     int frame_counter = 0;
@@ -100,12 +146,17 @@ class SyntheticDisplayCapture : public IDisplayCapture {
       auto frame_interval = std::chrono::microseconds(1000000 / fps);
       auto start_time = std::chrono::steady_clock::now();
 
+      // Effective output dimensions: window geometry when a window source is
+      // active, else the full synthetic frame.
+      const int out_w = (win_w_ > 0) ? win_w_ : width_;
+      const int out_h = (win_h_ > 0) ? win_h_ : height_;
+
       // Render test pattern
       // Dark gradient background
-      for (int y = 0; y < height_; ++y) {
-        uint8_t bg_val = static_cast<uint8_t>(20 + (y * 40 / height_));
+      for (int y = 0; y < out_h; ++y) {
+        uint8_t bg_val = static_cast<uint8_t>(20 + (y * 40 / out_h));
         uint8_t* row = &frame_buffer[y * width_ * 4];
-        for (int x = 0; x < width_; ++x) {
+        for (int x = 0; x < out_w; ++x) {
           row[x * 4 + 0] = bg_val + 10; // B
           row[x * 4 + 1] = bg_val;      // G
           row[x * 4 + 2] = bg_val;      // R
@@ -116,16 +167,16 @@ class SyntheticDisplayCapture : public IDisplayCapture {
       // Draw bouncing glowing square / ball
       ball_x += dx;
       ball_y += dy;
-      if (ball_x <= 20 || ball_x + ball_size >= width_ - 20) dx = -dx;
-      if (ball_y <= 20 || ball_y + ball_size >= height_ - 20) dy = -dy;
+      if (ball_x <= 20 || ball_x + ball_size >= out_w - 20) dx = -dx;
+      if (ball_y <= 20 || ball_y + ball_size >= out_h - 20) dy = -dy;
 
       for (int by = 0; by < ball_size; ++by) {
         int py = ball_y + by;
-        if (py < 0 || py >= height_) continue;
+        if (py < 0 || py >= out_h) continue;
         uint8_t* row = &frame_buffer[py * width_ * 4];
         for (int bx = 0; bx < ball_size; ++bx) {
           int px = ball_x + bx;
-          if (px < 0 || px >= width_) continue;
+          if (px < 0 || px >= out_w) continue;
           row[px * 4 + 0] = 240; // B
           row[px * 4 + 1] = 180; // G
           row[px * 4 + 2] = 40;  // R (Amber/Cyan)
@@ -134,9 +185,9 @@ class SyntheticDisplayCapture : public IDisplayCapture {
       }
 
       // Draw top header bar
-      for (int y = 0; y < 40; ++y) {
+      for (int y = 0; y < 40 && y < out_h; ++y) {
         uint8_t* row = &frame_buffer[y * width_ * 4];
-        for (int x = 0; x < width_; ++x) {
+        for (int x = 0; x < out_w; ++x) {
           row[x * 4 + 0] = 60;
           row[x * 4 + 1] = 40;
           row[x * 4 + 2] = 200;
@@ -145,8 +196,8 @@ class SyntheticDisplayCapture : public IDisplayCapture {
       }
 
       CapturedVideoFrame vf;
-      vf.width = width_;
-      vf.height = height_;
+      vf.width = out_w;
+      vf.height = out_h;
       vf.stride = width_ * 4;
       vf.timestamp = start_time;
       vf.data = frame_buffer;
@@ -170,6 +221,11 @@ class SyntheticDisplayCapture : public IDisplayCapture {
 
   int width_ = 1920;
   int height_ = 1080;
+  // Effective output dimensions for the active source (window geometry or
+  // full frame). Set by Start(CaptureSource); defaults to width_/height_.
+  int win_w_ = 0;
+  int win_h_ = 0;
+  CaptureSource active_source_{CaptureSourceKind::kMonitor, 0, ""};
   std::atomic<int> target_fps_{60};
   std::atomic<bool> running_{false};
   std::thread capture_thread_;
@@ -241,6 +297,212 @@ std::vector<DisplayInfo> EnumerateRandrDisplays(Display* d) {
 
 }  // namespace
 
+// X11 window enumeration: uses the EWMH _NET_CLIENT_LIST property to get
+// the list of managed client windows (correct under reparenting WMs where
+// XQueryTree on root returns WM frames, not clients). Falls back to
+// XQueryTree + WM_STATE filtering if _NET_CLIENT_LIST is unavailable.
+// Override-redirect windows (popups, tooltips, docks) are excluded by
+// definition since they're not in _NET_CLIENT_LIST. Returns WindowInfo
+// with id = XID cast to int, title from _NET_WM_NAME or WM_NAME, and
+// geometry from XGetWindowAttributes.
+std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
+  std::vector<WindowInfo> list;
+  if (!d) return list;
+
+  Window root = DefaultRootWindow(d);
+  Atom net_wm_name = XInternAtom(d, "_NET_WM_NAME", True);
+  Atom utf8_string = XInternAtom(d, "UTF8_STRING", True);
+  Atom wm_state = XInternAtom(d, "WM_STATE", True);
+  Atom net_client_list = XInternAtom(d, "_NET_CLIENT_LIST", True);
+  Atom net_wm_window_type = XInternAtom(d, "_NET_WM_WINDOW_TYPE", True);
+  Atom win_type_desktop = XInternAtom(d, "_NET_WM_WINDOW_TYPE_DESKTOP", True);
+  Atom win_type_dock = XInternAtom(d, "_NET_WM_WINDOW_TYPE_DOCK", True);
+  Atom win_type_splash = XInternAtom(d, "_NET_WM_WINDOW_TYPE_SPLASH", True);
+  Atom win_type_tooltip = XInternAtom(d, "_NET_WM_WINDOW_TYPE_TOOLTIP", True);
+  Atom win_type_notification = XInternAtom(d, "_NET_WM_WINDOW_TYPE_NOTIFICATION", True);
+
+  // Helper lambda to build a WindowInfo from a window XID.
+  auto build_info = [&](Window w) -> bool {
+    XWindowAttributes attrs{};
+    if (!XGetWindowAttributes(d, w, &attrs)) return false;
+    if (attrs.override_redirect) return false;
+    if (attrs.map_state != IsViewable) return false;
+    if (attrs.width <= 1 || attrs.height <= 1) return false;
+
+    // Skip desktop chrome: panels/docks, desktop background, splash screens,
+    // tooltips, and notifications. These are never useful to share.
+    if (net_wm_window_type != None) {
+      Atom actual_type = None;
+      int actual_format = 0;
+      unsigned long nitems = 0, bytes_after = 0;
+      unsigned char* prop_data = nullptr;
+      if (XGetWindowProperty(d, w, net_wm_window_type, 0, 16, False, XA_ATOM,
+                             &actual_type, &actual_format, &nitems, &bytes_after,
+                             &prop_data) == Success) {
+        if (prop_data && nitems > 0) {
+          Atom* types = reinterpret_cast<Atom*>(prop_data);
+          bool skip = false;
+          for (unsigned long i = 0; i < nitems; ++i) {
+            if (types[i] == win_type_desktop || types[i] == win_type_dock ||
+                types[i] == win_type_splash || types[i] == win_type_tooltip ||
+                types[i] == win_type_notification) {
+              skip = true;
+              break;
+            }
+          }
+          XFree(prop_data);
+          if (skip) return false;
+        }
+      }
+    }
+
+    // Read _NET_WM_NAME (UTF-8) first, fall back to WM_NAME.
+    std::string title;
+    if (net_wm_name != None && utf8_string != None) {
+      Atom type = None;
+      int fmt = 0;
+      unsigned long n = 0, after = 0;
+      unsigned char* name_data = nullptr;
+      if (XGetWindowProperty(d, w, net_wm_name, 0, 1024, False, utf8_string,
+                             &type, &fmt, &n, &after, &name_data) == Success) {
+        if (name_data && n > 0) {
+          title = std::string(reinterpret_cast<char*>(name_data), n);
+        }
+        if (name_data) XFree(name_data);
+      }
+    }
+    if (title.empty()) {
+      XTextProperty tp;
+      if (XGetWMName(d, w, &tp) && tp.value) {
+        char** list_str = nullptr;
+        int count = 0;
+        if (XmbTextPropertyToTextList(d, &tp, &list_str, &count) >= 0 && count > 0 && list_str[0]) {
+          title = list_str[0];
+        }
+        if (list_str) XFreeStringList(list_str);
+        XFree(tp.value);
+      }
+    }
+    if (title.empty()) return false;  // unnamed windows are usually not interesting
+
+    // Read WM_CLASS. res_class is the generic app name (e.g. "Firefox"),
+    // res_name is the instance (e.g. "Navigator"). Use res_class for the
+    // display name, but clean it up: strip common noise like "python3",
+    // "electron", etc. so the title is the primary identifier.
+    std::string app_class;
+    std::string res_name;
+    XClassHint ch;
+    if (XGetClassHint(d, w, &ch)) {
+      if (ch.res_class) {
+        app_class = ch.res_class;
+        XFree(ch.res_class);
+      }
+      if (ch.res_name) {
+        res_name = ch.res_name;
+        XFree(ch.res_name);
+      }
+    }
+
+    // If the app class is a generic runtime (python, electron, etc.), it's
+    // not helpful — clear it so the display falls back to just the title.
+    static const std::unordered_set<std::string> kGenericClasses = {
+        "python3", "python", "python2", "electron", "node", "nw",
+        "wrapper", "appimage", "gnome-terminal", "xterm", "urxvt"
+    };
+    std::string lower_class = app_class;
+    std::transform(lower_class.begin(), lower_class.end(), lower_class.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (kGenericClasses.count(lower_class)) {
+      app_class.clear();
+    }
+
+    WindowInfo info;
+    info.id = static_cast<int>(w);
+    info.title = std::move(title);
+    info.app_class = std::move(app_class);
+    info.x = attrs.x;
+    info.y = attrs.y;
+    info.width = attrs.width;
+    info.height = attrs.height;
+    info.visible = true;
+    list.push_back(info);
+    return true;
+  };
+
+  // Primary path: _NET_CLIENT_LIST (EWMH). This is a list of Window XIDs.
+  bool used_client_list = false;
+  if (net_client_list != None) {
+    Atom actual_type = None;
+    int actual_format = 0;
+    unsigned long nitems = 0, bytes_after = 0;
+    unsigned char* prop_data = nullptr;
+    if (XGetWindowProperty(d, root, net_client_list, 0, 1024, False, XA_WINDOW,
+                           &actual_type, &actual_format, &nitems, &bytes_after,
+                           &prop_data) == Success) {
+      if (prop_data && nitems > 0 && actual_format == 32) {
+        Window* wins = reinterpret_cast<Window*>(prop_data);
+        for (unsigned long i = 0; i < nitems; ++i) {
+          build_info(wins[i]);
+        }
+        used_client_list = true;
+      }
+      if (prop_data) XFree(prop_data);
+    }
+  }
+
+  // Fallback: XQueryTree + WM_STATE filtering (for non-EWMH WMs).
+  if (!used_client_list) {
+    Window parent = 0;
+    Window* children = nullptr;
+    unsigned int nchildren = 0;
+    if (XQueryTree(d, root, &root, &parent, &children, &nchildren) && children) {
+      for (unsigned int i = 0; i < nchildren; ++i) {
+        Window w = children[i];
+        XWindowAttributes attrs{};
+        if (!XGetWindowAttributes(d, w, &attrs)) continue;
+        if (attrs.override_redirect) continue;
+        if (attrs.map_state != IsViewable) continue;
+        if (attrs.width <= 1 || attrs.height <= 1) continue;
+
+        // Check WM_STATE == NormalState (managed toplevel, not iconified).
+        Atom actual_type = None;
+        int actual_format = 0;
+        unsigned long nitems = 0, bytes_after = 0;
+        unsigned char* prop_data = nullptr;
+        bool is_normal = false;
+        if (wm_state != None && XGetWindowProperty(d, w, wm_state, 0, 2, False, AnyPropertyType,
+                                                   &actual_type, &actual_format, &nitems, &bytes_after,
+                                                   &prop_data) == Success) {
+          if (prop_data && nitems >= 1) {
+            long state_val = reinterpret_cast<long*>(prop_data)[0];
+            is_normal = (state_val == 1);  // NormalState
+          }
+          if (prop_data) XFree(prop_data);
+        }
+        if (!is_normal) continue;
+
+        build_info(w);
+      }
+      XFree(children);
+    }
+  }
+
+  return list;
+}
+
+// Custom X11 error handler that logs instead of aborting. This is critical
+// for window capture: querying an invalid/destroyed window ID raises
+// BadWindow, which the default handler would abort on. We store the last
+// error in a thread-local so callers can check it after X calls.
+thread_local int g_x11_last_error_code = 0;
+thread_local unsigned long g_x11_last_error_resource = 0;
+
+static int X11QuietErrorHandler(Display* d, XErrorEvent* ev) {
+  g_x11_last_error_code = ev->error_code;
+  g_x11_last_error_resource = ev->resourceid;
+  return 0;
+}
+
 // Native X11 Capturer for Linux: XRandR per-monitor crop, MIT-SHM fast path,
 // XFixes cursor compositing. Falls back to a cropped XGetImage when SHM is
 // unavailable; never captures the full virtual desktop when a monitor exists.
@@ -250,6 +512,8 @@ class X11DisplayCapture : public IDisplayCapture {
   std::string BackendName() const override { return "X11"; }
   ~X11DisplayCapture() override { Stop(); }
 
+  void SetShowCursor(bool show) override { show_cursor_ = show; }
+
   bool Start(int display_id, int target_fps) override {
     Stop();
     EnsureX11Threads();
@@ -258,9 +522,11 @@ class X11DisplayCapture : public IDisplayCapture {
       LOG_WARN << "Cannot open X11 Display, falling back to Synthetic Capturer";
       return false;
     }
-
+    XSetErrorHandler(X11QuietErrorHandler);
     target_fps_.store(target_fps > 0 ? target_fps : 60);
     root_window_ = DefaultRootWindow(display_);
+    target_window_ = 0;  // monitor mode: capture from root
+    active_source_ = CaptureSource{CaptureSourceKind::kMonitor, display_id, ""};
 
     auto displays = EnumerateRandrDisplays(display_);
     if (displays.empty()) {
@@ -293,12 +559,14 @@ class X11DisplayCapture : public IDisplayCapture {
 
     xfixes_ok_ = XFixesQueryExtension(display_, &xfixes_event_base_, &xfixes_error_base_);
     shm_ok_ = SetupShm();
+    SetupDamage();
 
     running_ = true;
     capture_thread_ = std::thread(&X11DisplayCapture::CaptureLoop, this);
     LOG_INFO << "Started X11 Display Capture (" << crop_w_ << "x" << crop_h_ << " @ "
              << target_fps_.load() << "fps, " << (shm_ok_ ? "MIT-SHM" : "XGetImage")
-             << ", cursor " << (xfixes_ok_ ? "on" : "off") << ")";
+             << ", cursor " << ((xfixes_ok_ && show_cursor_) ? "on" : "off")
+             << ", damage " << (xdamage_ok_ ? "on" : "off") << ")";
     return true;
   }
 
@@ -307,12 +575,17 @@ class X11DisplayCapture : public IDisplayCapture {
     if (was_running && capture_thread_.joinable()) {
       capture_thread_.join();
     }
+    TeardownDamage();
+    TeardownComposite();
     TeardownShm();
     if (display_) {
       XCloseDisplay(display_);
       display_ = nullptr;
     }
     xfixes_ok_ = false;
+    target_window_ = 0;
+    window_root_x_ = 0;
+    window_root_y_ = 0;
   }
 
   bool IsCapturing() const override {
@@ -352,6 +625,174 @@ class X11DisplayCapture : public IDisplayCapture {
     std::lock_guard<std::mutex> lock(mutex_);
     callback_ = std::move(callback);
   }
+
+  uint64_t GetCaptureSkipped() const override {
+    return capture_skipped_.load(std::memory_order_relaxed);
+  }
+
+  // --- Window capture support ---
+
+  bool SupportsWindowCapture() const override {
+#if !defined(_WIN32)
+    EnsureX11Threads();
+    Display* d = XOpenDisplay(nullptr);
+    if (!d) return false;
+    XCloseDisplay(d);
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  std::vector<WindowInfo> EnumerateWindows() override {
+    std::vector<WindowInfo> list;
+    EnsureX11Threads();
+    Display* d = XOpenDisplay(nullptr);
+    if (!d) return list;
+    XSetErrorHandler(X11QuietErrorHandler);
+    list = EnumerateX11Windows(d);
+    XCloseDisplay(d);
+    return list;
+  }
+
+  bool Start(const CaptureSource& source, int target_fps) override {
+    if (source.IsWindow()) {
+      return StartWindow(source, target_fps);
+    }
+    return Start(source.id, target_fps);
+  }
+
+  CaptureSource ActiveSource() const override { return active_source_; }
+
+ private:
+
+  bool StartWindow(const CaptureSource& source, int target_fps) {
+    Stop();
+    EnsureX11Threads();
+    display_ = XOpenDisplay(nullptr);
+    if (!display_) {
+      LOG_WARN << "Cannot open X11 Display for window capture";
+      return false;
+    }
+    // Install quiet error handler so BadWindow on invalid IDs doesn't abort.
+    XSetErrorHandler(X11QuietErrorHandler);
+    g_x11_last_error_code = 0;
+    target_fps_.store(target_fps > 0 ? target_fps : 60);
+    root_window_ = DefaultRootWindow(display_);
+    target_window_ = static_cast<Window>(source.id);
+    active_source_ = source;
+
+    // Query initial geometry. XGetWindowAttributes returns 0 on failure
+    // (including BadWindow), and our error handler prevents abort.
+    XWindowAttributes attrs{};
+    if (!XGetWindowAttributes(display_, target_window_, &attrs) ||
+        g_x11_last_error_code != 0 ||
+        attrs.map_state != IsViewable) {
+      LOG_ERROR << "Target window 0x" << std::hex << target_window_ << std::dec
+                << " is not viewable or does not exist";
+      XCloseDisplay(display_);
+      display_ = nullptr;
+      target_window_ = 0;
+      return false;
+    }
+    crop_x_ = 0;
+    crop_y_ = 0;
+    crop_w_ = attrs.width & ~1;
+    crop_h_ = attrs.height & ~1;
+    window_root_x_ = attrs.x;  // root-relative position for cursor offset
+    window_root_y_ = attrs.y;
+
+    // XComposite redirect so occluded windows still capture correctly.
+    SetupComposite();
+
+    xfixes_ok_ = XFixesQueryExtension(display_, &xfixes_event_base_, &xfixes_error_base_);
+    shm_ok_ = SetupShm();
+    SetupDamage();
+
+    // Select input events for lifecycle tracking (resize, destroy, unmap).
+    XSelectInput(display_, target_window_,
+                 StructureNotifyMask | SubstructureNotifyMask);
+
+    running_ = true;
+    capture_thread_ = std::thread(&X11DisplayCapture::CaptureLoop, this);
+    LOG_INFO << "Started X11 Window Capture (0x" << std::hex << target_window_ << std::dec
+             << ", " << crop_w_ << "x" << crop_h_ << " @ " << target_fps_.load() << "fps, "
+             << (shm_ok_ ? "MIT-SHM" : "XGetImage")
+             << ", cursor " << ((xfixes_ok_ && show_cursor_) ? "on" : "off")
+             << ", damage " << (xdamage_ok_ ? "on" : "off")
+             << ", composite " << (xcomposite_ok_ ? "on" : "off") << ")";
+    return true;
+  }
+
+  void SetupComposite() {
+    xcomposite_ok_ = false;
+#if defined(CASTCORE_HAVE_XCOMPOSITE)
+    if (!display_ || target_window_ == 0) return;
+    int event_base = 0, error_base = 0;
+    if (!XCompositeQueryExtension(display_, &event_base, &error_base)) {
+      LOG_WARN << "XComposite not available; occluded windows may tear";
+      return;
+    }
+    int major = 0, minor = 0;
+    XCompositeQueryVersion(display_, &major, &minor);
+    // Use CompositeRedirectAutomatic so the window drawable stays updated
+    // by the application. With CompositeRedirectManual, rendering is diverted
+    // to an offscreen pixmap and the window drawable becomes stale, so
+    // XShmGetImage returns empty frames and XDamage never fires.
+    // Automatic redirection still allows capturing occluded windows because
+    // the application keeps drawing to its window drawable regardless of
+    // whether the compositor shows it on screen.
+    XCompositeRedirectWindow(display_, target_window_, CompositeRedirectAutomatic);
+    xcomposite_ok_ = true;
+#endif
+  }
+
+  void TeardownComposite() {
+#if defined(CASTCORE_HAVE_XCOMPOSITE)
+    if (xcomposite_ok_ && display_ && target_window_ != 0) {
+      XCompositeUnredirectWindow(display_, target_window_, CompositeRedirectAutomatic);
+    }
+#endif
+    xcomposite_ok_ = false;
+  }
+
+  // Poll lifecycle events (ConfigureNotify, DestroyNotify, UnmapNotify) for
+  // the target window. Returns false if the window was destroyed/unmapped.
+  bool PollWindowLifecycle() {
+    if (!display_ || target_window_ == 0) return true;
+    while (XPending(display_)) {
+      XEvent ev{};
+      XNextEvent(display_, &ev);
+      if (ev.type == ConfigureNotify && ev.xconfigure.window == target_window_) {
+        int new_w = ev.xconfigure.width & ~1;
+        int new_h = ev.xconfigure.height & ~1;
+        if (new_w > 0 && new_h > 0 && (new_w != crop_w_ || new_h != crop_h_)) {
+          crop_w_ = new_w;
+          crop_h_ = new_h;
+          window_root_x_ = ev.xconfigure.x;
+          window_root_y_ = ev.xconfigure.y;
+          ResizeShm(crop_w_, crop_h_);
+          LOG_INFO << "Window resized to " << crop_w_ << "x" << crop_h_;
+        }
+      } else if (ev.type == DestroyNotify && ev.xdestroywindow.window == target_window_) {
+        LOG_WARN << "Target window destroyed";
+        return false;
+      } else if (ev.type == UnmapNotify && ev.xunmap.window == target_window_) {
+        LOG_WARN << "Target window unmapped";
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void ResizeShm(int w, int h) {
+    TeardownShm();
+    crop_w_ = w;
+    crop_h_ = h;
+    shm_ok_ = SetupShm();
+  }
+
+  // --- End window capture support ---
 
  private:
   bool SetupShm() {
@@ -413,13 +854,107 @@ class X11DisplayCapture : public IDisplayCapture {
     }
   }
 
+#if defined(CASTCORE_HAVE_XDAMAGE)
+  bool SetupDamage() {
+    TeardownDamage();
+    if (!display_) return false;
+    if (!XDamageQueryExtension(display_, &damage_event_base_, &damage_error_base_)) {
+      return false;
+    }
+    int major = 0, minor = 0;
+    XDamageQueryVersion(display_, &major, &minor);
+    // In window mode, subscribe to damage on the target window (no crop
+    // filtering needed — damage is window-relative). In monitor mode,
+    // subscribe to the root window and filter by the monitor crop rect.
+    Drawable damage_drawable = (target_window_ != 0) ? target_window_ : root_window_;
+    damage_ = XDamageCreate(display_, damage_drawable, XDamageReportNonEmpty);
+    if (!damage_) return false;
+    xdamage_ok_ = true;
+    undamaged_frames_ = 0;
+    damage_pending_ = false;
+    return true;
+  }
+
+  void TeardownDamage() {
+    if (damage_) {
+      if (display_) XDamageDestroy(display_, damage_);
+      damage_ = 0;
+    }
+    xdamage_ok_ = false;
+    damage_event_base_ = 0;
+    damage_error_base_ = 0;
+    undamaged_frames_ = 0;
+    damage_pending_ = false;
+  }
+
+  // Poll XDamage events without blocking. Returns true if damage intersected
+  // the selected monitor crop since last call. Uses per-monitor filtering:
+  // only damage rects overlapping [crop_x_,crop_y_,crop_w_,crop_h_] count.
+  bool PollDamage() {
+    if (!xdamage_ok_ || !display_ || !damage_) return true; // fallback: assume damaged
+    bool has_damage = damage_pending_;
+    const bool window_mode = (target_window_ != 0);
+    // Drain all pending X events
+    while (XPending(display_)) {
+      XEvent ev{};
+      XNextEvent(display_, &ev);
+      if (ev.type == damage_event_base_ + XDamageNotify) {
+        auto* de = reinterpret_cast<XDamageNotifyEvent*>(&ev);
+        if (window_mode) {
+          // In window mode, all damage on the target window counts.
+          has_damage = true;
+          damage_pending_ = true;
+        } else {
+          // Monitor mode: check intersection with our monitor crop
+          int ax = de->area.x;
+          int ay = de->area.y;
+          int aw = de->area.width;
+          int ah = de->area.height;
+          // de->area is relative to drawable (root). If empty, treat as full.
+          bool intersects = true;
+          if (aw > 0 && ah > 0) {
+            intersects = !(ax + aw <= crop_x_ || ax >= crop_x_ + crop_w_ ||
+                           ay + ah <= crop_y_ || ay >= crop_y_ + crop_h_);
+          }
+          if (intersects) {
+            has_damage = true;
+            damage_pending_ = true;
+          }
+        }
+      }
+    }
+    if (has_damage) {
+      // Reset damage region so next change generates a new notify
+      XDamageSubtract(display_, damage_, None, None);
+      damage_pending_ = false;
+      undamaged_frames_ = 0;
+      return true;
+    }
+    // No damage this vsync
+    return false;
+  }
+#else
+  bool SetupDamage() { return false; }
+  void TeardownDamage() {}
+  bool PollDamage() { return true; }
+#endif
+
+  uint64_t GetCaptureSkippedCount() const { return capture_skipped_.load(); }
+
   // Blend the hardware cursor (XFixes) over the cropped BGRA frame.
+  // In monitor mode, the cursor position is screen-relative and we offset
+  // by crop_x_/crop_y_. In window mode, the cursor position is still
+  // screen-relative, so we offset by the window's root-relative position.
   void CompositeCursor(CapturedVideoFrame& vf) {
     if (!xfixes_ok_ || !display_) return;
     XFixesCursorImage* ci = XFixesGetCursorImage(display_);
     if (!ci) return;
-    const int ox = ci->x - ci->xhot - crop_x_;
-    const int oy = ci->y - ci->yhot - crop_y_;
+    // Effective origin: in window mode use the window's root position; in
+    // monitor mode use the crop rect origin.
+    const int origin_x = (target_window_ != 0) ? window_root_x_ : crop_x_;
+    const int origin_y = (target_window_ != 0) ? window_root_y_ : crop_y_;
+    const int ox = ci->x - ci->xhot - origin_x;
+    const int oy = ci->y - ci->yhot - origin_y;
     for (int y = 0; y < ci->height; ++y) {
       const int py = oy + y;
       if (py < 0 || py >= vf.height) continue;
@@ -449,20 +984,76 @@ class X11DisplayCapture : public IDisplayCapture {
   }
 
   void CaptureLoop() {
+    constexpr int kDamageSkipThreshold = 3; // N vsyncs without damage => skip capture
     while (running_.load()) {
       int fps = std::max(target_fps_.load(), 1);
       auto frame_interval = std::chrono::microseconds(1000000 / fps);
       auto start_time = std::chrono::steady_clock::now();
 
+      // Window mode: check lifecycle before capturing. If the window was
+      // destroyed/unmapped, emit one final source_lost frame and stop.
+      if (target_window_ != 0) {
+        if (!PollWindowLifecycle()) {
+          CapturedVideoFrame vf;
+          vf.width = crop_w_;
+          vf.height = crop_h_;
+          vf.stride = crop_w_ * 4;
+          vf.timestamp = start_time;
+          vf.source_lost = true;
+          FrameCallback cb;
+          {
+            std::lock_guard<std::mutex> lock(mutex_);
+            cb = callback_;
+          }
+          if (cb) cb(vf);
+          running_ = false;
+          break;
+        }
+      }
+
+#if defined(CASTCORE_HAVE_XDAMAGE)
+      // Damage-based frame skipping is only used in monitor mode (root window).
+      // In window mode, the selected window may be static (not actively redrawn),
+      // so damage may never fire. We must always capture to ensure frames are
+      // delivered — the user explicitly chose this window to share.
+      if (xdamage_ok_ && target_window_ == 0) {
+        bool damaged = PollDamage();
+        if (!damaged) {
+          undamaged_frames_++;
+          if (undamaged_frames_ >= kDamageSkipThreshold) {
+            capture_skipped_.fetch_add(1, std::memory_order_relaxed);
+            // Still sleep to maintain vsync cadence, but skip XShmGetImage
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time);
+            if (elapsed < frame_interval) {
+              std::this_thread::sleep_for(frame_interval - elapsed);
+            }
+            continue;
+          }
+        } else {
+          // damage consumed in PollDamage()
+        }
+      } else if (xdamage_ok_ && target_window_ != 0) {
+        // Window mode: drain damage events but always capture.
+        PollDamage();
+      }
+#endif
+
+      // In window mode, capture from target_window_ at origin (0,0).
+      // In monitor mode, capture from root_window_ at (crop_x_, crop_y_).
+      Drawable capture_drawable = (target_window_ != 0) ? target_window_ : root_window_;
+      int capture_x = (target_window_ != 0) ? 0 : crop_x_;
+      int capture_y = (target_window_ != 0) ? 0 : crop_y_;
+
       XImage* image = nullptr;
       bool image_owned = false;
       if (shm_ok_) {
-        if (XShmGetImage(display_, root_window_, shm_image_, crop_x_, crop_y_, AllPlanes)) {
+        if (XShmGetImage(display_, capture_drawable, shm_image_, capture_x, capture_y, AllPlanes)) {
           image = shm_image_;
         }
       }
       if (!image) {
-        image = XGetImage(display_, root_window_, crop_x_, crop_y_, crop_w_, crop_h_,
+        // Fallback to XGetImage – must not break existing X11 capture path
+        image = XGetImage(display_, capture_drawable, capture_x, capture_y, crop_w_, crop_h_,
                           AllPlanes, ZPixmap);
         image_owned = (image != nullptr);
       }
@@ -479,7 +1070,7 @@ class X11DisplayCapture : public IDisplayCapture {
           XDestroyImage(image);
         }
 
-        CompositeCursor(vf);
+        if (show_cursor_) CompositeCursor(vf);
 
         FrameCallback cb;
         {
@@ -501,6 +1092,13 @@ class X11DisplayCapture : public IDisplayCapture {
   Display* display_ = nullptr;
   Window root_window_ = 0;
   int display_id_ = 0;
+  // Window capture state: target_window_ != 0 means window mode.
+  Window target_window_ = 0;
+  int window_root_x_ = 0;  // window's root-relative position (for cursor offset)
+  int window_root_y_ = 0;
+  bool xcomposite_ok_ = false;
+  bool show_cursor_ = false;
+  CaptureSource active_source_{CaptureSourceKind::kMonitor, 0, ""};
   int crop_x_ = 0;
   int crop_y_ = 0;
   int crop_w_ = 0;
@@ -511,6 +1109,17 @@ class X11DisplayCapture : public IDisplayCapture {
   bool xfixes_ok_ = false;
   int xfixes_event_base_ = 0;
   int xfixes_error_base_ = 0;
+#if defined(CASTCORE_HAVE_XDAMAGE)
+  bool xdamage_ok_ = false;
+  int damage_event_base_ = 0;
+  int damage_error_base_ = 0;
+  Damage damage_ = 0;
+  int undamaged_frames_ = 0;
+  bool damage_pending_ = false;
+#else
+  bool xdamage_ok_ = false;
+#endif
+  std::atomic<uint64_t> capture_skipped_{0};
   std::atomic<int> target_fps_{60};
   std::atomic<bool> running_{false};
   std::thread capture_thread_;

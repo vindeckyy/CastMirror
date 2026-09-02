@@ -71,7 +71,9 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   EXPECT_EQ(cfg.capture_fps, 45);
   EXPECT_EQ(cfg.audio_bitrate_bps, 96000u);
   EXPECT_FALSE(cfg.silence_host_speakers);
-  EXPECT_FALSE(cfg.adaptive_enabled);
+  // adaptive_enabled is forced to true by Validate() — the toggle was
+  // removed from the UI and the hold-and-ramp behavior is always on.
+  EXPECT_TRUE(cfg.adaptive_enabled);
   EXPECT_TRUE(cfg.subnet_scan_enabled);
   EXPECT_TRUE(cfg.first_run_complete);
   EXPECT_EQ(cfg.window_width, 1000);

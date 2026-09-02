@@ -11,6 +11,7 @@
 #include <thread>
 #include <future>
 #include <sstream>
+#include <random>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -94,67 +95,183 @@ bool CheckTcpPort(const std::string& ip, uint16_t port, int timeout_ms) {
 }
 // Helper: Query Chromecast Eureka Info (HTTP 8008)
 bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* out_model, std::string* out_id) {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0) return false;
+  // Phase 2: 400ms timeout + 2 retries with jitter, strict JSON parse
+  constexpr int kMaxAttempts = 3; // initial + 2 retries
+  constexpr int kTimeoutUs = 400000; // 400ms
+  for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+      if (attempt + 1 < kMaxAttempts) {
+        int jitter_ms = (attempt * 17 + (rand() % 30));
+        std::this_thread::sleep_for(std::chrono::milliseconds(jitter_ms));
+        continue;
+      }
+      return false;
+    }
 
-  struct timeval tv{};
-  tv.tv_sec = 0;
-  tv.tv_usec = 400000; // 400ms timeout
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
-  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+    struct timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = kTimeoutUs;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
 
-  struct sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(8008);
-  inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+#if defined(_WIN32)
+    u_long mode = 1;
+    ioctlsocket(fd, FIONBIO, &mode);
+#else
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#endif
 
-  if (connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(8008);
+    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+
+    int conn_res = connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
+    bool connected = false;
+    if (conn_res == 0) {
+      connected = true;
+    } else {
+#if defined(_WIN32)
+      fd_set setW;
+      FD_ZERO(&setW);
+      FD_SET(fd, &setW);
+      struct timeval ctv{};
+      ctv.tv_sec = 0;
+      ctv.tv_usec = kTimeoutUs;
+      int sel = select(0, nullptr, &setW, nullptr, &ctv);
+      if (sel > 0 && FD_ISSET(fd, &setW)) {
+        connected = true;
+      }
+#else
+      // Non-blocking connect: poll for writability with timeout
+      struct pollfd pfd{};
+      pfd.fd = fd;
+      pfd.events = POLLOUT;
+      int pr = poll(&pfd, 1, kTimeoutUs / 1000);
+      if (pr > 0 && (pfd.revents & POLLOUT)) {
+        int err = 0;
+        socklen_t len = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0) {
+          connected = true;
+        }
+      } else if (pr > 0) {
+        // Check error
+        int err = 0;
+        socklen_t len = sizeof(err);
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+        if (err == 0) connected = true;
+      }
+      // Restore blocking for send/recv timeout handling
+      if (flags >= 0) fcntl(fd, F_SETFL, flags);
+#endif
+    }
+
+    if (!connected) {
+      close(fd);
+      if (attempt + 1 < kMaxAttempts) {
+        int jitter_ms = 20 + (rand() % 40) + attempt * 15;
+        std::this_thread::sleep_for(std::chrono::milliseconds(jitter_ms));
+        continue;
+      }
+      return false;
+    }
+
+#if defined(_WIN32)
+    mode = 0;
+    ioctlsocket(fd, FIONBIO, &mode);
+#endif
+
+    std::string req = "GET /setup/eureka_info?params=name,device_info HTTP/1.1\r\n"
+                      "Host: " + ip + ":8008\r\n"
+                      "User-Agent: CastMirror\r\n"
+                      "Connection: close\r\n\r\n";
+
+    if (send(fd, req.data(), req.size(), 0) < 0) {
+      close(fd);
+      if (attempt + 1 < kMaxAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20 + (rand() % 30)));
+        continue;
+      }
+      return false;
+    }
+
+    char buf[4096];
+    std::string resp;
+    bool recv_ok = false;
+    while (true) {
+      int r = recv(fd, buf, sizeof(buf) - 1, 0);
+      if (r > 0) {
+        buf[r] = '\0';
+        resp += buf;
+        recv_ok = true;
+      } else if (r == 0) {
+        break;
+      } else {
+#if defined(_WIN32)
+        int err = WSAGetLastError();
+        if (err == WSAEWOULDBLOCK || err == WSAETIMEDOUT) break;
+#else
+        if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+        if (errno == EINTR) continue;
+#endif
+        break;
+      }
+    }
     close(fd);
-    return false;
-  }
 
-  std::string req = "GET /setup/eureka_info?params=name,device_info HTTP/1.1\r\n"
-                    "Host: " + ip + ":8008\r\n"
-                    "User-Agent: CastMirror\r\n"
-                    "Connection: close\r\n\r\n";
-
-  send(fd, req.data(), req.size(), 0);
-
-  char buf[4096];
-  std::string resp;
-  while (true) {
-    int r = recv(fd, buf, sizeof(buf) - 1, 0);
-    if (r <= 0) break;
-    buf[r] = '\0';
-    resp += buf;
-  }
-  close(fd);
-
-  size_t body_pos = resp.find("\r\n\r\n");
-  if (body_pos == std::string::npos) return false;
-
-  std::string json_str = resp.substr(body_pos + 4);
-  try {
-    auto j = nlohmann::json::parse(json_str);
-    if (out_name) *out_name = j.value("name", "");
-    if (out_model) {
-      if (j.contains("device_info") && j["device_info"].is_object()) {
-        *out_model = j["device_info"].value("model_name", "Chromecast");
-      } else {
-        *out_model = "Chromecast";
+    if (!recv_ok) {
+      if (attempt + 1 < kMaxAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(15 + (rand() % 35)));
+        continue;
       }
+      return false;
     }
-    if (out_id) {
-      if (j.contains("device_info") && j["device_info"].is_object()) {
-        *out_id = j["device_info"].value("cloud_device_id", ip);
-      } else {
-        *out_id = ip;
+
+    size_t body_pos = resp.find("\r\n\r\n");
+    if (body_pos == std::string::npos) {
+      if (attempt + 1 < kMaxAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 20)));
+        continue;
       }
+      return false;
     }
-    return true;
-  } catch (...) {
-    return false;
+
+    std::string json_str = resp.substr(body_pos + 4);
+    try {
+      auto j = nlohmann::json::parse(json_str);
+      if (out_name) *out_name = j.value("name", "");
+      if (out_model) {
+        if (j.contains("device_info") && j["device_info"].is_object()) {
+          *out_model = j["device_info"].value("model_name", "Chromecast");
+        } else {
+          *out_model = "Chromecast";
+        }
+      }
+      if (out_id) {
+        if (j.contains("device_info") && j["device_info"].is_object()) {
+          *out_id = j["device_info"].value("cloud_device_id", ip);
+        } else {
+          *out_id = ip;
+        }
+      }
+      return true;
+    } catch (const nlohmann::json::exception&) {
+      if (attempt + 1 < kMaxAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 25)));
+        continue;
+      }
+      return false;
+    } catch (...) {
+      if (attempt + 1 < kMaxAttempts) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 25)));
+        continue;
+      }
+      return false;
+    }
   }
+  return false;
 }
 
 } // namespace
@@ -299,13 +416,35 @@ void DeviceDiscovery::RemoveDevice(const std::string& device_id) {
 
 std::map<std::string, std::string> DeviceDiscovery::ParseTxtRecord(const std::vector<std::string>& txt_entries) {
   std::map<std::string, std::string> result;
+  constexpr size_t kMaxEntrySize = 255;
+  constexpr size_t kMaxKeySize = 64;
+  constexpr size_t kMaxValSize = 255;
   for (const auto& entry : txt_entries) {
+    if (entry.empty()) continue;
+    // Oversize guard: TXT entry length byte max 255
+    if (entry.size() > kMaxEntrySize) {
+      // Oversize entries are truncated/ignored per RFC 6763; keep robustness by skipping
+      continue;
+    }
     auto eq = entry.find('=');
     if (eq != std::string::npos) {
       std::string key = entry.substr(0, eq);
       std::string val = entry.substr(eq + 1);
+      if (key.empty()) continue;
+      if (key.size() > kMaxKeySize) continue;
+      if (val.size() > kMaxValSize) {
+        // Oversize value: truncate to limit or skip; we skip to avoid overflow
+        continue;
+      }
+      // Duplicate handling: keep first occurrence, ignore subsequent duplicates
+      if (result.find(key) != result.end()) {
+        continue;
+      }
       result[key] = val;
     } else {
+      // Key without value
+      if (entry.size() > kMaxKeySize) continue;
+      if (result.find(entry) != result.end()) continue;
       result[entry] = "";
     }
   }
@@ -661,15 +800,25 @@ void DeviceDiscovery::ProbeLocalSubnets() {
   target_subnets.erase(std::unique(target_subnets.begin(), target_subnets.end()), target_subnets.end());
 
   for (const auto& subnet_base : target_subnets) {
-    // Probe 1..254 in parallel batches
+    // Phase 2: rate-limit subnet probe concurrency 32 rate 64 hosts/sec
     const int kBatchSize = 32;
+    constexpr double kRatePerSec = 64.0;
+    const auto kMinBatchInterval = std::chrono::milliseconds(static_cast<int>(1000.0 * kBatchSize / kRatePerSec)); // 500ms per 32
     for (int start_i = 1; start_i <= 254; start_i += kBatchSize) {
       if (!running_.load()) break;
+      auto batch_start = std::chrono::steady_clock::now();
       std::vector<std::future<void>> futures;
+      futures.reserve(kBatchSize);
 
-      for (int i = start_i; i < start_i + kBatchSize && i <= 254; ++i) {
+      int batch_end = std::min(start_i + kBatchSize - 1, 254);
+      for (int i = start_i; i <= batch_end; ++i) {
         std::string ip = subnet_base + std::to_string(i);
+        // Ignore 127.0.0.0/8 loopback and own IPs already filtered via IFF_LOOPBACK, but double-check
+        if (ip.rfind("127.", 0) == 0) continue;
+        // Skip own interface IPs: compare against discovered subnet bases (own subnet would be probe to self)
+        // We already avoid duplicate subnet bases, but skip broadcast and network address
         futures.push_back(std::async(std::launch::async, [this, ip]() {
+          if (!running_.load()) return;
           if (CheckTcpPort(ip, 8009, 350)) {
             std::string name, model, id;
             if (!FetchEurekaInfo(ip, &name, &model, &id) || name.empty()) {
@@ -691,7 +840,17 @@ void DeviceDiscovery::ProbeLocalSubnets() {
       }
 
       for (auto& f : futures) {
-        f.get();
+        try { f.get(); } catch (...) {}
+      }
+      // Rate limit: ensure at most 64 hosts/sec
+      auto batch_elapsed = std::chrono::steady_clock::now() - batch_start;
+      if (batch_elapsed < kMinBatchInterval) {
+        auto sleep_dur = kMinBatchInterval - batch_elapsed;
+        // Sleep in small chunks to allow early exit if Stop() called
+        auto sleep_until = std::chrono::steady_clock::now() + sleep_dur;
+        while (running_.load() && std::chrono::steady_clock::now() < sleep_until) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
       }
     }
   }

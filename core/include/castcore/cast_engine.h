@@ -33,6 +33,8 @@ class CastEngine {
 
   std::vector<CastDevice> GetDevices() const;
   std::vector<DisplayInfo> GetDisplays() const;
+  std::vector<WindowInfo> GetWindows() const;
+  bool WindowCaptureSupported() const;
 
   bool StartCasting(const std::string& device_id,
                     int display_id = 0,
@@ -41,6 +43,10 @@ class CastEngine {
                     uint32_t bitrate_kbps = 0);
 
   bool StartCasting(const std::string& device_id, int display_id, const SessionOptions& options);
+
+  // Source-aware entry point: capture a monitor or a single window. Sets
+  // options.source and delegates to the (device, display_id, options) overload.
+  bool StartCasting(const std::string& device_id, const CaptureSource& source, const SessionOptions& options);
 
   bool StartCastingLastDevice();
   void StopCasting();

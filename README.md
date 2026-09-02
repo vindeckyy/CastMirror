@@ -41,6 +41,7 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 ## Features
 
 - One-click Cast to Chromecast, Google TV, and Cast TVs (or add a device by IP)
+- **Screen or window sharing** — cast an entire monitor or pick a single application window. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
 - Quality presets **Auto / High / Balanced / Smooth** plus a **per-profile bitrate slider** (1–25 Mbps). The slider is locked while connecting or live
 - Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop
 - Adaptive bitrate from RTCP (CAST checkpoints, NACK / CST2, PLI keyframes)
@@ -54,6 +55,7 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+    libxcomposite-dev libxdamage-dev \
     libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
     libgtk-4-dev libadwaita-1-dev
 
@@ -70,14 +72,22 @@ Full package notes, firewall, and audio behavior: [docs/building.md](docs/buildi
 
 1. Start `castmirror-gui`
 2. Pick a Cast device (Rescan or Add IP)
-3. Choose display, quality preset, and bitrate (defaults are the profile normal until you move the slider)
-4. Cast Display — host speakers stay quiet if audio mirroring is on
-5. Stop restores local playback
+3. Choose what to share — a **Screen** or a **Window** (toggle at the top of the "What to share" section), then pick the specific monitor or window from the list. On Wayland the system portal picker handles selection when you press Cast
+4. Choose quality preset and bitrate (defaults are the profile normal until you move the slider)
+5. Cast — host speakers stay quiet if audio mirroring is on
+6. Stop restores local playback
 
 CLI:
 
 ```bash
+# Cast a full display
 ./build/app/castmirror --device 192.168.1.150 --display 0 --preset High
+
+# List available windows, then cast one
+./build/app/castmirror --list-windows
+./build/app/castmirror --device 192.168.1.150 --window 12345
+
+# Audio-only
 ./build/app/castmirror --device 192.168.1.150 --no-audio
 ```
 
@@ -87,7 +97,8 @@ Desktop launcher: [app/io.github.vindeckyy.CastMirror.desktop](app/io.github.vin
 
 ```mermaid
 flowchart LR
-  X11[X11 capture] --> x264[libx264]
+  X11[X11 screen/window capture] --> x264[libx264]
+  Portal[Wayland portal+PipeWire] --> x264
   Pulse[Pulse/PipeWire monitor] --> Opus[Opus]
   x264 --> AES[AES-128-CTR]
   Opus --> AES

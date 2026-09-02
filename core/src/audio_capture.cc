@@ -445,12 +445,13 @@ class PulseAudioCapture : public IAudioCapture {
     }
   }
 
-  void EmitPcm(const uint8_t* data, size_t bytes, int samples_per_frame) {
+  void EmitPcm(const uint8_t* data, size_t bytes, int samples_per_frame,
+               std::chrono::steady_clock::time_point ts) {
     CapturedAudioFrame af;
     af.sample_rate = sample_rate_;
     af.channels = channels_;
     af.samples_per_channel = samples_per_frame;
-    af.timestamp = std::chrono::steady_clock::now();
+    af.timestamp = ts;
     af.pcm_data.assign(data, data + bytes);
     AudioCallback cb;
     {
@@ -501,14 +502,35 @@ class PulseAudioCapture : public IAudioCapture {
       }
 
       while (pending.size() >= frame_bytes) {
-        EmitPcm(pending.data(), frame_bytes, samples_per_frame);
+        // Compute the capture timestamp for this frame. The latency from
+        // pa_stream_get_latency tells us how far in the past the most recent
+        // sample in the buffer was captured. Frames earlier in the buffer
+        // were captured proportionally earlier (one frame_duration per frame).
+        auto now = std::chrono::steady_clock::now();
+        int64_t latency_us = 0;
+        if (stream_) {
+          pa_usec_t pa_latency = 0;
+          int negative = 0;
+          if (pa_stream_get_latency(stream_, &pa_latency, &negative) >= 0 && !negative) {
+            latency_us = static_cast<int64_t>(pa_latency);
+          }
+        }
+        // The remaining buffer holds (pending.size() / frame_bytes) frames.
+        // The current (oldest) frame is (remaining - 1) frame_durations older
+        // than the newest frame.
+        size_t remaining_frames = pending.size() / frame_bytes;
+        int64_t frame_duration_us = (static_cast<int64_t>(samples_per_frame) * 1000000) / sample_rate_;
+        int64_t age_us = static_cast<int64_t>(remaining_frames - 1) * frame_duration_us;
+        auto ts = now - std::chrono::microseconds(latency_us + age_us);
+        EmitPcm(pending.data(), frame_bytes, samples_per_frame, ts);
         pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(frame_bytes));
         last_emit = std::chrono::steady_clock::now();
       }
 
       auto now = std::chrono::steady_clock::now();
       if (now - last_emit >= std::chrono::milliseconds(20)) {
-        EmitPcm(silence.data(), silence.size(), samples_per_frame);
+        // Silence keepalive — no latency correction needed for synthetic silence
+        EmitPcm(silence.data(), silence.size(), samples_per_frame, now);
         last_emit = now;
       }
     }

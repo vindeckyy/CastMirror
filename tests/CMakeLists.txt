@@ -21,6 +21,9 @@ set(TEST_SOURCES
     test_display_capture.cc
     test_session_recovery.cc
     test_cast_transport.cc
+    test_capture_source.cc
+    test_portal_source.cc
+    test_source_selection.cc
 )
 
 add_executable(castmirror_tests ${TEST_SOURCES})

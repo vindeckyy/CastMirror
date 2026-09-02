@@ -6,6 +6,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
+#include <deque>
 #include <gio/gio.h>
 #include <gtk/gtk.h>
 
@@ -17,6 +20,12 @@ std::string GetLogDirectory() {
   const char* home = std::getenv("HOME");
   std::string dir = (home ? std::string(home) : "/tmp") + "/.config/castmirror";
   return dir;
+}
+
+std::string ToLower(const std::string& s) {
+  std::string out = s;
+  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c){ return std::tolower(c); });
+  return out;
 }
 
 }  // namespace
@@ -62,9 +71,43 @@ void LogsTab::BuildUi() {
                    nullptr);
   gtk_box_append(GTK_BOX(tb_box), level_dropdown_);
 
+  // Filter entry
+  filter_entry_ = gtk_search_entry_new();
+  gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(filter_entry_), "Filter logs…");
+  gtk_widget_set_size_request(filter_entry_, 240, -1);
+  gtk_widget_set_tooltip_text(filter_entry_, "Filter displayed log lines");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(filter_entry_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                 "Filter logs",
+                                 -1);
+  g_signal_connect(filter_entry_, "search-changed",
+                   G_CALLBACK(+[](GtkSearchEntry*, gpointer user_data) {
+                     auto* self = static_cast<LogsTab*>(user_data);
+                     self->OnFilterChanged();
+                   }),
+                   this);
+  gtk_box_append(GTK_BOX(tb_box), filter_entry_);
+
   GtkWidget* spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_hexpand(spacer, TRUE);
   gtk_box_append(GTK_BOX(tb_box), spacer);
+
+  // Copy last 100 lines button (if sidecar present)
+  copy_last_100_button_ = gtk_button_new_from_icon_name("edit-copy-symbolic");
+  gtk_widget_add_css_class(copy_last_100_button_, "flat");
+  gtk_widget_set_size_request(copy_last_100_button_, 40, 40);
+  gtk_widget_set_tooltip_text(copy_last_100_button_, "Copy last 100 lines");
+  gtk_accessible_update_property(GTK_ACCESSIBLE(copy_last_100_button_),
+                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
+                                 "Copy last 100 lines",
+                                 -1);
+  g_signal_connect(copy_last_100_button_, "clicked",
+                   G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+                     auto* self = static_cast<LogsTab*>(user_data);
+                     self->OnCopyLast100Clicked();
+                   }),
+                   this);
+  gtk_box_append(GTK_BOX(tb_box), copy_last_100_button_);
 
   // Copy All Button (40x40 icon-only flat button)
   copy_button_ = gtk_button_new_from_icon_name("edit-copy-symbolic");
@@ -135,7 +178,7 @@ void LogsTab::BuildUi() {
 
   // 3. Selectable wrapping path-help info label
   path_info_label_ = gtk_label_new(
-      "Live view of process logs. Session log: ~/.config/castmirror/castmirror-session.log  •  History: ~/.config/castmirror/castmirror.log");
+      "Live view of process logs. Session log: ~/.config/castmirror/castmirror-session.log  •  History: ~/.config/castmirror/castmirror.log  •  JSON sidecar: ~/.config/castmirror/castmirror.ndjson (when verbose_json enabled)");
   gtk_widget_set_halign(path_info_label_, GTK_ALIGN_START);
   gtk_label_set_selectable(GTK_LABEL(path_info_label_), TRUE);
   gtk_label_set_wrap(GTK_LABEL(path_info_label_), TRUE);
@@ -192,6 +235,7 @@ void LogsTab::BuildUi() {
   gtk_box_append(GTK_BOX(main_vbox), overlay);
 
   UpdateBufferState();
+  UpdateCopyLast100Sensitivity();
 }
 
 void LogsTab::OnCopyClicked() {
@@ -212,9 +256,170 @@ void LogsTab::OnCopyClicked() {
 void LogsTab::OnClearClicked() {
   if (!text_buffer_) return;
   gtk_text_buffer_set_text(text_buffer_, "", 0);
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    history_.clear();
+    pending_queue_.clear();
+  }
   UpdateBufferState();
+  UpdateCopyLast100Sensitivity();
   if (app_) {
     app_->ShowToast("Log view cleared");
+  }
+}
+
+void LogsTab::OnFilterChanged() {
+  if (!filter_entry_) return;
+  const char* txt = gtk_editable_get_text(GTK_EDITABLE(filter_entry_));
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    filter_text_ = txt ? std::string(txt) : std::string();
+  }
+  ApplyFilter();
+}
+
+void LogsTab::ApplyFilter() {
+  if (!text_buffer_) return;
+  std::string filt;
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    filt = filter_text_;
+  }
+  std::string filt_lower = ToLower(filt);
+
+  // Snapshot history under lock
+  std::deque<PendingLog> snapshot;
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    snapshot = history_;
+  }
+
+  gtk_text_buffer_set_text(text_buffer_, "", 0);
+
+  // Check if view was at bottom before refilling? For filter, scroll to end if matches.
+  GtkTextIter end_iter;
+  gtk_text_buffer_get_end_iter(text_buffer_, &end_iter);
+
+  for (const auto& item : snapshot) {
+    if (!filt_lower.empty()) {
+      std::string txt_lower = ToLower(item.text);
+      if (txt_lower.find(filt_lower) == std::string::npos) {
+        continue;
+      }
+    }
+    const char* tag_name = "tag_info";
+    if (item.level == LogLevel::kDebug) {
+      tag_name = "tag_debug";
+    } else if (item.level == LogLevel::kWarn) {
+      tag_name = "tag_warn";
+    } else if (item.level == LogLevel::kError || item.level == LogLevel::kFatal) {
+      tag_name = "tag_error";
+    }
+    std::string text_with_nl = item.text + "\n";
+    gtk_text_buffer_insert_with_tags_by_name(text_buffer_,
+                                             &end_iter,
+                                             text_with_nl.c_str(),
+                                             -1,
+                                             tag_name,
+                                             nullptr);
+  }
+
+  UpdateBufferState();
+
+  // Scroll to end if we inserted something
+  gtk_text_buffer_get_end_iter(text_buffer_, &end_iter);
+  gtk_text_buffer_place_cursor(text_buffer_, &end_iter);
+  if (text_view_) {
+    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(text_view_), &end_iter, 0.0, FALSE, 0.0, 0.0);
+  }
+}
+
+bool LogsTab::IsJsonSidecarPresent() const {
+  std::string path = GetLogDirectory() + "/castmirror.ndjson";
+  std::error_code ec;
+  return std::filesystem::exists(path, ec);
+}
+
+void LogsTab::UpdateCopyLast100Sensitivity() {
+  if (!copy_last_100_button_) return;
+  bool has_sidecar = IsJsonSidecarPresent();
+  bool has_buffer = false;
+  if (text_buffer_) {
+    has_buffer = gtk_text_buffer_get_char_count(text_buffer_) > 0;
+  }
+  // Button enabled if sidecar present (primary) or buffer has content
+  gtk_widget_set_sensitive(copy_last_100_button_, has_sidecar || has_buffer);
+  if (has_sidecar) {
+    gtk_widget_set_tooltip_text(copy_last_100_button_, "Copy last 100 lines (JSON sidecar)");
+  } else {
+    gtk_widget_set_tooltip_text(copy_last_100_button_, "Copy last 100 lines (current view)");
+  }
+}
+
+void LogsTab::OnCopyLast100Clicked() {
+  std::string content;
+  std::string json_path = GetLogDirectory() + "/castmirror.ndjson";
+  std::error_code ec;
+  if (std::filesystem::exists(json_path, ec)) {
+    // Keep last 100 lines across .old + current file to honor 2x8MiB rotation cap
+    std::deque<std::string> combined;
+    std::string old_path = json_path + ".old";
+    if (std::filesystem::exists(old_path, ec)) {
+      std::ifstream old_file(old_path);
+      std::string line;
+      while (std::getline(old_file, line)) {
+        combined.push_back(line);
+        if (combined.size() > 100) combined.pop_front();
+      }
+    }
+    {
+      std::ifstream file(json_path);
+      if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+          combined.push_back(line);
+          if (combined.size() > 100) combined.pop_front();
+        }
+      }
+    }
+    for (auto &l : combined) content += l + "\n";
+  }
+
+  if (content.empty()) {
+    // Fallback: last 100 lines from current text_buffer view (filtered or not)
+    if (text_buffer_) {
+      GtkTextIter start, end;
+      gtk_text_buffer_get_bounds(text_buffer_, &start, &end);
+      char* all = gtk_text_buffer_get_text(text_buffer_, &start, &end, FALSE);
+      if (all) {
+        std::string all_str(all);
+        g_free(all);
+        // Remove trailing newline split handling
+        std::vector<std::string> lines;
+        std::istringstream iss(all_str);
+        std::string line;
+        while (std::getline(iss, line)) {
+          lines.push_back(line);
+        }
+        size_t start_idx = lines.size() > 100 ? lines.size() - 100 : 0;
+        for (size_t i = start_idx; i < lines.size(); ++i) {
+          content += lines[i] + "\n";
+        }
+      }
+    }
+  }
+
+  if (!content.empty()) {
+    GtkWidget* src = copy_last_100_button_ ? copy_last_100_button_ : (copy_button_ ? copy_button_ : root_widget_);
+    GdkClipboard* clip = gtk_widget_get_clipboard(src);
+    gdk_clipboard_set_text(clip, content.c_str());
+    if (app_) {
+      app_->ShowToast("Copied last 100 lines");
+    }
+  } else {
+    if (app_) {
+      app_->ShowToast("No log lines to copy");
+    }
   }
 }
 
@@ -232,6 +437,7 @@ void LogsTab::UpdateBufferState() {
   if (empty_state_box_) {
     gtk_widget_set_visible(empty_state_box_, is_empty);
   }
+  UpdateCopyLast100Sensitivity();
 }
 
 void LogsTab::SeedInitialLogs() {
@@ -289,6 +495,23 @@ void LogsTab::SeedInitialLogs() {
     if (!buffer.empty()) {
       gtk_text_buffer_set_text(text_buffer_, buffer.c_str(), -1);
 
+      // Populate history_ from seeded buffer for filtering
+      {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        std::istringstream iss(buffer);
+        std::string line;
+        while (std::getline(iss, line)) {
+          if (line.empty()) continue;
+          // Determine level heuristically from tags if possible, default Info
+          LogLevel lvl = LogLevel::kInfo;
+          if (line.find("[DEBUG") != std::string::npos) lvl = LogLevel::kDebug;
+          else if (line.find("[WARN") != std::string::npos) lvl = LogLevel::kWarn;
+          else if (line.find("[ERROR") != std::string::npos) lvl = LogLevel::kError;
+          history_.push_back({lvl, line});
+          if (history_.size() > kMaxHistory) history_.pop_front();
+        }
+      }
+
       GtkTextIter end_iter;
       gtk_text_buffer_get_end_iter(text_buffer_, &end_iter);
       gtk_text_buffer_place_cursor(text_buffer_, &end_iter);
@@ -322,9 +545,22 @@ void LogsTab::FlushPendingLogs() {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     to_drain.swap(pending_queue_);
     idle_scheduled_ = false;
+    // Also push to history for filtering (preserve all, capped)
+    for (auto &item : to_drain) {
+      history_.push_back(item);
+      if (history_.size() > kMaxHistory) history_.pop_front();
+    }
   }
 
   if (to_drain.empty()) return;
+
+  // Respect filter
+  std::string filt;
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    filt = filter_text_;
+  }
+  std::string filt_lower = ToLower(filt);
 
   // Check if view is currently at bottom before appending
   bool at_bottom = true;
@@ -342,6 +578,12 @@ void LogsTab::FlushPendingLogs() {
   gtk_text_buffer_get_end_iter(text_buffer_, &end_iter);
 
   for (const auto& item : to_drain) {
+    if (!filt_lower.empty()) {
+      std::string txt_lower = ToLower(item.text);
+      if (txt_lower.find(filt_lower) == std::string::npos) {
+        continue;
+      }
+    }
     const char* tag_name = "tag_info";
     if (item.level == LogLevel::kDebug) {
       tag_name = "tag_debug";

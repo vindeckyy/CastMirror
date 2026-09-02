@@ -339,8 +339,8 @@
 
 .cm-status-pill.is-idle .cm-status-dot,
 .cm-status-dot.is-idle {
-  color: @cm_text_secondary;
-  background-color: @cm_text_secondary;
+  color: @cm_text;
+  background-color: @cm_text;
 }
 
 .cm-status-pill.is-progress .cm-status-dot,
@@ -399,6 +399,29 @@ list.cm-choice-list > row:selected:hover {
   background-image: none;
   box-shadow: none;
   outline: none;
+}
+
+/* Segmented toggle (Screen | Window) */
+.cm-segmented {
+  background-color: @cm_surface_container;
+  border-radius: 10px;
+  padding: 3px;
+}
+.cm-segmented-btn {
+  border-radius: 8px;
+  padding: 6px 16px;
+  margin: 0;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  font-weight: 500;
+}
+.cm-segmented-btn:checked {
+  background-color: @cm_primary;
+  color: @cm_on_primary;
+}
+.cm-segmented-btn:hover:not(:checked) {
+  background-color: @cm_surface_high;
 }
 
 .cm-preset-grid {
@@ -476,8 +499,6 @@ list.cm-choice-list > row.is-selected .cm-display-row {
 .cm-device-glyph {
   min-width: 48px;
   min-height: 48px;
-  max-width: 48px;
-  max-height: 48px;
   padding: 0;
   color: @cm_primary;
   background-color: @cm_primary_container;
@@ -487,8 +508,6 @@ list.cm-choice-list > row.is-selected .cm-display-row {
 .cm-display-row .cm-device-glyph {
   min-width: 40px;
   min-height: 40px;
-  max-width: 40px;
-  max-height: 40px;
 }
 
 .cm-device-glyph image {
@@ -602,6 +621,8 @@ list.cm-choice-list > row.is-selected .cm-device-glyph {
 
 .cm-pipeline-node {
   padding: 16px;
+  min-width: 220px;
+  min-height: 148px;
   color: @cm_text_secondary;
   background-color: @cm_surface_container;
   border: 1px solid @cm_outline_variant;

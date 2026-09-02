@@ -45,19 +45,41 @@ bool ParseInternal(const uint8_t* data, size_t length,
                    uint32_t fallback_last_frame_id,
                    const std::map<uint32_t, uint32_t>* last_frame_by_ssrc,
                    RtcpFeedback& out_feedback) {
+  // Phase 2 fuzz hardening: empty/truncated/SDES/unknown PT must not crash
   if (!data || length < 4) return false;
+  // Limit total blocks to avoid infinite loop on malformed length=0 loops
+  constexpr size_t kMaxBlocks = 64;
+  size_t blocks_parsed = 0;
 
   size_t offset = 0;
   bool parsed_any = false;
 
-  while (offset + 4 <= length) {
+  while (offset + 4 <= length && blocks_parsed < kMaxBlocks) {
     uint8_t b0 = data[offset];
     uint8_t pt = data[offset + 1];
+    // Validate RTCP version (should be 2), but tolerate 0 as fuzz; just skip if not 2?
+    uint8_t version = (b0 >> 6) & 0x03;
+    // Allow fuzz corpus with version !=2 to be safely skipped, not crash
+    if (version != 2) {
+      // Try to still parse length to skip, but if length is unreasonable, break
+      uint16_t words = ReadUint16BE(&data[offset + 2]);
+      size_t block_len = (static_cast<size_t>(words) + 1) * 4;
+      if (block_len < 4 || offset + block_len > length) {
+        break;
+      }
+      offset += block_len;
+      ++blocks_parsed;
+      continue;
+    }
     uint16_t words = ReadUint16BE(&data[offset + 2]);
-    size_t block_len = (words + 1) * 4;
+    size_t block_len = (static_cast<size_t>(words) + 1) * 4;
 
-    if (offset + block_len > length) {
-      break; // Malformed packet
+    if (block_len < 4 || offset + block_len > length) {
+      break; // Truncated / malformed packet -> stop parsing, return what we have
+    }
+    // Guard against block_len ==0 infinite loop (words==0xFFFF could overflow, but we already checked >length)
+    if (block_len == 0) {
+      break;
     }
 
     uint8_t count_or_subtype = b0 & 0x1F;
@@ -67,7 +89,7 @@ bool ParseInternal(const uint8_t* data, size_t length,
       if (block_len >= 8) {
         out_feedback.receiver_ssrc = ReadUint32BE(&block[4]);
         if (count_or_subtype > 0 && block_len >= 32) {
-          // Report block
+          // Report block: ensure we don't read beyond block_len
           out_feedback.fraction_lost = static_cast<double>(block[12]) / 256.0;
           out_feedback.cumulative_lost = (static_cast<uint32_t>(block[13]) << 16) |
                                          (static_cast<uint32_t>(block[14]) << 8) |
@@ -76,13 +98,17 @@ bool ParseInternal(const uint8_t* data, size_t length,
         }
         parsed_any = true;
       }
+    } else if (pt == 202) { // SDES - explicitly ignored but counted as parsed for robustness
+      // SDES (Source Description) - not used for Cast, but fuzz corpus may contain it.
+      // We treat it as successfully skipped, not as feedback. Do not set parsed_any.
+      // Ensure we don't misinterpret SDES as CAST.
     } else if (pt == 204 || pt == 206) { // Application defined or Payload-specific
       if (block_len >= 12) {
         out_feedback.receiver_ssrc = ReadUint32BE(&block[4]);
         out_feedback.sender_ssrc = ReadUint32BE(&block[8]);
 
         if (count_or_subtype == 1) {
-          // Picture Loss Indicator (PLI)
+          // Picture Loss Indicator (PLI) - FMT 1 per RFC 4585
           out_feedback.picture_loss_indicator = true;
           parsed_any = true;
         } else if (block_len >= 20) {
@@ -93,6 +119,8 @@ bool ParseInternal(const uint8_t* data, size_t length,
                                                last_frame_by_ssrc);
             uint8_t ckpt_id_8 = block[16];
             uint8_t loss_fields_count = block[17];
+            // Clamp loss_fields_count to prevent excessive iteration on fuzzed large value
+            if (loss_fields_count > 32) loss_fields_count = 32;
             out_feedback.current_playout_delay_ms = ReadUint16BE(&block[18]);
             out_feedback.checkpoint_frame_id = ExpandFrameId(ckpt_id_8, ref_fid);
 
@@ -114,13 +142,17 @@ bool ParseInternal(const uint8_t* data, size_t length,
               loss_offset += 4;
             }
 
-            // Check for CST2 ACK bitvector
+            // Check for CST2 ACK bitvector - ensure we have at least 6 bytes header
             if (loss_offset + 6 <= block_len) {
               uint32_t cst2_magic = ReadUint32BE(&block[loss_offset]);
               if (cst2_magic == 0x43535432) { // 'CST2'
                 uint8_t bvec_octets = block[loss_offset + 5];
+                // Clamp bvec_octets to remaining bytes to avoid over-read on fuzz
+                size_t remaining = block_len - (loss_offset + 6);
+                if (bvec_octets > remaining) bvec_octets = static_cast<uint8_t>(remaining);
+                if (bvec_octets > 32) bvec_octets = 32;
                 size_t ack_offset = loss_offset + 6;
-                for (int oct = 0; oct < bvec_octets && ack_offset + oct < block_len; ++oct) {
+                for (int oct = 0; oct < bvec_octets && ack_offset + static_cast<size_t>(oct) < block_len; ++oct) {
                   uint8_t byte_val = block[ack_offset + oct];
                   for (int bit = 0; bit < 8; ++bit) {
                     if ((byte_val >> bit) & 1) {
@@ -140,9 +172,13 @@ bool ParseInternal(const uint8_t* data, size_t length,
       if (block_len >= 12 && block[4] == 4) { // Receiver Reference Time Report
         parsed_any = true;
       }
+    } else {
+      // Unknown PT (fuzz corpus) - safely skip block without crashing or marking parsed_any.
+      // Unknown PT blocks are counted as processed but not as successful feedback.
     }
 
     offset += block_len;
+    ++blocks_parsed;
   }
 
   return parsed_any;

@@ -87,15 +87,6 @@ void SettingsTab::BuildUi() {
   adw_action_row_add_suffix(ADW_ACTION_ROW(fps_row_), fps_info);
   adw_preferences_group_add(pic_group, fps_row_);
 
-  // Adaptive Quality
-  adaptive_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(adaptive_row_), copy::kAdaptiveTitle);
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(adaptive_row_), copy::kAdaptiveHelp);
-  adw_switch_row_set_active(ADW_SWITCH_ROW(adaptive_row_), cfg.adaptive_enabled);
-  GtkWidget* adapt_info = MakeInfoButton(copy::kAdaptiveTitle, copy::kAdaptivePopover);
-  adw_action_row_add_suffix(ADW_ACTION_ROW(adaptive_row_), adapt_info);
-  adw_preferences_group_add(pic_group, adaptive_row_);
-
   // 2. Audio
   AdwPreferencesGroup* audio_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
   adw_preferences_group_set_title(audio_group, "Audio");
@@ -157,13 +148,6 @@ void SettingsTab::BuildUi() {
   adw_action_row_add_suffix(ADW_ACTION_ROW(delay_row_), delay_box);
   adw_action_row_set_activatable_widget(ADW_ACTION_ROW(delay_row_), delay_scale_);
   adw_preferences_group_add(lat_group, delay_row_);
-
-  // Prefer low latency
-  low_latency_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(low_latency_row_), copy::kLowLatencyTitle);
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(low_latency_row_), copy::kLowLatencyHelp);
-  adw_switch_row_set_active(ADW_SWITCH_ROW(low_latency_row_), cfg.low_latency_mode);
-  adw_preferences_group_add(lat_group, low_latency_row_);
 
   // 4. Device discovery
   AdwPreferencesGroup* disc_group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
@@ -282,17 +266,6 @@ void SettingsTab::BuildUi() {
   };
   g_signal_connect(fps_row_, "notify::value", G_CALLBACK(on_fps_changed), this);
 
-  // 3. Adaptive Quality Switch
-  auto on_adapt_toggle = +[](GObject*, GParamSpec*, gpointer user_data) {
-    auto* self = static_cast<SettingsTab*>(user_data);
-    if (self->syncing_controls_) return;
-    gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(self->adaptive_row_));
-    auto& c = ConfigStore::Instance().Mutable();
-    c.adaptive_enabled = state;
-    ConfigStore::Instance().Save();
-  };
-  g_signal_connect(adaptive_row_, "notify::active", G_CALLBACK(on_adapt_toggle), this);
-
   // 4. Send Computer Audio Switch
   auto on_audio_toggle = +[](GObject*, GParamSpec*, gpointer user_data) {
     auto* self = static_cast<SettingsTab*>(user_data);
@@ -349,25 +322,6 @@ void SettingsTab::BuildUi() {
     ConfigStore::Instance().Save();
   };
   g_signal_connect(delay_scale_, "value-changed", G_CALLBACK(on_delay_changed), this);
-
-  // 8. Prefer Low Latency Switch
-  auto on_ll_toggle = +[](GObject*, GParamSpec*, gpointer user_data) {
-    auto* self = static_cast<SettingsTab*>(user_data);
-    if (self->syncing_controls_) return;
-    gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(self->low_latency_row_));
-    auto& c = ConfigStore::Instance().Mutable();
-    c.low_latency_mode = state;
-    if (state) {
-      c.target_delay_ms = 200;
-      self->syncing_controls_ = true;
-      gtk_range_set_value(GTK_RANGE(self->delay_scale_), 200);
-      self->UpdateDelayLabel(200);
-      self->syncing_controls_ = false;
-    }
-    ConfigStore::Instance().Save();
-    self->UpdateDependentSensitivities();
-  };
-  g_signal_connect(low_latency_row_, "notify::active", G_CALLBACK(on_ll_toggle), this);
 
   // 9. Subnet Scan Switch with Asynchronous AdwAlertDialog
   auto on_scan_toggle = +[](GObject*, GParamSpec*, gpointer user_data) {
@@ -508,7 +462,6 @@ void SettingsTab::UpdateDependentSensitivities() {
   bool is_streaming = (state == SessionState::kStreaming);
 
   bool audio_on = audio_row_ ? adw_switch_row_get_active(ADW_SWITCH_ROW(audio_row_)) : true;
-  bool low_latency_on = low_latency_row_ ? adw_switch_row_get_active(ADW_SWITCH_ROW(low_latency_row_)) : false;
   bool tray_on = tray_row_ ? adw_switch_row_get_active(ADW_SWITCH_ROW(tray_row_)) : false;
 
   bool tray_supported = false;
@@ -519,7 +472,6 @@ void SettingsTab::UpdateDependentSensitivities() {
   // Picture & encoding
   if (bitrate_row_) gtk_widget_set_sensitive(bitrate_row_, is_session_idle || is_streaming);
   if (fps_row_) gtk_widget_set_sensitive(fps_row_, is_session_idle);
-  if (adaptive_row_) gtk_widget_set_sensitive(adaptive_row_, is_session_idle);
 
   // Audio
   if (audio_row_) gtk_widget_set_sensitive(audio_row_, is_session_idle);
@@ -530,8 +482,7 @@ void SettingsTab::UpdateDependentSensitivities() {
   if (audio_quality_row_) gtk_widget_set_sensitive(audio_quality_row_, audio_quality_sensitive);
 
   // Latency & buffering
-  if (low_latency_row_) gtk_widget_set_sensitive(low_latency_row_, is_session_idle);
-  if (delay_row_) gtk_widget_set_sensitive(delay_row_, is_session_idle && !low_latency_on);
+  if (delay_row_) gtk_widget_set_sensitive(delay_row_, is_session_idle);
 
   // Advanced
   if (force_x11_row_) gtk_widget_set_sensitive(force_x11_row_, is_session_idle);

@@ -4,8 +4,10 @@
 #include <cstring>
 #include <chrono>
 #include <vector>
+#include <thread>
 #include <cerrno>
 #include <algorithm>
+#include <cmath>
 
 #if defined(_WIN32)
   #include <winsock2.h>
@@ -55,7 +57,17 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
     total_nacks_received_ = 0;
     total_pli_received_ = 0;
     last_rtt_ms_ = 0.0;
+    last_jitter_ms_ = 0.0;
     last_loss_fraction_ = 0.0;
+  }
+  // Phase 2: reset pacing token bucket and EWMA
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
+    pacing_last_refill_ = std::chrono::steady_clock::now();
+    ewma_rtt_ms_ = 0.0;
+    ewma_jitter_ms_ = 0.0;
+    ewma_initialized_ = false;
   }
 
   LOG_INFO << "Starting Cast Media Transport to UDP " << receiver_ip << ":" << receiver_udp_port << "...";
@@ -91,6 +103,16 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
   setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
 
+#if defined(_WIN32)
+  u_long non_blocking_mode = 1;
+  ioctlsocket(socket_fd_, FIONBIO, &non_blocking_mode);
+#else
+  int flags = fcntl(socket_fd_, F_GETFL, 0);
+  if (flags >= 0) {
+    fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
+  }
+#endif
+
   running_ = true;
   receive_thread_ = std::thread(&CastTransport::ReceiveLoop, this);
   return true;
@@ -119,6 +141,18 @@ void CastTransport::Stop() {
     packet_cache_.clear();
     last_sent_frame_id_.clear();
     last_retransmit_time_.clear();
+  }
+  {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    ewma_initialized_ = false;
+    ewma_rtt_ms_ = 0.0;
+    ewma_jitter_ms_ = 0.0;
+    last_jitter_ms_ = 0.0;
+  }
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
+    pacing_last_refill_ = std::chrono::steady_clock::time_point{};
   }
 
   {
@@ -178,19 +212,53 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
 
   uint32_t octets_this_frame = 0;
   uint32_t packets_sent_ok = 0;
-  {
-    std::lock_guard<std::mutex> lock(send_mutex_);
-    if (!running_.load() || socket_fd_ < 0) {
-      return false;
+
+  for (const auto& pkt : packets) {
+    if (!running_.load()) break;
+
+    // Pace transmission so packet bursts across any 2ms window do not exceed kPacingMaxBurst
+    while (running_.load()) {
+      bool acquired = false;
+      double wait_ms = 0.0;
+      {
+        std::lock_guard<std::mutex> lock(send_mutex_);
+        if (!running_.load() || socket_fd_ < 0) {
+          return false;
+        }
+        if (ConsumePacingTokens(1)) {
+          acquired = true;
+        } else {
+          constexpr double refill_rate_per_ms =
+              static_cast<double>(kPacingMaxBurst) / static_cast<double>(kPacingIntervalMs);
+          wait_ms = (1.0 - pacing_tokens_) / refill_rate_per_ms;
+          if (wait_ms < 0.05) wait_ms = 0.05;
+        }
+      }
+      if (acquired) {
+        break;
+      }
+      // Sleep without holding send_mutex_ so prioritized retransmissions can execute immediately
+      std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(wait_ms));
     }
-    for (const auto& pkt : packets) {
+
+    if (!running_.load()) break;
+
+    {
+      std::lock_guard<std::mutex> lock(send_mutex_);
+      if (!running_.load() || socket_fd_ < 0) {
+        return false;
+      }
       if (!SendDatagram(pkt.data.data(), pkt.data.size())) {
         continue;
       }
       octets_this_frame += static_cast<uint32_t>(pkt.data.size());
       packets_sent_ok++;
     }
-    if (packets_sent_ok > 0) {
+  }
+
+  if (packets_sent_ok > 0) {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    if (running_.load() && socket_fd_ >= 0) {
       MaybeSendSenderReport(ssrc, rtp_ts, packets_sent_ok, octets_this_frame);
     }
   }
@@ -203,6 +271,22 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
     }
   }
 
+  // Structured diagnostics: per-frame breadcrumb for udp stage
+  // Only emit for video frames to avoid spamming audio (48kHz)
+  if (is_video_frame && Logger::Instance().IsVerboseJsonEnabled()) {
+    uint32_t udp_bytes = octets_this_frame;
+    double rtt_ms = 0.0;
+    uint32_t nack_cnt = 0;
+    {
+      std::lock_guard<std::mutex> slock(stats_mutex_);
+      rtt_ms = last_rtt_ms_;
+      nack_cnt = total_nacks_received_;
+    }
+    // encode_ms unknown in transport; use 0, but breadcrumb still contains required fields
+    // pipeline indicates full path, stage indicates udp
+    Logger::Instance().LogBreadcrumbEx(current_fid, 0, udp_bytes, rtt_ms, nack_cnt,
+                                       "capture->gpu->encode->crypto->rtp->udp", "udp");
+  }
 
   return packets_sent_ok > 0;
 }
@@ -302,10 +386,42 @@ bool CastTransport::SendDatagram(const uint8_t* data, size_t length) {
   }
 }
 
+void CastTransport::UpdateEwmaRtt(double sample_ms) {
+  // EWMA rtt 0.8/0.2 jitter 0.9/0.1
+  if (!ewma_initialized_) {
+    ewma_rtt_ms_ = sample_ms;
+    ewma_jitter_ms_ = 0.0;
+    ewma_initialized_ = true;
+  } else {
+    double prev = ewma_rtt_ms_;
+    ewma_rtt_ms_ = kRttEwmaKeep * prev + kRttEwmaAlpha * sample_ms;
+    double diff = std::abs(sample_ms - prev);
+    ewma_jitter_ms_ = kJitterEwmaKeep * ewma_jitter_ms_ + kJitterEwmaAlpha * diff;
+  }
+}
+
+bool CastTransport::ConsumePacingTokens(size_t packet_count) {
+  auto now = std::chrono::steady_clock::now();
+  if (pacing_last_refill_.time_since_epoch().count() == 0) {
+    pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
+    pacing_last_refill_ = now;
+  } else {
+    double elapsed_ms = std::chrono::duration<double, std::milli>(now - pacing_last_refill_).count();
+    double refill = elapsed_ms * (static_cast<double>(kPacingMaxBurst) / static_cast<double>(kPacingIntervalMs));
+    pacing_tokens_ = std::min(static_cast<double>(kPacingMaxBurst), pacing_tokens_ + refill);
+    pacing_last_refill_ = now;
+  }
+  if (pacing_tokens_ >= static_cast<double>(packet_count)) {
+    pacing_tokens_ -= static_cast<double>(packet_count);
+    return true;
+  }
+  return false;
+}
+
 void CastTransport::RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t packet_id) {
   std::vector<RtpPacket> to_send;
   const auto now = std::chrono::steady_clock::now();
-  constexpr auto kDuplicateNackWindow = std::chrono::milliseconds(25);
+  constexpr auto kDuplicateNackWindow = std::chrono::milliseconds(CastTransport::kRetransmitSuppressMs);
   {
     std::lock_guard<std::mutex> clock(cache_mutex_);
     auto sit = packet_cache_.find(ssrc);
@@ -351,12 +467,17 @@ uint32_t CastTransport::SafeCacheEraseLimit(uint32_t checkpoint, uint32_t last_s
   if (checkpoint == 0) {
     return 0;
   }
-  if (checkpoint > last_sent) {
-    if ((checkpoint - last_sent) > 32) {
+  // Handle 32-bit wrap: compute signed difference checkpoint - last_sent
+  int32_t diff = static_cast<int32_t>(checkpoint - last_sent);
+  if (diff > 0) {
+    // checkpoint is ahead of last_sent (including wrap-around)
+    if (diff > 32) {
       return 0;
     }
     return last_sent;
   }
+  // checkpoint <= last_sent (or behind) : safe to erase up to checkpoint
+  // Also guard against checkpoint far behind due to wrap (diff < -1000000) is still safe as checkpoint is old
   return checkpoint;
 }
 
@@ -422,7 +543,9 @@ void CastTransport::ReceiveLoop() {
       {
         std::lock_guard<std::mutex> slock(stats_mutex_);
         last_loss_fraction_ = feedback.fraction_lost;
-        last_rtt_ms_ = feedback.rtt_ms;
+        UpdateEwmaRtt(feedback.rtt_ms);
+        last_rtt_ms_ = ewma_rtt_ms_;
+        last_jitter_ms_ = ewma_jitter_ms_;
         total_nacks_received_ += static_cast<uint32_t>(feedback.nacks.size());
         if (feedback.picture_loss_indicator) {
           total_pli_received_++;

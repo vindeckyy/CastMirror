@@ -19,10 +19,12 @@ std::string StateMachine::GetLastMessage() const {
 bool StateMachine::IsValidTransition(SessionState from, SessionState to) const {
   if (from == to) return true;
 
-  // Anything can transition to Failed or Stopping (except Idle/Failed to Stopping)
+  // Anything can transition to Failed
   if (to == SessionState::kFailed) return true;
+  // Stopping is valid from any active or failed state except Idle itself.
+  // Phase 0.5 audit: ensure Failed -> Stopping -> Idle via Stop() works.
   if (to == SessionState::kStopping) {
-    return from != SessionState::kIdle && from != SessionState::kFailed;
+    return from != SessionState::kIdle;
   }
 
   switch (from) {
@@ -36,10 +38,13 @@ bool StateMachine::IsValidTransition(SessionState from, SessionState to) const {
       return to == SessionState::kConnecting || to == SessionState::kDiscovering || to == SessionState::kIdle;
 
     case SessionState::kConnecting:
-      return to == SessionState::kNegotiating || to == SessionState::kStopping || to == SessionState::kIdle;
+      // Audit: allow reconnect attempt from early active states so RequestReconnect is valid.
+      return to == SessionState::kNegotiating || to == SessionState::kReconnecting ||
+             to == SessionState::kStopping || to == SessionState::kIdle;
 
     case SessionState::kNegotiating:
-      return to == SessionState::kStreaming || to == SessionState::kStopping || to == SessionState::kIdle;
+      return to == SessionState::kStreaming || to == SessionState::kReconnecting ||
+             to == SessionState::kStopping || to == SessionState::kIdle;
 
     case SessionState::kStreaming:
       return to == SessionState::kReconnecting || to == SessionState::kStopping || to == SessionState::kIdle;
@@ -48,11 +53,14 @@ bool StateMachine::IsValidTransition(SessionState from, SessionState to) const {
       return to == SessionState::kStreaming || to == SessionState::kStopping || to == SessionState::kIdle;
 
     case SessionState::kStopping:
-      return to == SessionState::kIdle;
+      // Stopping may go to Idle (normal) or Failed (teardown error).
+      return to == SessionState::kIdle || to == SessionState::kFailed;
 
     case SessionState::kFailed:
-      return to == SessionState::kIdle || to == SessionState::kDiscovering ||
-             to == SessionState::kReady || to == SessionState::kConnecting;
+      // Failed may recover via Stopping -> Idle or directly to Idle/discovery.
+      return to == SessionState::kIdle || to == SessionState::kStopping ||
+             to == SessionState::kDiscovering || to == SessionState::kReady ||
+             to == SessionState::kConnecting;
   }
   return false;
 }

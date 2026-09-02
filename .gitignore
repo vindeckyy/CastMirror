@@ -20,3 +20,10 @@ CMakeUserPresets.json
 *.user
 *.swp
 *~
+
+# Phase 0.4 bench baseline - tracked exception (CSV is checked in)
+!docs/bench/
+!docs/bench/baseline.csv
+
+# Agent workspace artifacts
+.agents/

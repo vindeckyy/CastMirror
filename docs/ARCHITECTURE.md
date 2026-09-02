@@ -140,7 +140,7 @@ flowchart LR
 - `DeviceDiscovery` — mDNS `_googlecast._tcp` browse + optional subnet TCP probe
 - `CastChannel` — TLS 1.2 Cast V2 (:8009), heartbeat PING/PONG, LAUNCH/STOP
 - `MirroringNegotiator` — JSON OFFER/ANSWER, AES-128-CTR key exchange
-- `IDisplayCapture` — `X11DisplayCapture` (XRandR crop + MIT-SHM) / `PipeWirePortalCapture` (portal ScreenCast) / `SyntheticDisplayCapture`
+- `IDisplayCapture` — `X11DisplayCapture` (XRandR per-monitor crop + MIT-SHM, or per-window capture with XComposite redirection + XDamage) / `PipeWirePortalCapture` (portal ScreenCast, monitor or window source type) / `SyntheticDisplayCapture`. Source selection is via `CaptureSource` (kind: monitor/window, id, name, geometry); legacy `Start(int display_id, int fps)` forwards to `Start(CaptureSource, fps)`.
 - `IAudioCapture` — `PulseAudioCapture` (libpulse monitor) / `SyntheticAudioCapture`
 - `GpuProcessor` — libswscale direct-plane letterboxing (YUV420P / NV12)
 - `IVideoEncoder` — `FFmpegVideoEncoder` (VAAPI `h264_vaapi` with `libx264` fallback, `Reconfigure`)

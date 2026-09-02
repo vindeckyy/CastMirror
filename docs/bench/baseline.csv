@@ -1,0 +1,2 @@
+encode_ms_p50,encode_ms_p95,fps,udp_pps,rtt_ms,loss_fraction,stop_ms
+9.75,11.7,57.7,60,12,0.00,93.6

@@ -12,6 +12,12 @@ struct AppConfig {
   std::string last_device_name;
   std::string last_device_ip;
   int last_display_id = 0;
+  // Last capture source: kind ("monitor"/"window"), id, and name. For
+  // windows the id is not stable across restarts, so the name is used to
+  // re-resolve on "cast to last" and falls back to monitor if missing.
+  std::string last_source_kind = "monitor";
+  int last_source_id = 0;
+  std::string last_source_name;
   bool audio_enabled = true;
   QualityPreset quality_preset = QualityPreset::kAuto;
   int target_delay_ms = 200;
@@ -38,10 +44,16 @@ struct AppConfig {
   bool force_software_encode = false;
   bool force_x11_capture = false;
   bool close_to_tray = true;
+  int schema_version = 3;
+  bool verbose_json_logging = false;
+  int launch_timeout_s = 8;
+  int answer_timeout_s = 5;
+  bool adaptive_resolution_enabled = true;
 
   uint32_t GetPresetBitrateOverrideKbps(QualityPreset preset) const;
   uint32_t GetPresetBitrateKbps(QualityPreset preset) const;
   void SetPresetBitrateKbps(QualityPreset preset, uint32_t kbps);
+  void Validate();
 };
 
 class ConfigStore {

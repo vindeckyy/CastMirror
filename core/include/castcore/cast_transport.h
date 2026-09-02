@@ -49,6 +49,15 @@ class CastTransport {
   // 0 means "do not erase" (bogus wrap / checkpoint too far ahead).
   static uint32_t SafeCacheEraseLimit(uint32_t checkpoint, uint32_t last_sent);
 
+  // Phase 2 network hardening constants
+  static constexpr int kPacingMaxBurst = 10;
+  static constexpr int kPacingIntervalMs = 2;
+  static constexpr double kRttEwmaAlpha = 0.2;   // EWMA: rtt = 0.8*old + 0.2*sample
+  static constexpr double kRttEwmaKeep = 0.8;
+  static constexpr double kJitterEwmaAlpha = 0.1; // jitter = 0.9*old + 0.1*|sample-old|
+  static constexpr double kJitterEwmaKeep = 0.9;
+  static constexpr int kRetransmitSuppressMs = 80;
+
  private:
   struct SenderReportState {
     uint32_t last_rtp_timestamp = 0;
@@ -62,6 +71,8 @@ class CastTransport {
   void MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
                              uint32_t packets_just_sent, uint32_t octets_just_sent);
   bool SendDatagram(const uint8_t* data, size_t length);
+  void UpdateEwmaRtt(double sample_ms);
+  bool ConsumePacingTokens(size_t packet_count);
 
   std::string receiver_ip_;
   uint16_t receiver_port_ = 0;
@@ -88,12 +99,20 @@ class CastTransport {
   PliCallback pli_callback_;
   FeedbackCallback feedback_callback_;
 
+  // Phase 2: pacing token bucket (maxBurst 10 per 2ms) + EWMA RTT/jitter
+  double pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
+  std::chrono::steady_clock::time_point pacing_last_refill_{};
+  double ewma_rtt_ms_ = 0.0;
+  double ewma_jitter_ms_ = 0.0;
+  bool ewma_initialized_ = false;
+
   // Performance metrics
   uint32_t total_packets_sent_ = 0;
   uint32_t total_frames_sent_ = 0;
   uint32_t total_nacks_received_ = 0;
   uint32_t total_pli_received_ = 0;
   double last_rtt_ms_ = 0.0;
+  double last_jitter_ms_ = 0.0;
   double last_loss_fraction_ = 0.0;
   std::chrono::steady_clock::time_point session_start_time_;
   std::chrono::steady_clock::time_point last_udp_drop_log_{};

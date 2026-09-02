@@ -35,7 +35,6 @@ class SettingsTab {
   GtkWidget* bitrate_scale_ = nullptr;
   GtkWidget* bitrate_val_lbl_ = nullptr;
   GtkWidget* fps_row_ = nullptr;
-  GtkWidget* adaptive_row_ = nullptr;
 
   // Audio
   GtkWidget* audio_row_ = nullptr;
@@ -46,7 +45,6 @@ class SettingsTab {
   GtkWidget* delay_row_ = nullptr;
   GtkWidget* delay_scale_ = nullptr;
   GtkWidget* delay_val_lbl_ = nullptr;
-  GtkWidget* low_latency_row_ = nullptr;
 
   // Device discovery
   GtkWidget* subnet_scan_row_ = nullptr;

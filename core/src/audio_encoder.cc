@@ -96,6 +96,11 @@ class OpusAudioEncoder : public IAudioEncoder {
     }
   }
 
+  void SetClockOrigin(std::chrono::steady_clock::time_point origin) override {
+    rtp_clock_origin_ = origin;
+    rtp_clock_origin_set_ = true;
+  }
+
  private:
   void Cleanup() {
     if (encoder_) {

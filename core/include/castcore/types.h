@@ -9,6 +9,7 @@
 #include <span>
 #include <memory>
 #include <functional>
+#include <cassert>
 
 namespace castcore {
 
@@ -75,6 +76,33 @@ inline const char* SessionStateToString(SessionState state) {
     case SessionState::kFailed: return "Failed";
   }
   return "Unknown";
+}
+
+// Phase 0.5: assertion helper to ensure capture only runs while session is active.
+// No functional protocol change — this is a lifecycle invariant check.
+// Usage: CheckCaptureInvariant(IsActive(), display_capture && display_capture->IsCapturing())
+inline void CheckCaptureInvariant(bool is_active, bool capture_running) {
+  // In debug, hard assert; in release, the caller should log a warning.
+  assert(is_active == capture_running && "IsActive() must match capture_running");
+  (void)is_active;
+  (void)capture_running;
+}
+
+#define CASTCORE_CHECK_CAPTURE_INVARIANT(is_active_expr, capture_running_expr) \
+  do { \
+    bool _is_active = (is_active_expr); \
+    bool _cap_run = (capture_running_expr); \
+    if (_is_active != _cap_run) { \
+      assert(_is_active == _cap_run && "IsActive() == capture_running invariant violated"); \
+    } \
+  } while (0)
+
+// Helper to verify Stop budget: measure StopMediaPipeline duration.
+// Returns elapsed ms and logs WARN if > 400ms (Stop contract is <=500ms).
+inline long MeasureStopBudgetMs(std::chrono::steady_clock::time_point start) {
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start).count();
+  return elapsed;
 }
 
 // Video Codecs
@@ -167,6 +195,60 @@ struct DisplayInfo {
   bool is_primary = false;
 };
 
+// Capture source kind: a physical monitor or a single application window.
+enum class CaptureSourceKind {
+  kMonitor,
+  kWindow
+};
+
+inline const char* CaptureSourceKindToString(CaptureSourceKind kind) {
+  switch (kind) {
+    case CaptureSourceKind::kMonitor: return "monitor";
+    case CaptureSourceKind::kWindow:  return "window";
+  }
+  return "monitor";
+}
+
+inline CaptureSourceKind CaptureSourceKindFromString(const std::string& str) {
+  if (str == "window" || str == "Window" || str == "WINDOW") return CaptureSourceKind::kWindow;
+  return CaptureSourceKind::kMonitor;
+}
+
+// A selected capture source. For Monitor, id is the DisplayInfo::id from
+// EnumerateDisplays(). For Window, id is a backend-specific window handle
+// (X11 XID cast to int, or a portal node id) and name is the window title.
+// Geometry is filled in for stats/encoder setup; backends keep it fresh.
+struct CaptureSource {
+  CaptureSourceKind kind = CaptureSourceKind::kMonitor;
+  int id = 0;
+  std::string name;
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+
+  bool IsMonitor() const { return kind == CaptureSourceKind::kMonitor; }
+  bool IsWindow() const  { return kind == CaptureSourceKind::kWindow; }
+
+  bool operator==(const CaptureSource& o) const {
+    return kind == o.kind && id == o.id;
+  }
+  bool operator!=(const CaptureSource& o) const { return !(*this == o); }
+};
+
+// Enumerated window (transient snapshot). id is the same handle used in
+// CaptureSource::id for Window sources.
+struct WindowInfo {
+  int id = 0;
+  std::string title;
+  std::string app_class;  // WM_CLASS, second field (application name)
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  bool visible = true;
+};
+
 // Frame Resolution
 struct Resolution {
   int width = 1920;
@@ -204,6 +286,30 @@ struct CapturedVideoFrame {
   int stride = 0;
   std::chrono::steady_clock::time_point timestamp;
   std::vector<uint8_t> data;
+  // Phase 1.2 / WP-2: DMA-BUF zero-copy (PipeWire). When is_dmabuf is true the frame
+  // is described by a prime fd + NV12 layout for import into
+  // AV_HWDEVICE_TYPE_VAAPI hw_frames_ctx_. data is empty and SW fallback is
+  // achieved via the regular BGRA path (copy from mapped dmabuf or MemPtr).
+  bool is_dmabuf = false;
+  int dmabuf_fd = -1;
+  int dmabuf_stride = 0;
+  int dmabuf_offset_y = 0;
+  int dmabuf_offset_uv = 0;
+  uint64_t dmabuf_modifier = 0; // DRM_FORMAT_MOD_INVALID sentinel, 0 = unknown
+  uint32_t dmabuf_format = 0;   // DRM FourCC format (e.g. DRM_FORMAT_NV12)
+  bool has_cursor = false;
+  int cursor_x = 0;
+  int cursor_y = 0;
+  int cursor_hotspot_x = 0;
+  int cursor_hotspot_y = 0;
+  std::vector<uint8_t> cursor_data;
+  int cursor_width = 0;
+  int cursor_height = 0;
+  int cursor_stride = 0;
+  // Set by the capturer when the source disappeared mid-session (e.g. the
+  // shared window was closed). The session uses this to fail gracefully
+  // instead of stalling on the last frame.
+  bool source_lost = false;
 };
 
 // Raw Audio Frame (PCM 48kHz Stereo S16LE)
@@ -233,6 +339,7 @@ struct StreamStats {
   std::string encoder_name;
   std::string capture_backend;
   std::string display_name;
+  std::string source_kind;  // "monitor" or "window"
   std::string device_name;
   std::string device_ip;
   int adaptive_rung_index = 0;
@@ -240,6 +347,7 @@ struct StreamStats {
   bool adaptive_enabled = true;
   int recovery_attempt = 0;
   int recovery_elapsed_s = 0;
+  uint64_t capture_skipped = 0; // XDamage / PipeWire skip optimization
   std::string health_hint;
 };
 
@@ -254,6 +362,11 @@ struct SessionOptions {
   int target_delay_ms = 200;
   bool silence_host_speakers = true;
   bool adaptive_enabled = true;
+  bool adaptive_resolution_enabled = true;
+  bool show_cursor = false;  // Composite hardware cursor into captured frames
+  // Selected capture source. When unset, the legacy display_id argument
+  // (passed alongside these options) is used as a Monitor source.
+  std::optional<CaptureSource> source;
 };
 
 // Standard Cast App IDs

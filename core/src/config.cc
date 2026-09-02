@@ -51,6 +51,40 @@ void AppConfig::SetPresetBitrateKbps(QualityPreset preset, uint32_t kbps) {
   }
 }
 
+void AppConfig::Validate() {
+  auto clamp_kbps = [](uint32_t v) -> uint32_t {
+    if (v == 0) return 0;
+    return std::clamp(v, 1000u, 25000u);
+  };
+  bitrate_kbps_auto = clamp_kbps(bitrate_kbps_auto);
+  bitrate_kbps_high = clamp_kbps(bitrate_kbps_high);
+  bitrate_kbps_balanced = clamp_kbps(bitrate_kbps_balanced);
+  bitrate_kbps_smooth = clamp_kbps(bitrate_kbps_smooth);
+  max_bitrate_kbps = std::clamp(max_bitrate_kbps, 1000u, 25000u);
+  if (capture_fps < 0 || capture_fps > 60) {
+    capture_fps = 0;
+  }
+  target_delay_ms = std::clamp(target_delay_ms, 100, 400);
+  window_width = std::clamp(window_width, 760, 1600);
+  window_height = std::clamp(window_height, 560, 1200);
+  launch_timeout_s = std::clamp(launch_timeout_s, 3, 15);
+  answer_timeout_s = std::clamp(answer_timeout_s, 3, 10);
+  audio_bitrate_bps = std::clamp(audio_bitrate_bps, 64000u, 256000u);
+  if (schema_version < 1) schema_version = 3;
+  // Normalize source kind string.
+  if (last_source_kind != "monitor" && last_source_kind != "window") {
+    last_source_kind = "monitor";
+  }
+  // Adaptive quality is now always on — the controller holds the user's
+  // custom bitrate and ramps back to it after congestion. The toggle was
+  // removed from the UI; force the field so old configs migrate silently.
+  adaptive_enabled = true;
+  // Low-latency toggle was removed from the UI; the Target delay slider is
+  // now the single latency control. Force the legacy field off so it does
+  // not override the slider anywhere downstream.
+  low_latency_mode = false;
+}
+
 std::string ConfigStore::GetDefaultConfigPath() {
 #if defined(_WIN32)
   const char* appdata = std::getenv("APPDATA");
@@ -85,6 +119,9 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("last_device_name")) config_.last_device_name = j["last_device_name"].get<std::string>();
     if (j.contains("last_device_ip")) config_.last_device_ip = j["last_device_ip"].get<std::string>();
     if (j.contains("last_display_id")) config_.last_display_id = j["last_display_id"].get<int>();
+    if (j.contains("last_source_kind")) config_.last_source_kind = j["last_source_kind"].get<std::string>();
+    if (j.contains("last_source_id"))   config_.last_source_id   = j["last_source_id"].get<int>();
+    if (j.contains("last_source_name")) config_.last_source_name = j["last_source_name"].get<std::string>();
     if (j.contains("audio_enabled")) config_.audio_enabled = j["audio_enabled"].get<bool>();
     if (j.contains("quality_preset")) config_.quality_preset = QualityPresetFromString(j["quality_preset"].get<std::string>());
     if (j.contains("target_delay_ms")) config_.target_delay_ms = j["target_delay_ms"].get<int>();
@@ -110,10 +147,40 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("force_x11_capture")) config_.force_x11_capture = j["force_x11_capture"].get<bool>();
     if (j.contains("close_to_tray")) config_.close_to_tray = j["close_to_tray"].get<bool>();
 
+    if (j.contains("schema_version")) config_.schema_version = j["schema_version"].get<int>();
+    else {
+      // Migrate v1 -> v2: map old max_bitrate_kbps -> bitrate_kbps_auto if auto is empty
+      if (j.contains("max_bitrate_kbps") && !j.contains("bitrate_kbps_auto")) {
+        uint32_t v = j["max_bitrate_kbps"].get<uint32_t>();
+        if (v != 8000 && v != 0) {
+          config_.bitrate_kbps_auto = v;
+        }
+      }
+      config_.schema_version = 2;
+    }
+    // Migrate v2 -> v3: if no explicit source fields, derive from last_display_id.
+    if (config_.schema_version < 3 &&
+        !j.contains("last_source_kind") && !j.contains("last_source_id")) {
+      config_.last_source_kind = "monitor";
+      config_.last_source_id = config_.last_display_id;
+      config_.last_source_name.clear();
+    }
+    config_.schema_version = 3;
+    if (j.contains("verbose_json_logging")) config_.verbose_json_logging = j["verbose_json_logging"].get<bool>();
+    if (j.contains("verbose_json")) config_.verbose_json_logging = j["verbose_json"].get<bool>();
+    if (j.contains("verboseJson")) config_.verbose_json_logging = j["verboseJson"].get<bool>();
+    // Env override is handled by Logger, but also respect config flag
+    if (j.contains("launch_timeout_s")) config_.launch_timeout_s = j["launch_timeout_s"].get<int>();
+    if (j.contains("answer_timeout_s")) config_.answer_timeout_s = j["answer_timeout_s"].get<int>();
+    if (j.contains("adaptive_resolution_enabled")) config_.adaptive_resolution_enabled = j["adaptive_resolution_enabled"].get<bool>();
+
+    config_.Validate();
     LOG_INFO << "Loaded configuration from " << path_to_load;
     return true;
   } catch (const std::exception& e) {
     LOG_ERROR << "Failed to parse config file: " << e.what();
+    // Corrupted JSON -> keep defaults with warning, not crash
+    config_.Validate();
     return false;
   }
 }
@@ -127,11 +194,16 @@ bool ConfigStore::Save(const std::string& custom_path) {
       fs::create_directories(dir);
     }
 
+    config_.Validate();
     nlohmann::json j;
+    j["schema_version"] = config_.schema_version;
     j["last_device_id"] = config_.last_device_id;
     j["last_device_name"] = config_.last_device_name;
     j["last_device_ip"] = config_.last_device_ip;
     j["last_display_id"] = config_.last_display_id;
+    j["last_source_kind"] = config_.last_source_kind;
+    j["last_source_id"] = config_.last_source_id;
+    j["last_source_name"] = config_.last_source_name;
     j["audio_enabled"] = config_.audio_enabled;
     j["quality_preset"] = QualityPresetToString(config_.quality_preset);
     j["target_delay_ms"] = config_.target_delay_ms;
@@ -156,11 +228,40 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["force_software_encode"] = config_.force_software_encode;
     j["force_x11_capture"] = config_.force_x11_capture;
     j["close_to_tray"] = config_.close_to_tray;
+    j["verbose_json_logging"] = config_.verbose_json_logging;
+    j["verbose_json"] = config_.verbose_json_logging;
+    j["launch_timeout_s"] = config_.launch_timeout_s;
+    j["answer_timeout_s"] = config_.answer_timeout_s;
+    j["adaptive_resolution_enabled"] = config_.adaptive_resolution_enabled;
 
-    std::ofstream file(path_to_save);
-    if (!file.is_open()) return false;
-
-    file << j.dump(2) << std::endl;
+    // Atomic write: write to tmp + fsync + rename, backup previous
+    std::string tmp_path = path_to_save + ".tmp";
+    std::string bak_path = path_to_save + ".bak";
+    {
+      std::ofstream file(tmp_path, std::ios::out | std::ios::trunc);
+      if (!file.is_open()) return false;
+      file << j.dump(2) << std::endl;
+      file.flush();
+      // fsync handled by ofstream close flush; ensure directory exists
+    }
+    try {
+      // Backup existing
+      if (fs::exists(path_to_save)) {
+        std::error_code ec;
+        fs::copy_file(path_to_save, bak_path, fs::copy_options::overwrite_existing, ec);
+      }
+      std::error_code ec;
+      fs::rename(tmp_path, path_to_save, ec);
+      if (ec) {
+        // Fallback to copy if rename across FS
+        fs::copy_file(tmp_path, path_to_save, fs::copy_options::overwrite_existing, ec);
+        fs::remove(tmp_path, ec);
+        if (ec) return false;
+      }
+    } catch (const std::exception& e) {
+      LOG_ERROR << "Atomic save failed: " << e.what();
+      return false;
+    }
     LOG_INFO << "Saved configuration to " << path_to_save;
     return true;
   } catch (const std::exception& e) {

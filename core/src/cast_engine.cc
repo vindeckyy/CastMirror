@@ -101,6 +101,21 @@ bool CastEngine::Initialize() {
 
   LOG_INFO << "Initializing CastEngine (Logging to " << log_file << ")...";
   ConfigStore::Instance().Load();
+  // Wire structured diagnostics JSON sidecar opt-in via Config flag verbose_json (default false)
+  // Also respect env var CASTMIRROR_VERBOSE_JSON=1 for CI/benchmarks
+  {
+    const auto& cfg = ConfigStore::Instance().Get();
+    bool want_json = cfg.verbose_json_logging;
+    const char* env = std::getenv("CASTMIRROR_VERBOSE_JSON");
+    if (env && (std::string(env) == "1" || std::string(env) == "true" || std::string(env) == "TRUE")) {
+      want_json = true;
+    }
+    if (want_json) {
+      Logger::Instance().SetVerboseJsonEnabled(true);
+      // Ensure sidecar file is initialized at default path
+      Logger::Instance().SetJsonLogging(Logger::GetDefaultJsonPath());
+    }
+  }
   discovery_.Start();
   return true;
 }
@@ -131,6 +146,16 @@ std::vector<DisplayInfo> CastEngine::GetDisplays() const {
   return capturer->EnumerateDisplays();
 }
 
+std::vector<WindowInfo> CastEngine::GetWindows() const {
+  auto capturer = DisplayCaptureFactory::Create();
+  return capturer->EnumerateWindows();
+}
+
+bool CastEngine::WindowCaptureSupported() const {
+  auto capturer = DisplayCaptureFactory::Create();
+  return capturer->SupportsWindowCapture();
+}
+
 bool CastEngine::StartCasting(const std::string& device_id,
                              int display_id,
                              QualityPreset preset,
@@ -146,6 +171,7 @@ bool CastEngine::StartCasting(const std::string& device_id,
   options.target_delay_ms = cfg.target_delay_ms;
   options.silence_host_speakers = cfg.silence_host_speakers;
   options.adaptive_enabled = cfg.adaptive_enabled;
+  options.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
   return StartCasting(device_id, display_id, options);
 }
 
@@ -206,6 +232,14 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   cfg.last_device_name = dev.name;
   cfg.last_device_ip = dev.ip_address;
   cfg.last_display_id = display_id;
+  // Persist the capture source so "Cast to last" can rebuild it. When the
+  // caller passed an explicit options.source we record it; otherwise this is
+  // a Monitor source derived from display_id (legacy path).
+  CaptureSource persisted_source = options.source.value_or(
+      CaptureSource{CaptureSourceKind::kMonitor, display_id, ""});
+  cfg.last_source_kind = CaptureSourceKindToString(persisted_source.kind);
+  cfg.last_source_id = persisted_source.id;
+  cfg.last_source_name = persisted_source.name;
   cfg.quality_preset = options.preset;
   cfg.audio_enabled = options.enable_audio;
   cfg.capture_fps = options.capture_fps;
@@ -241,6 +275,15 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   return ok;
 }
 
+bool CastEngine::StartCasting(const std::string& device_id, const CaptureSource& source, const SessionOptions& options) {
+  SessionOptions opts = options;
+  opts.source = source;
+  // For Monitor sources, pass source.id as the legacy display_id so backends
+  // that only implement Start(int,int) keep working. For Window sources the
+  // display_id is unused by source-aware backends.
+  return StartCasting(device_id, source.id, opts);
+}
+
 bool CastEngine::StartCastingLastDevice() {
   const auto& cfg = ConfigStore::Instance().Get();
   if (cfg.last_device_id.empty() && cfg.last_device_ip.empty()) {
@@ -257,7 +300,34 @@ bool CastEngine::StartCastingLastDevice() {
   options.capture_fps = cfg.capture_fps;
   options.target_delay_ms = cfg.target_delay_ms;
   options.silence_host_speakers = cfg.silence_host_speakers;
+  options.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
   options.adaptive_enabled = cfg.adaptive_enabled;
+
+  // Rebuild the last capture source. For windows the persisted id is not
+  // stable across restarts, so try to re-resolve by name; if not found, fall
+  // back to the last monitor so "Cast to last" never silently targets a
+  // stale window handle.
+  CaptureSourceKind last_kind = CaptureSourceKindFromString(cfg.last_source_kind);
+  if (last_kind == CaptureSourceKind::kWindow && !cfg.last_source_name.empty()) {
+    auto windows = GetWindows();
+    bool found = false;
+    for (const auto& w : windows) {
+      if (w.title == cfg.last_source_name) {
+        options.source = CaptureSource{CaptureSourceKind::kWindow, w.id, w.title,
+                                       w.x, w.y, w.width, w.height};
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      LOG_WARN << "Last-cast window '" << cfg.last_source_name
+               << "' is no longer open; falling back to monitor "
+               << cfg.last_display_id;
+      options.source = CaptureSource{CaptureSourceKind::kMonitor, cfg.last_display_id, ""};
+    }
+    return StartCasting(target, options.source->id, options);
+  }
+  // Monitor (default): use the legacy display_id path.
   return StartCasting(target, cfg.last_display_id, options);
 }
 

@@ -173,3 +173,96 @@ TEST(EncoderTest, VideoRtpTimestampsFollowCaptureClock) {
   EXPECT_EQ(second.rtp_timestamp - first.rtp_timestamp, 9000u);
   EXPECT_EQ(second.frame_id, first.frame_id + 1);
 }
+
+TEST(EncoderTest, MultiSliceProducesMultipleSlices) {
+  setenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE", "1", 1);
+
+  VideoEncoderConfig cfg;
+  cfg.width = 640;
+  cfg.height = 480;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 2000;
+  cfg.codec = VideoCodec::kH264;
+  cfg.slices = 4;
+  cfg.intra_refresh = false;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  CapturedVideoFrame frame;
+  frame.width = 640;
+  frame.height = 480;
+  frame.stride = 640 * 4;
+  frame.data.resize(640 * 480 * 4, 0x80);
+
+  EncodedFrame ef;
+  EXPECT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_GT(ef.data.size(), 0u);
+
+  // Count slice NALUs (nal_unit_type == 1 [non-IDR slice] or 5 [IDR slice])
+  int slice_count = 0;
+  const auto& data = ef.data;
+  for (size_t i = 0; i + 3 < data.size(); ++i) {
+    if (data[i] == 0 && data[i + 1] == 0) {
+      size_t header_idx = 0;
+      if (data[i + 2] == 1) {
+        header_idx = i + 3;
+      } else if (i + 4 < data.size() && data[i + 2] == 0 && data[i + 3] == 1) {
+        header_idx = i + 4;
+      }
+      if (header_idx > 0 && header_idx < data.size()) {
+        int nal_type = data[header_idx] & 0x1F;
+        if (nal_type == 1 || nal_type == 5) {
+          slice_count++;
+        }
+        i = header_idx;
+      }
+    }
+  }
+
+  // Multi-slice encoding must produce multiple slice NALUs per frame.
+  EXPECT_GE(slice_count, cfg.slices);
+
+  unsetenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE");
+}
+
+TEST(EncoderTest, IntraRefreshConfiguration) {
+  setenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE", "1", 1);
+
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 1000;
+  cfg.codec = VideoCodec::kH264;
+  cfg.intra_refresh = true;
+  cfg.slices = 2;
+  cfg.low_latency_tune = true;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+  EXPECT_TRUE(encoder->GetConfig().intra_refresh);
+  EXPECT_EQ(encoder->GetConfig().slices, 2);
+  EXPECT_TRUE(encoder->GetConfig().low_latency_tune);
+
+  CapturedVideoFrame frame;
+  frame.width = 320;
+  frame.height = 240;
+  frame.stride = 320 * 4;
+  frame.data.resize(320 * 240 * 4, 0x55);
+
+  EncodedFrame ef;
+  EXPECT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_GT(ef.data.size(), 0u);
+
+  // Reconfigure with intra_refresh = false
+  cfg.intra_refresh = false;
+  ASSERT_TRUE(encoder->Reconfigure(cfg));
+  EXPECT_FALSE(encoder->GetConfig().intra_refresh);
+  EXPECT_TRUE(encoder->GetConfig().low_latency_tune);
+
+  EXPECT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_GT(ef.data.size(), 0u);
+
+  unsetenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE");
+}

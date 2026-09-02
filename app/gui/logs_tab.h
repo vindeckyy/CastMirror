@@ -31,13 +31,20 @@ class LogsTab {
   void UpdateBufferState();
   void OnCopyClicked();
   void OnClearClicked();
+  void OnFilterChanged();
+  void OnCopyLast100Clicked();
+  void ApplyFilter();
+  bool IsJsonSidecarPresent() const;
+  void UpdateCopyLast100Sensitivity();
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;
   GtkWidget* text_view_ = nullptr;
   GtkTextBuffer* text_buffer_ = nullptr;
   GtkWidget* level_dropdown_ = nullptr;
+  GtkWidget* filter_entry_ = nullptr;
   GtkWidget* copy_button_ = nullptr;
+  GtkWidget* copy_last_100_button_ = nullptr;
   GtkWidget* folder_button_ = nullptr;
   GtkWidget* clear_button_ = nullptr;
   GtkWidget* path_info_label_ = nullptr;
@@ -51,7 +58,10 @@ class LogsTab {
   };
   std::mutex queue_mutex_;
   std::deque<PendingLog> pending_queue_;
+  std::deque<PendingLog> history_;
+  std::string filter_text_;
   bool idle_scheduled_ = false;
+  static constexpr size_t kMaxHistory = 5000;
 };
 
 }  // namespace castcore::gui

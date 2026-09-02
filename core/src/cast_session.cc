@@ -1,5 +1,6 @@
 #include "castcore/cast_session.h"
 #include "castcore/capability_model.h"
+#include "castcore/config.h"
 #include "castcore/logger.h"
 #include "castcore/thread_util.h"
 #include <nlohmann/json.hpp>
@@ -66,6 +67,9 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
 
   target_device_ = device;
   display_id_ = display_id;
+  // Resolve the capture source: explicit options.source wins, else legacy
+  // display_id is treated as a Monitor source.
+  source_ = options.source.value_or(CaptureSource{CaptureSourceKind::kMonitor, display_id, ""});
   options_ = options;
   preset_ = options.preset;
   enable_audio_ = options.enable_audio;
@@ -97,6 +101,7 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     bool got_first_frame = false;
     CapturedVideoFrame first_vf;
 
+    display_capture_->SetShowCursor(options_.show_cursor);
     display_capture_->SetFrameCallback([&](const CapturedVideoFrame& vf) {
       std::lock_guard<std::mutex> lk(wm_mutex);
       if (!got_first_frame) {
@@ -107,7 +112,7 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
       QueueCapturedVideoFrame(vf);
     });
 
-    if (!display_capture_->Start(display_id, 60)) {
+    if (!display_capture_->Start(source_, 60)) {
       state_machine_.TransitionTo(SessionState::kFailed, "Screen share permission denied");
       Stop();
       return false;
@@ -129,14 +134,26 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     disp_h = first_vf.height;
     disp_fps = 60;
   } else {
-    auto displays = display_capture_->EnumerateDisplays();
-    if (!displays.empty()) {
-      for (const auto& d : displays) {
-        if (d.id == display_id) {
-          disp_w = d.width;
-          disp_h = d.height;
-          disp_fps = d.refresh_rate;
-          break;
+    // X11 / Synthetic: geometry is known before start. For a Monitor source
+    // we look it up in EnumerateDisplays(); for a Window source we use the
+    // geometry carried on the CaptureSource (populated by the UI / backend).
+    if (source_.IsWindow() && source_.width > 0 && source_.height > 0) {
+      // For window capture, target the standard 1080p encoder resolution so
+      // the window content fills the TV without green/black letterbox bars.
+      // The GpuProcessor scales the window's actual geometry up to fill this.
+      disp_w = 1920;
+      disp_h = 1080;
+      disp_fps = 60;
+    } else {
+      auto displays = display_capture_->EnumerateDisplays();
+      if (!displays.empty()) {
+        for (const auto& d : displays) {
+          if (d.id == display_id) {
+            disp_w = d.width;
+            disp_h = d.height;
+            disp_fps = d.refresh_rate;
+            break;
+          }
         }
       }
     }
@@ -153,19 +170,17 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     const auto caps = CapabilityModel::Evaluate(device);
     bitrate_cap_kbps = std::min(bitrate_override_kbps_, caps.max_bitrate_kbps);
     bitrate_override_kbps_ = bitrate_cap_kbps;
-    if (options_.adaptive_enabled) {
-      // The UI value is a ceiling, not an instruction to jump straight to
-      // 25 Mbps. Start at the preset/device recommendation and adapt below it.
-      current_stats_.bitrate_kbps = std::min(current_stats_.bitrate_kbps, bitrate_cap_kbps);
-    } else {
-      current_stats_.bitrate_kbps = bitrate_cap_kbps;
-    }
+    // Always start at the preset/device recommendation, not the user's cap.
+    // The cap is a ceiling — jumping straight to 15 Mbps over WiFi causes
+    // congestion and receiver disconnects before adaptive can react.
+    current_stats_.bitrate_kbps = std::min(current_stats_.bitrate_kbps, bitrate_cap_kbps);
     LOG_INFO << "Using video bitrate cap " << bitrate_cap_kbps << " kbps for "
              << QualityPresetToString(preset_) << "; starting at "
              << current_stats_.bitrate_kbps << " kbps";
   }
   adaptive_controller_.Initialize(current_stats_, preset_);
   adaptive_controller_.SetEnabled(options_.adaptive_enabled);
+  adaptive_controller_.SetAllowResolutionChange(options_.adaptive_resolution_enabled);
   adaptive_controller_.SetBitrateCapKbps(bitrate_cap_kbps);
 
 
@@ -221,8 +236,9 @@ bool CastSession::NegotiateControlPlane() {
   launch_request_id_ = cast_channel_->LaunchApp(app_id);
 
   {
+    int launch_s = ConfigStore::Instance().Get().launch_timeout_s > 0 ? ConfigStore::Instance().Get().launch_timeout_s : 8;
     std::unique_lock<std::mutex> lk(cv_mutex_);
-    if (!cv_.wait_for(lk, std::chrono::seconds(8), [this] {
+    if (!cv_.wait_for(lk, std::chrono::seconds(launch_s), [this] {
           return launch_received_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for RECEIVER_STATUS from " << target_device_.name;
@@ -251,8 +267,9 @@ bool CastSession::NegotiateControlPlane() {
   cast_channel_->SendCastMessage(kNamespaceWebrtc, offer_json, app_transport_id_, "streaming_sender");
 
   {
+    int answer_s = ConfigStore::Instance().Get().answer_timeout_s > 0 ? ConfigStore::Instance().Get().answer_timeout_s : 5;
     std::unique_lock<std::mutex> lk(cv_mutex_);
-    if (!cv_.wait_for(lk, std::chrono::seconds(5), [this] {
+    if (!cv_.wait_for(lk, std::chrono::seconds(answer_s), [this] {
           return answer_received_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for ANSWER from " << target_device_.name;
@@ -303,8 +320,10 @@ bool CastSession::StartStreamingMedia() {
   }
 
   VideoEncoderConfig venc_cfg;
-  venc_cfg.width = current_stats_.current_resolution.width;
-  venc_cfg.height = current_stats_.current_resolution.height;
+  // NV12/YUV420p requires even dimensions. Window heights can be odd (e.g.
+  // 1045px); without this, VAAPI produces chroma corruption on the last row.
+  venc_cfg.width = current_stats_.current_resolution.width & ~1;
+  venc_cfg.height = current_stats_.current_resolution.height & ~1;
   venc_cfg.framerate = current_stats_.current_framerate;
   venc_cfg.bitrate_kbps = current_stats_.bitrate_kbps;
   venc_cfg.codec = video_codec_;
@@ -318,6 +337,14 @@ bool CastSession::StartStreamingMedia() {
     return false;
   }
   LOG_INFO << "Video encoder: " << video_encoder_->EncoderName();
+
+  // Share a single clock origin between audio and video so RTP timestamps
+  // for both streams reference the same absolute time. Without this, each
+  // encoder sets its own origin from its first frame, and if the first audio
+  // and video frames arrive at different times the receiver sees them on
+  // different timelines, causing persistent A/V desync.
+  auto shared_clock_origin = std::chrono::steady_clock::now();
+  video_encoder_->SetClockOrigin(shared_clock_origin);
 
   if (enable_audio_) {
     AudioEncoderConfig aenc_cfg;
@@ -335,6 +362,7 @@ bool CastSession::StartStreamingMedia() {
       audio_crypto_.reset();
       audio_packetizer_.reset();
     } else {
+      audio_encoder_->SetClockOrigin(shared_clock_origin);
       audio_capture_ = AudioCaptureFactory::Create();
       audio_capture_->SetHostSilence(options_.silence_host_speakers);
       audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
@@ -371,11 +399,12 @@ bool CastSession::StartStreamingMedia() {
 
   // Always replace the callback. The Wayland pre-OFFER callback captures local
   // size-probe state by reference and must not survive beyond Start().
+  display_capture_->SetShowCursor(options_.show_cursor);
   display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
     QueueCapturedVideoFrame(vf);
   });
   if (!display_capture_->IsCapturing() &&
-      !display_capture_->Start(display_id_, current_stats_.current_framerate)) {
+      !display_capture_->Start(source_, current_stats_.current_framerate)) {
     LOG_WARN << "Display capture backend failed; falling back to synthetic capture";
     display_capture_ = DisplayCaptureFactory::CreateSynthetic(
         current_stats_.current_resolution.width,
@@ -383,17 +412,33 @@ bool CastSession::StartStreamingMedia() {
     display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
       QueueCapturedVideoFrame(vf);
     });
-    if (!display_capture_->Start(display_id_, current_stats_.current_framerate)) {
+    if (!display_capture_->Start(source_, current_stats_.current_framerate)) {
       LOG_ERROR << "Failed to start display capture";
       StopMediaPipeline();
       return false;
     }
+  }
+  // After (re)start, refresh source_ from the capturer so stats reflect the
+  // actually-captured source (e.g. the portal may resolve a different kind).
+  if (display_capture_) {
+    source_ = display_capture_->ActiveSource();
   }
 
   // On reconnect this method runs inside the existing adaptation thread.
   // Assigning over a joinable std::thread would call std::terminate.
   if (!adapt_thread_.joinable()) {
     adapt_thread_ = std::thread(&CastSession::AdaptationLoop, this);
+  }
+  // Phase 0.5: CHECK(IsActive()==capture_running) after media pipeline is up.
+  {
+    bool capture_running = display_capture_ && display_capture_->IsCapturing();
+    bool active = IsActive();
+    if (active != capture_running) {
+      LOG_WARN << "Post-Start invariant violated: IsActive()=" << active
+               << " capture_running=" << capture_running;
+    }
+    CheckCaptureInvariant(active, capture_running);
+    state_machine_.AssertCaptureInvariant(capture_running);
   }
   return true;
 }
@@ -434,20 +479,66 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     return;
   }
 
+  // The capturer signals that the source disappeared (e.g. the shared window
+  // was closed). Fail the session with a clear message instead of stalling.
+  if (vf.source_lost) {
+    FailSession(source_.IsWindow() ? "Shared window was closed"
+                                   : "Capture source was lost");
+    return;
+  }
+
+  // Structured diagnostics: per-frame breadcrumb capture->gpu->encode->crypto->rtp->udp
+  // capture stage starts now, gpu is inside Encode (BGRA->YUV), encode measured directly
+  auto pipeline_start = std::chrono::steady_clock::now();
+
   EncodedFrame raw_frame;
+  int64_t encode_ms = 0;
   {
     std::lock_guard<std::mutex> elock(video_encoder_mutex_);
-    if (!video_encoder_ || !video_encoder_->Encode(vf, raw_frame)) {
+    if (!video_encoder_) {
+      return;
+    }
+    auto enc_start = std::chrono::steady_clock::now();
+    bool ok = video_encoder_->Encode(vf, raw_frame);
+    auto enc_end = std::chrono::steady_clock::now();
+    encode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(enc_end - enc_start).count();
+    if (!ok) {
       return;
     }
   }
 
+  // Synchronize adaptive playout delay target with video frame emission
+  int adapted_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
+  if (adapted_delay_ms > 0) {
+    raw_frame.playout_delay = std::chrono::milliseconds(adapted_delay_ms);
+  }
+
+  // crypto stage
   std::vector<uint8_t> encrypted_payload = video_crypto_->Encrypt(raw_frame.frame_id, raw_frame.data);
   raw_frame.data = std::move(encrypted_payload);
 
+  // rtp stage
   auto packets = video_packetizer_->PacketizeFrame(raw_frame);
-  if (transport_->SendPackets(packets)) {
+  uint32_t udp_bytes = 0;
+  for (const auto& pkt : packets) {
+    udp_bytes += static_cast<uint32_t>(pkt.data.size());
+  }
+
+  // udp stage
+  bool sent = transport_->SendPackets(packets);
+  if (sent) {
     last_video_send_ms_.store(SteadyNowMs());
+  }
+
+  // Emit JSON sidecar breadcrumb with required fields: frame_id, encode_ms, udp_bytes, rtt_ms, nack_count
+  // Pipeline string captures all stages
+  if (Logger::Instance().IsVerboseJsonEnabled()) {
+    StreamStats st = transport_ ? transport_->GetStats() : StreamStats{};
+    // Use steady duration for pipeline if needed, but spec requires encode_ms
+    Logger::Instance().LogBreadcrumb(raw_frame.frame_id, encode_ms, udp_bytes, st.round_trip_time_ms, st.nacks_received);
+    // Also emit detailed extended breadcrumb for debugging (same file, extra context)
+    // Keep line-oriented JSON: each line is a JSON object
+    (void)pipeline_start; // suppress unused warning if not used elsewhere
   }
 }
 
@@ -459,6 +550,11 @@ void CastSession::ProcessAudioFrame(const CapturedAudioFrame& af) {
   EncodedFrame raw_frame;
   if (!audio_encoder_->Encode(af, raw_frame)) {
     return;
+  }
+
+  int adapted_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
+  if (adapted_delay_ms > 0) {
+    raw_frame.playout_delay = std::chrono::milliseconds(adapted_delay_ms);
   }
 
   std::vector<uint8_t> encrypted_payload = audio_crypto_->Encrypt(raw_frame.frame_id, raw_frame.data);
@@ -529,8 +625,14 @@ void CastSession::AdaptationLoop() {
       }
 
       int sleep_sec = std::min(8, 1 << std::max(0, recovery_.GetAttemptCount() - 1));
-      state_machine_.TransitionTo(SessionState::kReconnecting,
-          "Wi-Fi glitch — retry " + std::to_string(recovery_.GetAttemptCount()) + " to " + target_device_.name + " in " + std::to_string(sleep_sec) + "s");
+      // Phase 0.5 audit: verify matrix allows this transition.
+      if (state_machine_.CanTransitionTo(SessionState::kReconnecting)) {
+        state_machine_.TransitionTo(SessionState::kReconnecting,
+            "Wi-Fi glitch — retry " + std::to_string(recovery_.GetAttemptCount()) + " to " + target_device_.name + " in " + std::to_string(sleep_sec) + "s");
+      } else {
+        LOG_WARN << "AdaptationLoop: invalid Reconnecting transition from "
+                 << SessionStateToString(state_machine_.GetState());
+      }
       for (int i = 0; i < sleep_sec * 20; ++i) {
         if (stop_requested_.load()) return;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -547,7 +649,13 @@ void CastSession::AdaptationLoop() {
         last_video_send_ms_.store(SteadyNowMs());
         last_audio_send_ms_.store(SteadyNowMs());
         last_session_log_ = std::chrono::steady_clock::now();
-        state_machine_.TransitionTo(SessionState::kStreaming, "Your display is on " + target_device_.name);
+        // Audit: CanTransitionTo check for Streaming after recovery.
+        if (state_machine_.CanTransitionTo(SessionState::kStreaming)) {
+          state_machine_.TransitionTo(SessionState::kStreaming, "Your display is on " + target_device_.name);
+        } else {
+          LOG_WARN << "AdaptationLoop: cannot transition to Streaming from "
+                   << SessionStateToString(state_machine_.GetState());
+        }
       } else {
         StopMediaPipeline();
         if (cast_channel_) {
@@ -633,11 +741,12 @@ void CastSession::AdaptationLoop() {
               enc_cfg.bitrate_kbps != updated.bitrate_kbps;
           if (config_changed) {
             VideoEncoderConfig new_cfg = enc_cfg;
-            new_cfg.width = updated.current_resolution.width;
-            new_cfg.height = updated.current_resolution.height;
+            new_cfg.width = updated.current_resolution.width & ~1;
+            new_cfg.height = updated.current_resolution.height & ~1;
             new_cfg.framerate = updated.current_framerate;
             new_cfg.bitrate_kbps = updated.bitrate_kbps;
-            new_cfg.gop_size = updated.current_framerate;
+            new_cfg.playout_delay_ms = updated.target_delay_ms;
+            new_cfg.gop_size = 0; // let encoder pick (intra_refresh => large GOP)
             reconfigure_failed = !video_encoder_->Reconfigure(new_cfg);
             if (!reconfigure_failed) {
               // A clean IDR prevents decoder artifacts after any VAAPI/x264
@@ -677,12 +786,22 @@ void CastSession::RequestReconnect(const std::string& reason) {
   recovery_.StartRecovery(reason);
   media_stopped_for_reconnect_ = false;
   fail_requested_ = false;
-  state_machine_.TransitionTo(SessionState::kReconnecting, "Reconnecting to " + target_device_.name);
+  // Phase 0.5 audit: ensure TransitionTo caller is valid against matrix.
+  if (state_machine_.CanTransitionTo(SessionState::kReconnecting)) {
+    state_machine_.TransitionTo(SessionState::kReconnecting, "Reconnecting to " + target_device_.name);
+  } else {
+    LOG_WARN << "RequestReconnect: Cannot transition " << SessionStateToString(state_machine_.GetState())
+             << " -> Reconnecting (" << reason << "); failing session instead";
+    // Fall back to Failed if reconnect state invalid (e.g., from Idle)
+    FailSession(reason);
+    return;
+  }
   std::lock_guard<std::mutex> lk(cv_mutex_);
   cv_.notify_all();
 }
 
 void CastSession::StopMediaPipeline() {
+  auto pipeline_start = std::chrono::steady_clock::now();
   is_streaming_ = false;
   {
     std::lock_guard<std::mutex> qlock(video_queue_mutex_);
@@ -712,6 +831,16 @@ void CastSession::StopMediaPipeline() {
   // Keep the stopped capture backend for reconnect. StartStreamingMedia()
   // replaces its callback and restarts it; the session destructor releases it.
   audio_capture_.reset();
+  auto pipeline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - pipeline_start)
+                         .count();
+  if (pipeline_ms > 400) {
+    LOG_WARN << "StopMediaPipeline exceeded budget: " << pipeline_ms << " ms";
+  }
+  // Invariant: capture must not run when not active
+  if (display_capture_ && display_capture_->IsCapturing() && !state_machine_.IsActive()) {
+    LOG_WARN << "Capture still running while session not active";
+  }
 }
 
 void CastSession::FailSession(const std::string& reason) {
@@ -729,6 +858,12 @@ void CastSession::FailSession(const std::string& reason) {
   if (cb) {
     cb(reason);
   }
+  // Phase 0.5: audit FailSession caller — ensure TransitionTo Failed is valid.
+  // (Any state can go to Failed, so this should always succeed.)
+  if (!state_machine_.CanTransitionTo(SessionState::kFailed)) {
+    LOG_WARN << "FailSession: unexpected cannot transition to Failed from "
+             << SessionStateToString(state_machine_.GetState());
+  }
   Stop();
 }
 
@@ -741,6 +876,9 @@ void CastSession::SetLiveVideoBitrateKbps(uint32_t kbps) {
   bitrate_override_kbps_ = kbps;
   options_.video_bitrate_kbps = kbps;
   adaptive_controller_.SetBitrateCapKbps(kbps);
+  // Reset the adaptive rung to match the user's new bitrate target so
+  // emergency downshifts start from the right place.
+  adaptive_controller_.ResetRungForBitrate(kbps);
 
   const uint32_t target_kbps = options_.adaptive_enabled
       ? adaptive_controller_.GetCurrentBitrateKbps()
@@ -784,6 +922,7 @@ void CastSession::SetLiveAudioBitrateBps(uint32_t bps) {
 }
 
 void CastSession::Stop() {
+  auto stop_start = std::chrono::steady_clock::now();
   bool expected = false;
   if (!stop_requested_.compare_exchange_strong(expected, true)) {
     return;
@@ -795,7 +934,26 @@ void CastSession::Stop() {
     cv_.notify_all();
   }
 
+  // Phase 0.5: ensure Failed -> Stopping -> Idle via Stop() works.
+  // Transition to Stopping first if possible (Idle stays Idle).
+  SessionState cur_before = state_machine_.GetState();
+  if (cur_before != SessionState::kIdle && cur_before != SessionState::kStopping) {
+    if (state_machine_.CanTransitionTo(SessionState::kStopping)) {
+      state_machine_.TransitionTo(SessionState::kStopping, "Stopping");
+    } else if (cur_before == SessionState::kFailed) {
+      LOG_WARN << "Stop(): cannot transition Failed -> Stopping";
+    }
+  }
+
+  auto pipeline_start = std::chrono::steady_clock::now();
   StopMediaPipeline();
+  auto pipeline_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - pipeline_start)
+                         .count();
+  if (pipeline_ms > 400) {
+    LOG_WARN << "StopMediaPipeline() exceeded 400ms budget in Stop(): " << pipeline_ms
+             << "ms (total Stop contract <=500ms)";
+  }
 
   JoinOrDetach(adapt_thread_, 500, "adaptation");
 
@@ -809,11 +967,63 @@ void CastSession::Stop() {
 
   recovery_.Reset();
 
+  // Final transition: Stopping -> Idle (or Stopping -> Failed if error)
   if (fail_requested_.load()) {
-    state_machine_.TransitionTo(SessionState::kFailed,
-                                fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
+    SessionState cur = state_machine_.GetState();
+    if (cur == SessionState::kStopping) {
+      if (state_machine_.CanTransitionTo(SessionState::kFailed)) {
+        state_machine_.TransitionTo(SessionState::kFailed,
+                                    fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
+      } else {
+        LOG_WARN << "Stop(): cannot transition Stopping -> Failed, falling back to Idle";
+        state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped (fallback)");
+      }
+    } else {
+      state_machine_.TransitionTo(SessionState::kFailed,
+                                  fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
+    }
   } else {
-    state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped");
+    SessionState cur = state_machine_.GetState();
+    if (cur == SessionState::kFailed) {
+      // Ensure Failed -> Stopping -> Idle works per Phase 0.5
+      if (state_machine_.CanTransitionTo(SessionState::kStopping)) {
+        state_machine_.TransitionTo(SessionState::kStopping, "Stopping from Failed");
+        state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped");
+      } else if (state_machine_.CanTransitionTo(SessionState::kIdle)) {
+        state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped");
+      }
+    } else if (cur == SessionState::kStopping) {
+      state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped");
+    } else {
+      if (state_machine_.CanTransitionTo(SessionState::kIdle)) {
+        state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped");
+      } else {
+        LOG_WARN << "Stop(): cannot transition " << SessionStateToString(cur) << " -> Idle";
+      }
+    }
+  }
+
+  // Phase 0.5: CHECK(IsActive()==capture_running) after Stop.
+  bool capture_running_after = display_capture_ && display_capture_->IsCapturing();
+  bool active_after = IsActive();
+  if (active_after != capture_running_after) {
+    LOG_WARN << "Post-Stop invariant violated: IsActive()=" << active_after
+             << " capture_running=" << capture_running_after;
+  }
+#ifndef NDEBUG
+  assert(active_after == capture_running_after && "Post-Stop: IsActive() == capture_running");
+#endif
+  state_machine_.AssertCaptureInvariant(capture_running_after);
+
+  auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - stop_start)
+                      .count();
+  if (total_ms > 500) {
+    LOG_WARN << "Stop() exceeded 500ms budget: " << total_ms << "ms";
+  } else if (total_ms > 400) {
+    LOG_WARN << "Stop() near budget limit: " << total_ms << "ms";
+  } else {
+    LOG_INFO << "Stop() completed in " << total_ms << "ms";
   }
 }
 
@@ -894,6 +1104,7 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
 StreamStats CastSession::GetStats() const {
   std::lock_guard<std::recursive_mutex> lock(session_mutex_);
   StreamStats s = current_stats_;
+  s.target_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
   if (transport_) {
     StreamStats t_stats = transport_->GetStats();
     s.current_fps = t_stats.current_fps > 0 ? t_stats.current_fps : current_stats_.current_framerate;
@@ -916,7 +1127,10 @@ StreamStats CastSession::GetStats() const {
   }
   s.device_name = target_device_.name;
   s.device_ip = target_device_.ip_address;
-  s.display_name = "Display " + std::to_string(display_id_);
+  s.display_name = source_.name.empty()
+                       ? ("Display " + std::to_string(source_.id))
+                       : source_.name;
+  s.source_kind = CaptureSourceKindToString(source_.kind);
   s.adaptive_rung_index = adaptive_controller_.GetCurrentLadderIndex();
   s.adaptive_rung_count = static_cast<int>(adaptive_controller_.GetLadder().size());
   s.adaptive_enabled = adaptive_controller_.IsEnabled();
