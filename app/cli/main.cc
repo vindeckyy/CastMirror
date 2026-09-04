@@ -101,6 +101,7 @@ int main(int argc, char** argv) {
         std::cout << "  [" << w.id << "] \033[1m" << w.title << "\033[0m";
         if (!w.app_class.empty()) std::cout << "  \033[36m" << w.app_class << "\033[0m";
         if (w.width > 0 && w.height > 0) std::cout << "  " << w.width << "x" << w.height;
+        if (!w.visible) std::cout << "  [hidden/other workspace]";
         std::cout << "\n";
       }
     }

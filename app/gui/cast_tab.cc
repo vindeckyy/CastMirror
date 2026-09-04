@@ -50,6 +50,23 @@ bool DisplaysEqual(const std::vector<DisplayInfo>& a, const std::vector<DisplayI
   return true;
 }
 
+bool WindowsEqual(const std::vector<WindowInfo>& a, const std::vector<WindowInfo>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i].id != b[i].id ||
+        a[i].title != b[i].title ||
+        a[i].app_class != b[i].app_class ||
+        a[i].x != b[i].x ||
+        a[i].y != b[i].y ||
+        a[i].width != b[i].width ||
+        a[i].height != b[i].height ||
+        a[i].visible != b[i].visible) {
+      return false;
+    }
+  }
+  return true;
+}
+
 GtkWidget* MakeCircularGlyph(const char* icon_name, int box_px, int icon_px) {
   GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_add_css_class(box, "cm-device-glyph");
@@ -259,6 +276,8 @@ void CastTab::BuildUi() {
   source_window_btn_ = gtk_toggle_button_new_with_label("Window");
   gtk_widget_add_css_class(source_window_btn_, "cm-segmented-btn");
   gtk_widget_set_hexpand(source_window_btn_, TRUE);
+  gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(source_window_btn_),
+                              GTK_TOGGLE_BUTTON(source_screen_btn_));
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), FALSE);
   g_signal_connect(source_window_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
     auto* self = static_cast<CastTab*>(user_data);
@@ -337,7 +356,7 @@ void CastTab::BuildUi() {
   gtk_widget_add_css_class(win_empty_title, "cm-section-title");
   gtk_widget_set_halign(win_empty_title, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(window_empty_box_), win_empty_title);
-  GtkWidget* win_empty_body = gtk_label_new("Window sharing is not available with the current capture backend. On Wayland, the system dialog will let you pick a window when casting.");
+  GtkWidget* win_empty_body = gtk_label_new("No shareable application windows were found. On Wayland, the system dialog will let you pick a window when casting.");
   gtk_widget_add_css_class(win_empty_body, "cm-section-description");
   gtk_widget_set_halign(win_empty_body, GTK_ALIGN_CENTER);
   gtk_label_set_wrap(GTK_LABEL(win_empty_body), TRUE);
@@ -1098,6 +1117,10 @@ CastTab::WindowRowWidgets CastTab::CreateWindowRow(const WindowInfo& win, int ra
     if (!win.app_class.empty()) ss << " · ";
     ss << win.width << " × " << win.height;
   }
+  if (!win.visible) {
+    if (!ss.str().empty()) ss << " · ";
+    ss << "Hidden / other workspace";
+  }
   w.sub_lbl = gtk_label_new(ss.str().c_str());
   gtk_widget_set_halign(w.sub_lbl, GTK_ALIGN_START);
   gtk_label_set_ellipsize(GTK_LABEL(w.sub_lbl), PANGO_ELLIPSIZE_END);
@@ -1120,6 +1143,13 @@ CastTab::WindowRowWidgets CastTab::CreateWindowRow(const WindowInfo& win, int ra
 
 void CastTab::RefreshWindows() {
   auto new_windows = CastEngine::Instance().GetWindows();
+
+  // The old implementation rebuilt every GTK row every two seconds, which
+  // could eat a click mid-selection. Stable i3 window lists now do no UI work.
+  if (WindowsEqual(windows_, new_windows) && has_selected_window_ &&
+      !window_row_widgets_.empty()) {
+    return;
+  }
 
   updating_ui_ = true;
   windows_ = std::move(new_windows);
@@ -1149,6 +1179,25 @@ void CastTab::RefreshWindows() {
     // Select the first window by default (or the previously selected one
     // if it's still present).
     int prefer = has_selected_window_ ? selected_window_id_ : windows_[0].id;
+    const auto& cfg = ConfigStore::Instance().Get();
+    if (!has_selected_window_ && cfg.last_source_kind == "window") {
+      bool found_saved_id = false;
+      for (const auto& win : windows_) {
+        if (win.id == cfg.last_source_id) {
+          prefer = win.id;
+          found_saved_id = true;
+          break;
+        }
+      }
+      if (!found_saved_id && !cfg.last_source_name.empty()) {
+        for (const auto& win : windows_) {
+          if (win.title == cfg.last_source_name) {
+            prefer = win.id;
+            break;
+          }
+        }
+      }
+    }
     bool found = false;
     for (const auto& win : windows_) {
       if (win.id == prefer) { found = true; break; }
@@ -1179,24 +1228,13 @@ void CastTab::RefreshWindows() {
 
 void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
   if (updating_ui_) return;
-  // Mutual exclusion: only one toggle active at a time.
   if (kind == CaptureSourceKind::kMonitor) {
-    if (source_window_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_window_btn_))) {
-      g_signal_handlers_block_by_func(source_window_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), FALSE);
-      g_signal_handlers_unblock_by_func(source_window_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
-    }
     StopWindowRefreshTimer();
     gtk_widget_set_visible(display_list_box_, TRUE);
     gtk_widget_set_visible(window_list_box_, FALSE);
     gtk_widget_set_visible(window_empty_box_, FALSE);
     if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, TRUE);
   } else {
-    if (source_screen_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_screen_btn_))) {
-      g_signal_handlers_block_by_func(source_screen_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_screen_btn_), FALSE);
-      g_signal_handlers_unblock_by_func(source_screen_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
-    }
     gtk_widget_set_visible(display_list_box_, FALSE);
     if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, FALSE);
     RefreshWindows();

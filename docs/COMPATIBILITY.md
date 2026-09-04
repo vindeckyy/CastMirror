@@ -39,13 +39,14 @@ CastMirror supports two capture source kinds:
 | Kind | X11 | Wayland (portal) |
 |---|---|---|
 | **Screen (monitor)** | XRandR per-monitor crop from root window | Portal `SelectSources` with type bitmask `1` (monitor) |
-| **Window** | Direct window capture via XGetImage/XShmGetImage on the window drawable, with XComposite `CompositeRedirectManual` for occluded-window correctness. Window geometry is tracked via `ConfigureNotify`; window destruction/unmap is detected via `DestroyNotify`/`UnmapNotify` and signals `source_lost` | Portal `SelectSources` with type bitmask `2` (window). The compositor's native picker handles selection |
+| **Window** | Direct window capture via XGetImage/XShmGetImage on the window drawable, with XComposite redirection for occluded-window correctness. Window geometry and lifecycle are tracked without treating temporary workspace unmaps as source destruction | Portal `SelectSources` with type bitmask `2` (window). The compositor's native picker handles selection |
 
 ### X11 window capture notes
 
-- Windows are enumerated by walking the toplevel tree and filtering to viewable, managed windows (`WM_STATE == NormalState`) with non-empty titles. Override-redirect windows (popups, docks, tooltips) are excluded.
+- Windows are enumerated from the EWMH client list, including managed i3 clients on inactive workspaces. The non-EWMH fallback walks the toplevel tree and filters to viewable windows. Override-redirect windows (popups, docks, tooltips) and CastMirror's own window are excluded.
+- On i3, CastMirror temporarily makes the selected source floating and sticky, transparent, and click-through. It therefore stays mapped and keeps rendering while you switch workspaces. The original workspace, floating/sticky/fullscreen state, size, position, opacity, and input shape are restored when casting stops.
 - Window IDs are X11 XIDs (cast to `int`). They are **not stable across application restarts** — CastMirror persists the window title and re-resolves by name when restoring the last source. If the window is no longer open, it falls back to the last monitor.
-- XComposite redirection (`CompositeRedirectManual`) is used so occluded windows still capture correctly. If XComposite is unavailable, capture proceeds but may tear for occluded windows.
+- XComposite automatic redirection is used so occluded windows still capture correctly. If XComposite is unavailable, capture proceeds but may tear for occluded windows.
 - XDamage is used on the window drawable (not root) for efficient change detection.
 - Cursor compositing (XFixes) is offset by the window's root-relative position so the cursor appears in the right place.
 - When a shared window is closed, the session fails with the message "Shared window was closed" rather than silently falling back to monitor capture.

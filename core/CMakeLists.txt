@@ -34,6 +34,7 @@ set(CASTCORE_SOURCES
     src/rtcp_parser.cc
     src/cast_transport.cc
     src/display_capture.cc
+    src/i3_integration.cc
     src/display_capture_wayland.cc
     src/audio_capture.cc
     src/gpu_processor.cc

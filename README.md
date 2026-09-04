@@ -41,7 +41,7 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 ## Features
 
 - One-click Cast to Chromecast, Google TV, and Cast TVs (or add a device by IP) with dynamic hardware model glyphs
-- **Screen or window sharing** — cast an entire monitor or pick a single application window with application icon resolution. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
+- **Screen or window sharing** — cast an entire monitor or pick a single application window with application icon resolution. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection. On i3, sources on other workspaces remain selectable and keep rendering while you work elsewhere
 - Quality presets **Auto / High / Balanced / Smooth** with an **inline bitrate slider** (1–25 Mbps) synchronized between Cast and Settings
 - **Live studio controls** — Freeze display and Mute TV audio on the fly with clean silence-frame injection
 - **Real-time vector sparklines** — Hardware-accelerated Cairo mini-charts for live FPS, bitrate, RTT, and packet loss

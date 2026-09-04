@@ -3,6 +3,9 @@
 #include "castcore/config.h"
 #include "castcore/latency_hud.h"
 #include "castcore/display_capture_wgc.h"
+#if !defined(_WIN32)
+#include "i3_integration.h"
+#endif
 #include <chrono>
 #include <cstring>
 #include <cmath>
@@ -27,6 +30,7 @@
 #endif
   #include <sys/ipc.h>
   #include <sys/shm.h>
+  #include <unistd.h>
 #endif
 
 namespace castcore {
@@ -301,6 +305,24 @@ std::vector<DisplayInfo> EnumerateRandrDisplays(Display* d) {
   return list;
 }
 
+bool GetWindowGeometry(Display* d, Window window, XWindowAttributes* attrs,
+                       int* root_x, int* root_y) {
+  if (!d || !attrs || !XGetWindowAttributes(d, window, attrs)) return false;
+
+  int translated_x = attrs->x;
+  int translated_y = attrs->y;
+  Window child = None;
+  if (XTranslateCoordinates(d, window, DefaultRootWindow(d), 0, 0,
+                            &translated_x, &translated_y, &child)) {
+    if (root_x) *root_x = translated_x;
+    if (root_y) *root_y = translated_y;
+  } else {
+    if (root_x) *root_x = attrs->x;
+    if (root_y) *root_y = attrs->y;
+  }
+  return true;
+}
+
 }  // namespace
 
 // X11 window enumeration: uses the EWMH _NET_CLIENT_LIST property to get
@@ -318,6 +340,7 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
   Window root = DefaultRootWindow(d);
   Atom net_wm_name = XInternAtom(d, "_NET_WM_NAME", True);
   Atom utf8_string = XInternAtom(d, "UTF8_STRING", True);
+  Atom net_wm_pid = XInternAtom(d, "_NET_WM_PID", True);
   Atom wm_state = XInternAtom(d, "WM_STATE", True);
   Atom net_client_list = XInternAtom(d, "_NET_CLIENT_LIST", True);
   Atom net_wm_window_type = XInternAtom(d, "_NET_WM_WINDOW_TYPE", True);
@@ -328,12 +351,34 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
   Atom win_type_notification = XInternAtom(d, "_NET_WM_WINDOW_TYPE_NOTIFICATION", True);
 
   // Helper lambda to build a WindowInfo from a window XID.
-  auto build_info = [&](Window w) -> bool {
+  auto build_info = [&](Window w, bool include_hidden) -> bool {
     XWindowAttributes attrs{};
-    if (!XGetWindowAttributes(d, w, &attrs)) return false;
+    int root_x = 0;
+    int root_y = 0;
+    if (!GetWindowGeometry(d, w, &attrs, &root_x, &root_y)) return false;
     if (attrs.override_redirect) return false;
-    if (attrs.map_state != IsViewable) return false;
+    if (!include_hidden && attrs.map_state != IsViewable) return false;
     if (attrs.width <= 1 || attrs.height <= 1) return false;
+
+    // Sharing CastMirror itself creates a recursive hall-of-mirrors and makes
+    // it appear to be the only choice on sparse i3 workspaces.
+    if (net_wm_pid != None) {
+      Atom pid_type = None;
+      int pid_format = 0;
+      unsigned long pid_items = 0, pid_after = 0;
+      unsigned char* pid_data = nullptr;
+      if (XGetWindowProperty(d, w, net_wm_pid, 0, 1, False, XA_CARDINAL,
+                             &pid_type, &pid_format, &pid_items, &pid_after,
+                             &pid_data) == Success) {
+        if (pid_data && pid_format == 32 && pid_items == 1 &&
+            *reinterpret_cast<unsigned long*>(pid_data) ==
+                static_cast<unsigned long>(getpid())) {
+          XFree(pid_data);
+          return false;
+        }
+        if (pid_data) XFree(pid_data);
+      }
+    }
 
     // Skip desktop chrome: panels/docks, desktop background, splash screens,
     // tooltips, and notifications. These are never useful to share.
@@ -426,17 +471,18 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
     info.id = static_cast<int>(w);
     info.title = std::move(title);
     info.app_class = std::move(app_class);
-    info.x = attrs.x;
-    info.y = attrs.y;
+    info.x = root_x;
+    info.y = root_y;
     info.width = attrs.width;
     info.height = attrs.height;
-    info.visible = true;
+    info.visible = attrs.map_state == IsViewable;
     list.push_back(info);
     return true;
   };
 
   // Primary path: _NET_CLIENT_LIST (EWMH). This is a list of Window XIDs.
   bool used_client_list = false;
+  const bool include_hidden_clients = I3CapturePin::IsAvailable(d);
   if (net_client_list != None) {
     Atom actual_type = None;
     int actual_format = 0;
@@ -448,7 +494,10 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
       if (prop_data && nitems > 0 && actual_format == 32) {
         Window* wins = reinterpret_cast<Window*>(prop_data);
         for (unsigned long i = 0; i < nitems; ++i) {
-          build_info(wins[i]);
+          // i3 keeps clients from inactive workspaces in this EWMH list but
+          // unmaps them. Keep those clients selectable; the capture pin maps
+          // them without requiring the user to remain on that workspace.
+          build_info(wins[i], include_hidden_clients);
         }
         used_client_list = true;
       }
@@ -487,12 +536,18 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
         }
         if (!is_normal) continue;
 
-        build_info(w);
+        build_info(w, false);
       }
       XFree(children);
     }
   }
 
+  // Current-workspace windows are the most useful defaults. Preserve the
+  // window manager's ordering within the visible and hidden groups.
+  std::stable_sort(list.begin(), list.end(), [](const WindowInfo& a,
+                                                 const WindowInfo& b) {
+    return a.visible && !b.visible;
+  });
   return list;
 }
 
@@ -577,19 +632,25 @@ class X11DisplayCapture : public IDisplayCapture {
   }
 
   void Stop() override {
-    const bool was_running = running_.exchange(false);
-    if (was_running && capture_thread_.joinable()) {
-      capture_thread_.join();
+    running_.store(false);
+    if (capture_thread_.joinable()) {
+      if (capture_thread_.get_id() == std::this_thread::get_id()) {
+        capture_thread_.detach();
+      } else {
+        capture_thread_.join();
+      }
     }
     TeardownDamage();
     TeardownComposite();
     TeardownShm();
+    i3_capture_pin_.Restore(display_);
     if (display_) {
       XCloseDisplay(display_);
       display_ = nullptr;
     }
     xfixes_ok_ = false;
     target_window_ = 0;
+    window_visible_ = false;
     window_root_x_ = 0;
     window_root_y_ = 0;
   }
@@ -692,10 +753,42 @@ class X11DisplayCapture : public IDisplayCapture {
     // (including BadWindow), and our error handler prevents abort.
     XWindowAttributes attrs{};
     if (!XGetWindowAttributes(display_, target_window_, &attrs) ||
-        g_x11_last_error_code != 0 ||
-        attrs.map_state != IsViewable) {
+        g_x11_last_error_code != 0) {
       LOG_ERROR << "Target window 0x" << std::hex << target_window_ << std::dec
-                << " is not viewable or does not exist";
+                << " does not exist";
+      XCloseDisplay(display_);
+      display_ = nullptr;
+      target_window_ = 0;
+      return false;
+    }
+
+    // i3 unmaps windows on inactive workspaces. Pin the source as a
+    // transparent, click-through sticky window so it keeps rendering while
+    // the user works elsewhere. Its original i3 state is restored in Stop().
+    if (I3CapturePin::IsAvailable(display_)) {
+      if (!i3_capture_pin_.Pin(display_, target_window_)) {
+        LOG_ERROR << "Could not prepare the selected i3 window for background capture";
+        XCloseDisplay(display_);
+        display_ = nullptr;
+        target_window_ = 0;
+        return false;
+      }
+    } else if (attrs.map_state != IsViewable) {
+      LOG_ERROR << "Target window 0x" << std::hex << target_window_ << std::dec
+                << " is not currently viewable";
+      XCloseDisplay(display_);
+      display_ = nullptr;
+      target_window_ = 0;
+      return false;
+    }
+
+    int root_x = 0;
+    int root_y = 0;
+    g_x11_last_error_code = 0;
+    if (!GetWindowGeometry(display_, target_window_, &attrs, &root_x, &root_y) ||
+        g_x11_last_error_code != 0 || attrs.map_state != IsViewable) {
+      LOG_ERROR << "Target window could not be mapped for capture";
+      i3_capture_pin_.Restore(display_);
       XCloseDisplay(display_);
       display_ = nullptr;
       target_window_ = 0;
@@ -705,8 +798,13 @@ class X11DisplayCapture : public IDisplayCapture {
     crop_y_ = 0;
     crop_w_ = attrs.width & ~1;
     crop_h_ = attrs.height & ~1;
-    window_root_x_ = attrs.x;  // root-relative position for cursor offset
-    window_root_y_ = attrs.y;
+    window_root_x_ = root_x;
+    window_root_y_ = root_y;
+    window_visible_ = true;
+    active_source_.x = root_x;
+    active_source_.y = root_y;
+    active_source_.width = crop_w_;
+    active_source_.height = crop_h_;
 
     // XComposite redirect so occluded windows still capture correctly.
     SetupComposite();
@@ -762,31 +860,56 @@ class X11DisplayCapture : public IDisplayCapture {
     xcomposite_ok_ = false;
   }
 
-  // Poll lifecycle events (ConfigureNotify, DestroyNotify, UnmapNotify) for
-  // the target window. Returns false if the window was destroyed/unmapped.
+  // Poll lifecycle events for the target window. i3 may briefly unmap a
+  // sticky window while moving it between workspaces, so UnmapNotify pauses
+  // capture instead of being mistaken for source destruction.
   bool PollWindowLifecycle() {
     if (!display_ || target_window_ == 0) return true;
     while (XPending(display_)) {
       XEvent ev{};
       XNextEvent(display_, &ev);
       if (ev.type == ConfigureNotify && ev.xconfigure.window == target_window_) {
-        int new_w = ev.xconfigure.width & ~1;
-        int new_h = ev.xconfigure.height & ~1;
-        if (new_w > 0 && new_h > 0 && (new_w != crop_w_ || new_h != crop_h_)) {
-          crop_w_ = new_w;
-          crop_h_ = new_h;
-          window_root_x_ = ev.xconfigure.x;
-          window_root_y_ = ev.xconfigure.y;
-          ResizeShm(crop_w_, crop_h_);
-          LOG_INFO << "Window resized to " << crop_w_ << "x" << crop_h_;
-        }
+        // Geometry is refreshed below. ConfigureNotify coordinates are often
+        // relative to i3's frame window rather than to the X root.
       } else if (ev.type == DestroyNotify && ev.xdestroywindow.window == target_window_) {
         LOG_WARN << "Target window destroyed";
         return false;
       } else if (ev.type == UnmapNotify && ev.xunmap.window == target_window_) {
-        LOG_WARN << "Target window unmapped";
-        return false;
+        if (window_visible_) {
+          LOG_INFO << "Target window temporarily unmapped; pausing capture";
+        }
+        window_visible_ = false;
+      } else if (ev.type == MapNotify && ev.xmap.window == target_window_) {
+        if (!window_visible_) {
+          LOG_INFO << "Target window mapped again; resuming capture";
+        }
+        window_visible_ = true;
       }
+    }
+
+    XWindowAttributes attrs{};
+    int root_x = window_root_x_;
+    int root_y = window_root_y_;
+    g_x11_last_error_code = 0;
+    if (!GetWindowGeometry(display_, target_window_, &attrs, &root_x, &root_y) ||
+        g_x11_last_error_code != 0) {
+      LOG_WARN << "Target window no longer exists";
+      return false;
+    }
+
+    window_visible_ = attrs.map_state == IsViewable;
+    window_root_x_ = root_x;
+    window_root_y_ = root_y;
+    active_source_.x = root_x;
+    active_source_.y = root_y;
+
+    const int new_w = attrs.width & ~1;
+    const int new_h = attrs.height & ~1;
+    if (new_w > 0 && new_h > 0 && (new_w != crop_w_ || new_h != crop_h_)) {
+      ResizeShm(new_w, new_h);
+      active_source_.width = new_w;
+      active_source_.height = new_h;
+      LOG_INFO << "Window resized to " << crop_w_ << "x" << crop_h_;
     }
     return true;
   }
@@ -996,8 +1119,8 @@ class X11DisplayCapture : public IDisplayCapture {
       auto frame_interval = std::chrono::microseconds(1000000 / fps);
       auto start_time = std::chrono::steady_clock::now();
 
-      // Window mode: check lifecycle before capturing. If the window was
-      // destroyed/unmapped, emit one final source_lost frame and stop.
+      // Window mode: only destruction emits source_lost. A short unmap while
+      // i3 carries the sticky capture window between workspaces is skipped.
       if (target_window_ != 0) {
         if (!PollWindowLifecycle()) {
           CapturedVideoFrame vf;
@@ -1014,6 +1137,15 @@ class X11DisplayCapture : public IDisplayCapture {
           if (cb) cb(vf);
           running_ = false;
           break;
+        }
+        if (!window_visible_) {
+          capture_skipped_.fetch_add(1, std::memory_order_relaxed);
+          auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::steady_clock::now() - start_time);
+          if (elapsed < frame_interval) {
+            std::this_thread::sleep_for(frame_interval - elapsed);
+          }
+          continue;
         }
       }
 
@@ -1103,9 +1235,11 @@ class X11DisplayCapture : public IDisplayCapture {
   int display_id_ = 0;
   // Window capture state: target_window_ != 0 means window mode.
   Window target_window_ = 0;
+  bool window_visible_ = false;
   int window_root_x_ = 0;  // window's root-relative position (for cursor offset)
   int window_root_y_ = 0;
   bool xcomposite_ok_ = false;
+  I3CapturePin i3_capture_pin_;
   bool show_cursor_ = false;
   CaptureSource active_source_{CaptureSourceKind::kMonitor, 0, ""};
   int crop_x_ = 0;
