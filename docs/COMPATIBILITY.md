@@ -44,7 +44,7 @@ CastMirror supports two capture source kinds:
 ### X11 window capture notes
 
 - Windows are enumerated from the EWMH client list, including managed i3 clients on inactive workspaces. The non-EWMH fallback walks the toplevel tree and filters to viewable windows. Override-redirect windows (popups, docks, tooltips) and CastMirror's own window are excluded.
-- On i3, CastMirror temporarily makes the selected source floating and sticky, transparent, and click-through. It therefore stays mapped and keeps rendering while you switch workspaces. The original workspace, floating/sticky/fullscreen state, size, position, opacity, and input shape are restored when casting stops.
+- On i3, CastMirror temporarily makes the selected source floating and sticky, click-through, and parks its frame just outside the visible X11 root. It therefore stays mapped and keeps rendering while you switch workspaces without creating a transparent picom blur layer. The original workspace, floating/sticky/fullscreen state, size, position, and input shape are restored when casting stops.
 - Window IDs are X11 XIDs (cast to `int`). They are **not stable across application restarts** — CastMirror persists the window title and re-resolves by name when restoring the last source. If the window is no longer open, it falls back to the last monitor.
 - XComposite automatic redirection is used so occluded windows still capture correctly. If XComposite is unavailable, capture proceeds but may tear for occluded windows.
 - XDamage is used on the window drawable (not root) for efficient change detection.

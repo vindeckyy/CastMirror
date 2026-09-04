@@ -12,8 +12,8 @@ namespace castcore {
 // Keeps an i3-managed X11 window mapped while it is being captured. i3
 // normally unmaps every client on an inactive workspace, which freezes direct
 // per-window capture. A capture pin temporarily makes the source floating and
-// sticky, then hides it locally using compositor opacity and an empty input
-// shape. Restore() returns all state that CastMirror changed.
+// sticky, parks its i3 frame outside the visible root window, and gives it an
+// empty input shape. Restore() returns all state that CastMirror changed.
 class I3CapturePin {
  public:
   I3CapturePin();

@@ -763,8 +763,9 @@ class X11DisplayCapture : public IDisplayCapture {
     }
 
     // i3 unmaps windows on inactive workspaces. Pin the source as a
-    // transparent, click-through sticky window so it keeps rendering while
-    // the user works elsewhere. Its original i3 state is restored in Stop().
+    // click-through sticky window parked outside the visible root so it keeps
+    // rendering without covering other workspaces. Its original i3 state is
+    // restored in Stop().
     if (I3CapturePin::IsAvailable(display_)) {
       if (!i3_capture_pin_.Pin(display_, target_window_)) {
         LOG_ERROR << "Could not prepare the selected i3 window for background capture";

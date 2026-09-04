@@ -4,7 +4,6 @@
 
 #include "castcore/logger.h"
 
-#include <X11/Xatom.h>
 #include <X11/extensions/shape.h>
 #include <nlohmann/json.hpp>
 
@@ -156,6 +155,13 @@ std::string Criteria(Window window) {
   return "[id=\"" + std::to_string(static_cast<unsigned long>(window)) + "\"] ";
 }
 
+void AppendWindowCommand(std::string* command, Window window,
+                         const std::string& action) {
+  if (!command->empty()) command->append("; ");
+  command->append(Criteria(window));
+  command->append(action);
+}
+
 std::string EscapeI3String(const std::string& value) {
   std::string escaped;
   escaped.reserve(value.size());
@@ -273,52 +279,6 @@ bool WaitUntilViewable(Display* display, Window window) {
   return false;
 }
 
-struct OpacityState {
-  Window window = None;
-  bool valid = false;
-  bool had_property = false;
-  unsigned long value = 0;
-};
-
-OpacityState HideWindowWithOpacity(Display* display, Window window) {
-  OpacityState state;
-  state.window = window;
-  if (!display || window == None) return state;
-
-  const Atom opacity = XInternAtom(display, "_NET_WM_WINDOW_OPACITY", False);
-  Atom actual_type = None;
-  int actual_format = 0;
-  unsigned long nitems = 0, bytes_after = 0;
-  unsigned char* data = nullptr;
-  if (XGetWindowProperty(display, window, opacity, 0, 1, False, XA_CARDINAL,
-                         &actual_type, &actual_format, &nitems, &bytes_after,
-                         &data) == Success) {
-    state.valid = true;
-    if (data && actual_format == 32 && nitems == 1) {
-      state.had_property = true;
-      state.value = *reinterpret_cast<unsigned long*>(data);
-    }
-    if (data) XFree(data);
-  }
-
-  const unsigned long transparent = 0;
-  XChangeProperty(display, window, opacity, XA_CARDINAL, 32, PropModeReplace,
-                  reinterpret_cast<const unsigned char*>(&transparent), 1);
-  return state;
-}
-
-void RestoreOpacity(Display* display, const OpacityState& state) {
-  if (!display || !state.valid || state.window == None) return;
-  const Atom opacity = XInternAtom(display, "_NET_WM_WINDOW_OPACITY", False);
-  if (state.had_property) {
-    XChangeProperty(display, state.window, opacity, XA_CARDINAL, 32,
-                    PropModeReplace,
-                    reinterpret_cast<const unsigned char*>(&state.value), 1);
-  } else {
-    XDeleteProperty(display, state.window, opacity);
-  }
-}
-
 struct InputShapeState {
   Window window = None;
   bool valid = false;
@@ -393,13 +353,40 @@ Window GetFrameWindow(Display* display, Window client) {
   return parent != root ? parent : None;
 }
 
+bool ParkFrameOffscreen(Display* display, Window frame) {
+  if (!display || frame == None) return false;
+
+  XWindowAttributes attrs{};
+  if (!XGetWindowAttributes(display, frame, &attrs) || attrs.width <= 0 ||
+      attrs.width > 32000) {
+    return false;
+  }
+
+  // i3 rejects out-of-bounds IPC moves, but its floating frame is an X11
+  // window that can be positioned directly. Keep a generous gap so picom's
+  // shadow and blur regions cannot overlap the root window.
+  constexpr int kParkingGap = 256;
+  XMoveWindow(display, frame, -attrs.width - kParkingGap, 0);
+  XSync(display, False);
+
+  int root_x = 0;
+  int root_y = 0;
+  Window child = None;
+  XWindowAttributes parked_attrs{};
+  return XGetWindowAttributes(display, frame, &parked_attrs) &&
+         parked_attrs.map_state == IsViewable &&
+         XTranslateCoordinates(display, frame, DefaultRootWindow(display),
+                               0, 0, &root_x, &root_y, &child) &&
+         root_x + parked_attrs.width <= -kParkingGap;
+}
+
 }  // namespace
 
 struct I3CapturePin::Impl {
   bool pinned = false;
   Window window = None;
+  Window frame = None;
   I3WindowLayout layout;
-  std::vector<OpacityState> opacity_states;
   std::vector<InputShapeState> input_shape_states;
 };
 
@@ -425,17 +412,22 @@ bool I3CapturePin::Pin(Display* display, Window window) {
   impl_->window = window;
   impl_->layout = layout;
 
-  std::string command = Criteria(window);
-  if (layout.scratchpad) command += "scratchpad show, ";
-  command += "focus, fullscreen disable, floating enable";
-  if (layout.width > 0 && layout.height > 0) {
-    command += ", resize set " + std::to_string(layout.width) + " px " +
-               std::to_string(layout.height) + " px";
+  std::string command;
+  if (layout.scratchpad) {
+    AppendWindowCommand(&command, window, "scratchpad show");
   }
-  command += ", sticky enable";
+  AppendWindowCommand(&command, window, "focus");
+  AppendWindowCommand(&command, window, "fullscreen disable");
+  AppendWindowCommand(&command, window, "floating enable");
+  if (layout.width > 0 && layout.height > 0) {
+    AppendWindowCommand(&command, window,
+                        "resize set " + std::to_string(layout.width) +
+                            " px " + std::to_string(layout.height) + " px");
+  }
+  AppendWindowCommand(&command, window, "sticky enable");
 
   // From here on, always attempt restoration on failure: i3 can apply the
-  // earlier commands in a comma chain even if a later command is rejected.
+  // earlier operations in a command list even if a later one is rejected.
   impl_->pinned = true;
   if (!RunI3Command(display, command) || !WaitUntilViewable(display, window)) {
     LOG_WARN << "i3 could not pin selected window for background capture";
@@ -445,12 +437,17 @@ bool I3CapturePin::Pin(Display* display, Window window) {
 
   XSync(display, False);
   const Window frame = GetFrameWindow(display, window);
+  impl_->frame = frame;
 
-  impl_->opacity_states.push_back(HideWindowWithOpacity(display, window));
   impl_->input_shape_states.push_back(DisableWindowInput(display, window));
   if (frame != None && frame != window) {
-    impl_->opacity_states.push_back(HideWindowWithOpacity(display, frame));
     impl_->input_shape_states.push_back(DisableWindowInput(display, frame));
+  }
+
+  if (!ParkFrameOffscreen(display, frame)) {
+    LOG_WARN << "Could not park selected i3 window outside the visible desktop";
+    Restore(display);
+    return false;
   }
 
   XSync(display, False);
@@ -463,7 +460,7 @@ bool I3CapturePin::Pin(Display* display, Window window) {
                               std::to_string(layout.focused_container_id) +
                               "\"] focus");
   }
-  LOG_INFO << "Pinned i3 window for transparent background capture; original workspace='"
+  LOG_INFO << "Parked i3 window off-screen for background capture; original workspace='"
            << layout.workspace << "' floating=" << layout.floating
            << " sticky=" << layout.sticky;
   return true;
@@ -472,41 +469,48 @@ bool I3CapturePin::Pin(Display* display, Window window) {
 void I3CapturePin::Restore(Display* display) {
   if (!impl_->pinned || !display) return;
 
+  const Window window = impl_->window;
+  const I3WindowLayout layout = impl_->layout;
   for (auto it = impl_->input_shape_states.rbegin();
        it != impl_->input_shape_states.rend(); ++it) {
     RestoreInputShape(display, *it);
   }
-  for (auto it = impl_->opacity_states.rbegin();
-       it != impl_->opacity_states.rend(); ++it) {
-    RestoreOpacity(display, *it);
+  if (impl_->frame != None) {
+    XMoveWindow(display, impl_->frame, layout.x, layout.y);
   }
   XSync(display, False);
 
-  const Window window = impl_->window;
-  const I3WindowLayout layout = impl_->layout;
-  std::string command = Criteria(window) + "sticky disable";
+  std::string command;
+  AppendWindowCommand(&command, window, "sticky disable");
 
   if (layout.scratchpad) {
-    command += ", move scratchpad";
+    AppendWindowCommand(&command, window, "move scratchpad");
   } else if (!layout.workspace.empty()) {
-    command += ", move container to workspace \"" +
-               EscapeI3String(layout.workspace) + "\"";
+    AppendWindowCommand(&command, window,
+                        "move container to workspace \"" +
+                            EscapeI3String(layout.workspace) + "\"");
   }
 
   if (layout.floating) {
-    command += ", floating enable";
+    AppendWindowCommand(&command, window, "floating enable");
     if (layout.width > 0 && layout.height > 0) {
-      command += ", resize set " + std::to_string(layout.width) + " px " +
-                 std::to_string(layout.height) + " px";
-      command += ", move absolute position " + std::to_string(layout.x) +
-                 " px " + std::to_string(layout.y) + " px";
+      AppendWindowCommand(&command, window,
+                          "resize set " + std::to_string(layout.width) +
+                              " px " + std::to_string(layout.height) + " px");
+      AppendWindowCommand(&command, window,
+                          "move absolute position " +
+                              std::to_string(layout.x) + " px " +
+                              std::to_string(layout.y) + " px");
     }
   } else {
-    command += ", floating disable";
+    AppendWindowCommand(&command, window, "floating disable");
   }
 
-  command += layout.sticky ? ", sticky enable" : ", sticky disable";
-  if (layout.fullscreen_mode != 0) command += ", fullscreen enable";
+  AppendWindowCommand(&command, window,
+                      layout.sticky ? "sticky enable" : "sticky disable");
+  if (layout.fullscreen_mode != 0) {
+    AppendWindowCommand(&command, window, "fullscreen enable");
+  }
 
   if (!RunI3Command(display, command)) {
     LOG_WARN << "Could not fully restore i3 layout for captured window";
@@ -516,8 +520,8 @@ void I3CapturePin::Restore(Display* display) {
 
   impl_->pinned = false;
   impl_->window = None;
+  impl_->frame = None;
   impl_->layout = {};
-  impl_->opacity_states.clear();
   impl_->input_shape_states.clear();
 }
 
