@@ -79,6 +79,9 @@ class CastSession {
   void FailSession(const std::string& reason);
   void InjectSilenceAudioFrame();
   void MaybeLogSessionStats();
+  // Accumulates the difference between the most recent audio and video
+  // *capture* timestamps so A/V sync can be observed in the session log.
+  void SampleAvCaptureOffset();
 
   DeviceLookupCallback device_lookup_;
   std::atomic<bool> media_stopped_for_reconnect_{false};
@@ -142,6 +145,12 @@ class CastSession {
 
   std::atomic<int64_t> last_video_send_ms_{0};
   std::atomic<int64_t> last_audio_send_ms_{0};
+  std::atomic<int64_t> last_video_capture_us_{0};
+  std::atomic<int64_t> last_audio_capture_us_{0};
+  std::atomic<int64_t> av_offset_sum_us_{0};
+  std::atomic<int64_t> av_offset_count_{0};
+  // Playout delay latched once per adaptation tick and used by both streams.
+  std::atomic<int> playout_delay_ms_{0};
   std::atomic<bool> fail_requested_{false};
   std::atomic<bool> is_frozen_{false};
   std::atomic<bool> is_audio_muted_{false};

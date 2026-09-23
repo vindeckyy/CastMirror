@@ -1,5 +1,6 @@
 #include "castcore/cast_transport.h"
 #include "castcore/logger.h"
+#include "castcore/net_platform.h"
 
 #include <cstring>
 #include <chrono>
@@ -71,6 +72,13 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   }
 
   LOG_INFO << "Starting Cast Media Transport to UDP " << receiver_ip << ":" << receiver_udp_port << "...";
+
+#if defined(_WIN32)
+  if (!EnsureSocketInit()) {
+    LOG_ERROR << "Socket subsystem initialization failed";
+    return false;
+  }
+#endif
 
   socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
   if (socket_fd_ < 0) {
@@ -258,9 +266,24 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
   }
 
   if (packets_sent_ok > 0) {
+    // An RTCP Sender Report asserts "at NTP instant T my RTP clock read R".
+    // Both streams' RTP timelines are stamped at the capture instant (video:
+    // DXGI LastPresentTime; audio: WASAPI QPC position), so T must be the
+    // frame's capture time, not the send instant. Pairing a capture-time RTP
+    // value with a send-time NTP value would bake each stream's
+    // capture->send latency (audio ~1-5 ms, video ~20-40 ms, wobbling with
+    // encoder load) into the receiver's SR-based A/V alignment as a
+    // constant-plus-wobbling skew.
+    const auto steady_now = std::chrono::steady_clock::now();
+    const auto sys_now = std::chrono::system_clock::now();
+    auto ntp_time = sys_now;
+    if (packets[0].capture_time.time_since_epoch().count() != 0) {
+      ntp_time = sys_now - std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                                steady_now - packets[0].capture_time);
+    }
     std::lock_guard<std::mutex> lock(send_mutex_);
     if (running_.load() && socket_fd_ >= 0) {
-      MaybeSendSenderReport(ssrc, rtp_ts, packets_sent_ok, octets_this_frame);
+      MaybeSendSenderReport(ssrc, rtp_ts, ntp_time, packets_sent_ok, octets_this_frame);
     }
   }
 
@@ -293,6 +316,7 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
 }
 
 void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
+                                         std::chrono::system_clock::time_point ntp_time,
                                          uint32_t packets_just_sent, uint32_t octets_just_sent) {
   if (ssrc == 0 || socket_fd_ < 0) return;
 
@@ -308,9 +332,11 @@ void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
   }
   st.last_sr = now;
 
-  auto unix_now = std::chrono::system_clock::now().time_since_epoch();
+  // NTP instant carried by the SR: the capture instant of the frame whose RTP
+  // timestamp is advertised (see SendPackets), not the emission instant.
+  auto unix_time = ntp_time.time_since_epoch();
   uint64_t unix_us = static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::microseconds>(unix_now).count());
+      std::chrono::duration_cast<std::chrono::microseconds>(unix_time).count());
   uint32_t ntp_sec = static_cast<uint32_t>((unix_us / 1000000ULL) + 2208988800ULL);
   uint32_t ntp_frac = static_cast<uint32_t>(((unix_us % 1000000ULL) << 32) / 1000000ULL);
 

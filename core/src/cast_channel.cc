@@ -1,7 +1,9 @@
 #include "castcore/cast_channel.h"
 #include "castcore/device_auth.h"
 #include "castcore/logger.h"
+#include "castcore/net_platform.h"
 #include <nlohmann/json.hpp>
+#include <openssl/crypto.h>
 
 #include <cstring>
 #include <chrono>
@@ -15,6 +17,7 @@
 #else
   #include <sys/types.h>
   #include <sys/socket.h>
+  #include <sys/select.h>
   #include <netinet/in.h>
   #include <netinet/tcp.h>
   #include <arpa/inet.h>
@@ -65,6 +68,11 @@ void CastChannel::SetStatusCallback(StatusCallback callback) {
 bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int timeout_ms) {
 #if !defined(_WIN32)
   std::signal(SIGPIPE, SIG_IGN);
+#else
+  if (!EnsureSocketInit()) {
+    LOG_ERROR << "Socket subsystem initialization failed";
+    return false;
+  }
 #endif
   if (is_connected_.load()) {
     Disconnect();
@@ -108,9 +116,55 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     return false;
   }
 
-  // Connect socket
-  if (connect(socket_fd_, reinterpret_cast<struct sockaddr*>(&server_addr), sizeof(server_addr)) < 0) {
-    LOG_ERROR << "TCP connection failed to " << ip_address << ":" << port;
+  // Connect with a bounded timeout so a sleeping/offline device fails fast
+  // instead of blocking on the OS SYN retry schedule (~21s on Windows).
+  int connect_ms = timeout_ms > 0 ? timeout_ms : 5000;
+#if defined(_WIN32)
+  u_long nonblocking = 1;
+  ioctlsocket(socket_fd_, FIONBIO, &nonblocking);
+#else
+  int sock_flags = fcntl(socket_fd_, F_GETFL, 0);
+  fcntl(socket_fd_, F_SETFL, sock_flags | O_NONBLOCK);
+#endif
+
+  bool connected = connect(socket_fd_, reinterpret_cast<struct sockaddr*>(&server_addr),
+                           sizeof(server_addr)) == 0;
+  if (!connected) {
+    const int err = SocketLastError();
+#if defined(_WIN32)
+    const bool in_progress = (err == WSAEWOULDBLOCK || err == WSAEINPROGRESS);
+#else
+    const bool in_progress = (err == EINPROGRESS);
+#endif
+    if (in_progress) {
+      fd_set write_fds;
+      FD_ZERO(&write_fds);
+      FD_SET(socket_fd_, &write_fds);
+      struct timeval connect_tv{};
+      connect_tv.tv_sec = connect_ms / 1000;
+      connect_tv.tv_usec = (connect_ms % 1000) * 1000;
+      if (select(static_cast<int>(socket_fd_) + 1, nullptr, &write_fds, nullptr, &connect_tv) > 0) {
+        int so_error = 0;
+        socklen_t so_len = sizeof(so_error);
+        if (getsockopt(socket_fd_, SOL_SOCKET, SO_ERROR,
+                       reinterpret_cast<char*>(&so_error), &so_len) == 0) {
+          connected = (so_error == 0);
+        }
+      }
+    }
+  }
+
+  // Restore blocking mode for the TLS session.
+#if defined(_WIN32)
+  nonblocking = 0;
+  ioctlsocket(socket_fd_, FIONBIO, &nonblocking);
+#else
+  fcntl(socket_fd_, F_SETFL, sock_flags);
+#endif
+
+  if (!connected) {
+    LOG_ERROR << "TCP connection to " << ip_address << ":" << port
+              << " failed or timed out after " << connect_ms << "ms";
     close(socket_fd_);
     socket_fd_ = -1;
     return false;
@@ -203,6 +257,7 @@ void CastChannel::SetAppTransportId(const std::string& transport_id) {
 void CastChannel::Disconnect() {
   bool was_connected = is_connected_.exchange(false);
   should_stop_ = true;
+  auth_cv_.notify_all();
 
   if (socket_fd_ >= 0) {
 #if defined(_WIN32)
@@ -299,6 +354,184 @@ bool CastChannel::SendCastMessage(const std::string& namespace_,
   return SendRawPacket(packet.data(), packet.size());
 }
 
+bool CastChannel::SendCastMessageBinary(const std::string& namespace_,
+                                        const std::string& payload_binary,
+                                        const std::string& destination_id,
+                                        const std::string& source_id) {
+  if (!is_connected_.load()) return false;
+
+  proto::CastMessage msg;
+  msg.set_protocol_version(proto::CastMessage::CASTV2_1_0);
+  msg.set_source_id(source_id);
+  msg.set_destination_id(destination_id);
+  msg.set_namespace_(namespace_);
+  msg.set_payload_type(proto::CastMessage::BINARY);
+  msg.set_payload_binary(payload_binary);
+
+  std::string serialized;
+  if (!msg.SerializeToString(&serialized)) {
+    LOG_ERROR << "Failed to serialize binary CastMessage";
+    return false;
+  }
+
+  uint32_t payload_len = static_cast<uint32_t>(serialized.size());
+  uint8_t header[4];
+  header[0] = static_cast<uint8_t>((payload_len >> 24) & 0xFF);
+  header[1] = static_cast<uint8_t>((payload_len >> 16) & 0xFF);
+  header[2] = static_cast<uint8_t>((payload_len >> 8) & 0xFF);
+  header[3] = static_cast<uint8_t>(payload_len & 0xFF);
+
+  std::vector<uint8_t> packet;
+  packet.reserve(4 + payload_len);
+  packet.insert(packet.end(), header, header + 4);
+  packet.insert(packet.end(), serialized.begin(), serialized.end());
+
+  LOG_DEBUG << "[CastChannel SEND] ns=" << namespace_ << " src=" << source_id
+            << " dst=" << destination_id << " (binary " << payload_binary.size() << " bytes)";
+  return SendRawPacket(packet.data(), packet.size());
+}
+
+bool CastChannel::AuthenticateDevice(int timeout_ms) {
+  if (!is_connected_.load() || !ssl_) return false;
+
+  // Cast protocol note: the receiver's TLS certificate is self-signed, so an
+  // X.509 validation at the TLS layer would always fail. Authenticity is
+  // instead proven by signing a fresh nonce with a certificate chain that
+  // anchors in the Cast/Eureka root CAs.
+  if (!verify_device_cert_) {
+    LOG_WARN << "Device authentication disabled; skipping AUTH_CHALLENGE";
+    return true;
+  }
+
+  std::vector<uint8_t> nonce = DeviceAuth::GenerateNonce(32);
+  if (nonce.size() != 32) {
+    LOG_ERROR << "Failed to generate device auth nonce";
+    return false;
+  }
+
+  proto::DeviceAuthMessage challenge_msg;
+  challenge_msg.mutable_challenge()->set_sender_nonce(nonce.data(), nonce.size());
+
+  std::string serialized;
+  if (!challenge_msg.SerializeToString(&serialized)) {
+    LOG_ERROR << "Failed to serialize device auth challenge";
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(auth_mutex_);
+    auth_done_ = false;
+    auth_verified_ = false;
+    auth_error_.clear();
+    auth_nonce_ = nonce;
+  }
+
+  if (!SendCastMessageBinary(kNamespaceDeviceAuth, serialized,
+                             kPlatformReceiverId, kPlatformSenderId)) {
+    LOG_ERROR << "Failed to send AUTH_CHALLENGE";
+    return false;
+  }
+
+  std::unique_lock<std::mutex> lock(auth_mutex_);
+  bool completed = auth_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
+    return auth_done_ || should_stop_.load() || !is_connected_.load();
+  });
+  if (!completed || !auth_done_) {
+    LOG_ERROR << "Device authentication timed out after " << timeout_ms << "ms";
+    return false;
+  }
+  if (!auth_verified_) {
+    LOG_ERROR << "Device authentication failed: " << auth_error_;
+    return false;
+  }
+  return true;
+}
+
+void CastChannel::HandleDeviceAuthResponse(const std::string& payload_binary) {
+  DeviceAuthResult result;
+  std::vector<uint8_t> signature_input;
+
+  proto::DeviceAuthMessage msg;
+  if (!msg.ParseFromString(payload_binary)) {
+    result.error_message = "Failed to parse DeviceAuthMessage";
+  } else if (msg.has_error()) {
+    result.error_message = "Receiver returned DeviceAuthError type " +
+                           std::to_string(static_cast<int>(msg.error().error_type()));
+  } else if (!msg.has_response()) {
+    result.error_message = "DeviceAuthMessage has no response";
+  } else {
+    const proto::AuthResponse& response = msg.response();
+
+    std::vector<uint8_t> nonce_response;
+    {
+      std::lock_guard<std::mutex> lock(auth_mutex_);
+      nonce_response = auth_nonce_;
+    }
+    if (response.has_sender_nonce()) {
+      const std::string& echoed = response.sender_nonce();
+      if (!nonce_response.empty() && echoed.size() != nonce_response.size()) {
+        result.error_message = "Device auth response nonce length mismatch";
+      } else if (!nonce_response.empty() &&
+                 CRYPTO_memcmp(echoed.data(), nonce_response.data(), nonce_response.size()) != 0) {
+        result.error_message = "Device auth response nonce mismatch";
+      } else {
+        nonce_response.assign(echoed.begin(), echoed.end());
+      }
+    }
+
+    std::vector<uint8_t> leaf(response.client_auth_certificate().begin(),
+                              response.client_auth_certificate().end());
+    std::vector<std::vector<uint8_t>> intermediates;
+    intermediates.reserve(static_cast<size_t>(response.intermediate_certificate_size()));
+    for (int i = 0; i < response.intermediate_certificate_size(); ++i) {
+      const std::string& inter = response.intermediate_certificate(i);
+      intermediates.emplace_back(inter.begin(), inter.end());
+    }
+    std::vector<uint8_t> signature(response.signature().begin(), response.signature().end());
+    std::vector<uint8_t> peer_cert = GetPeerCertificateDer();
+
+    // Chromium signs/verifies the echoed nonce followed by the TLS peer
+    // certificate DER.
+    signature_input.reserve(nonce_response.size() + peer_cert.size());
+    signature_input.insert(signature_input.end(), nonce_response.begin(), nonce_response.end());
+    signature_input.insert(signature_input.end(), peer_cert.begin(), peer_cert.end());
+
+    if (result.error_message.empty()) {
+      result = DeviceAuth::VerifyAuthResponse(leaf, intermediates, signature, signature_input);
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(auth_mutex_);
+    auth_done_ = true;
+    auth_verified_ = result.verified;
+    auth_error_ = result.error_message;
+  }
+  auth_cv_.notify_all();
+
+  if (result.verified) {
+    LOG_INFO << "Device authenticated against Cast Root CA (CN=" << result.common_name
+             << ", issuer=" << result.peer_cert_issuer << ")";
+  } else {
+    LOG_WARN << "Device authentication verification failed: " << result.error_message;
+  }
+}
+
+std::vector<uint8_t> CastChannel::GetPeerCertificateDer() const {
+  if (!ssl_) return {};
+  X509* cert = SSL_get1_peer_certificate(ssl_);
+  if (!cert) return {};
+  unsigned char* out = nullptr;
+  int len = i2d_X509(cert, &out);
+  std::vector<uint8_t> der;
+  if (len > 0 && out) {
+    der.assign(out, out + len);
+  }
+  if (out) OPENSSL_free(out);
+  X509_free(cert);
+  return der;
+}
+
 bool CastChannel::ConnectVirtual(const std::string& destination_id, const std::string& source_id) {
   nlohmann::json payload;
   payload["type"] = "CONNECT";
@@ -365,7 +598,11 @@ void CastChannel::ReceiveLoop() {
         // SSL_read returns -1 with WANT_READ. Tearing the channel down here
         // would cause spurious full reconnects on a perfectly healthy link.
         // Loop and keep waiting for the next real message.
-        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+        // On Windows a recv timeout surfaces as SSL_ERROR_SYSCALL with
+        // WSAETIMEDOUT (OpenSSL does not classify it as WANT_READ), so also
+        // treat a transient socket error as retryable here.
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ||
+            (err == SSL_ERROR_SYSCALL && SocketErrorIsTransient(SocketLastError()))) {
           continue;
         }
         char err_buf[256];
@@ -397,8 +634,10 @@ void CastChannel::ReceiveLoop() {
         if (should_stop_.load() || !is_connected_.load()) return;
         int err = SSL_get_error(ssl_, ret);
         // Same transient-retry rationale as the header read: a 6s control-
-        // channel idle timeout (WANT_READ) is not a disconnect.
-        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+        // channel idle timeout (WANT_READ) is not a disconnect. On Windows the
+        // timeout arrives as SSL_ERROR_SYSCALL + WSAETIMEDOUT.
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE ||
+            (err == SSL_ERROR_SYSCALL && SocketErrorIsTransient(SocketLastError()))) {
           continue;
         }
         LOG_WARN << "Cast Channel socket disconnected while reading body";
@@ -412,17 +651,25 @@ void CastChannel::ReceiveLoop() {
     proto::CastMessage msg;
     if (msg.ParseFromArray(payload_buf.data(), static_cast<int>(msg_len))) {
       std::string payload_str;
-      if (msg.payload_type() == proto::CastMessage::STRING && msg.has_payload_utf8()) {
+      const bool is_binary = msg.payload_type() == proto::CastMessage::BINARY;
+      if (is_binary && msg.has_payload_binary()) {
+        // Binary payloads (device auth) are handled internally; the bytes are
+        // still passed through to the message callback for completeness.
+        payload_str = msg.payload_binary();
+      } else if (!is_binary && msg.has_payload_utf8()) {
         payload_str = msg.payload_utf8();
       }
 
-      if (!IsHeartbeatPingPong(msg.namespace_(), payload_str)) {
+      if (!is_binary && !IsHeartbeatPingPong(msg.namespace_(), payload_str)) {
         LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id()
                   << " dst=" << msg.destination_id() << " payload=" << payload_str;
+      } else if (is_binary) {
+        LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id()
+                  << " dst=" << msg.destination_id() << " (binary " << payload_str.size() << " bytes)";
       }
 
       // Automatically answer PING with PONG
-      if (msg.namespace_() == kNamespaceHeartbeat) {
+      if (msg.namespace_() == kNamespaceHeartbeat && !is_binary) {
         try {
           auto j = nlohmann::json::parse(payload_str);
           if (j.contains("type") && j["type"] == "PING") {
@@ -433,6 +680,13 @@ void CastChannel::ReceiveLoop() {
             LOG_WARN << "Unexpected Cast heartbeat payload: " << payload_str;
           }
         } catch (...) {}
+      }
+
+      // Device-auth replies are consumed by the channel itself (the session
+      // must not see the raw certificate bytes).
+      if (msg.namespace_() == kNamespaceDeviceAuth) {
+        HandleDeviceAuthResponse(payload_str);
+        continue;
       }
 
       MessageCallback cb;

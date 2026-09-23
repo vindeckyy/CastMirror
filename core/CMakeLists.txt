@@ -22,6 +22,8 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS "${PROTO_SRC}")
 set(CASTCORE_SOURCES
     ${PROTO_SRCS}
     src/logger.cc
+    src/net_platform.cc
+    src/win_time.cc
     src/config.cc
     src/state_machine.cc
     src/capability_model.cc
@@ -120,5 +122,28 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
-    target_link_libraries(castcore PUBLIC d3d11 dxgi mfplat mfuuid ole32)
+    target_link_libraries(castcore PUBLIC d3d11 dxgi mfplat mfuuid ole32 ws2_32 iphlpapi avrt winmm)
+    target_compile_definitions(castcore PUBLIC CASTCORE_STATIC)
+
+    add_library(castcore_dll SHARED ${CASTCORE_SOURCES})
+    set_target_properties(castcore_dll PROPERTIES PREFIX "" OUTPUT_NAME "castcore")
+    target_compile_definitions(castcore_dll PRIVATE CASTCORE_EXPORTS)
+    target_include_directories(castcore_dll PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+        $<INSTALL_INTERFACE:include>
+        ${Protobuf_INCLUDE_DIRS}
+        ${OPENSSL_INCLUDE_DIR}
+        ${OPUS_INCLUDE_DIRS}
+        ${LIBAV_INCLUDE_DIRS}
+    )
+    target_link_libraries(castcore_dll PUBLIC
+        ${Protobuf_LIBRARIES}
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        Threads::Threads
+        ${OPUS_LIBRARIES}
+        ${LIBAV_LIBRARIES}
+        d3d11 dxgi mfplat mfuuid ole32 ws2_32 iphlpapi avrt winmm
+    )
 endif()

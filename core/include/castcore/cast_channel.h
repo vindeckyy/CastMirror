@@ -7,8 +7,10 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <atomic>
+#include <vector>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
@@ -28,6 +30,17 @@ class CastChannel {
   bool Connect(const std::string& ip_address, uint16_t port = 8009, int timeout_ms = 5000);
   void Disconnect();
   bool IsConnected() const;
+
+  // Runs the Cast device-authentication challenge/response handshake on the
+  // open TLS channel and verifies the receiver's certificate chain against
+  // the Cast/Eureka root CAs. Returns false on timeout or verification
+  // failure when SetVerifyDeviceCert(true) is in effect; when verification is
+  // disabled the exchange is skipped and true is returned.
+  bool AuthenticateDevice(int timeout_ms = 5000);
+
+  // DER encoding of the certificate the receiver presented during the TLS
+  // handshake (empty when not connected or unavailable).
+  std::vector<uint8_t> GetPeerCertificateDer() const;
 
   bool SendCastMessage(const std::string& namespace_,
                        const std::string& payload_utf8,
@@ -57,6 +70,11 @@ class CastChannel {
   void ReceiveLoop();
   void HeartbeatLoop();
   bool SendRawPacket(const uint8_t* data, size_t length);
+  bool SendCastMessageBinary(const std::string& namespace_,
+                             const std::string& payload_binary,
+                             const std::string& destination_id,
+                             const std::string& source_id);
+  void HandleDeviceAuthResponse(const std::string& payload_binary);
 
   std::string ip_address_;
   std::string app_transport_id_;
@@ -80,6 +98,13 @@ class CastChannel {
   std::thread heartbeat_thread_;
   std::atomic<int64_t> last_pong_ms_{0};
   std::atomic<bool> disconnect_notified_{false};
+
+  std::mutex auth_mutex_;
+  std::condition_variable auth_cv_;
+  bool auth_done_ = false;
+  bool auth_verified_ = false;
+  std::string auth_error_;
+  std::vector<uint8_t> auth_nonce_;
 };
 
 } // namespace castcore

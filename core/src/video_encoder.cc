@@ -1,6 +1,9 @@
 #include "castcore/video_encoder.h"
 #include "castcore/logger.h"
 #include "castcore/config.h"
+#if defined(_WIN32)
+#include "castcore/video_encoder_mf.h"
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -11,10 +14,13 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/opt.h>
 #include <libavutil/hwcontext.h>
+#if !defined(_WIN32)
 #include <libavutil/hwcontext_drm.h>
+#endif
 #include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 }
+#if !defined(_WIN32)
 #if defined(__has_include)
 #if __has_include(<libdrm/drm_fourcc.h>)
 #include <libdrm/drm_fourcc.h>
@@ -36,6 +42,7 @@ extern "C" {
 #endif
 #include <unistd.h>
 #include <sys/mman.h>
+#endif
 
 namespace castcore {
 
@@ -110,6 +117,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
 
     const bool want_key = force_keyframe_.exchange(false) || current_fid == 0;
 
+#if !defined(_WIN32)
     if (use_vaapi_) {
       if (!sw_frame_ || !hw_frame_) {
         LOG_ERROR << "VAAPI Encode missing frames";
@@ -279,7 +287,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
           return false;
         }
       }
-    } else {
+    } else
+#endif
+    {
       if (!av_frame_ || av_frame_make_writable(av_frame_) < 0) return false;
       if (!gpu_processor_.ConvertBgraToYuv420p(
               frame, av_frame_->data[0], av_frame_->linesize[0],
@@ -401,6 +411,11 @@ class FFmpegVideoEncoder : public IVideoEncoder {
   }
 
   bool TryInitVaapi() {
+#if defined(_WIN32)
+    // VAAPI is Linux-only; probing it here would just log a libva load error.
+    // Windows hardware encode is handled by MediaFoundationVideoEncoder.
+    return false;
+#else
     if (av_hwdevice_ctx_create(&hw_device_ctx_, AV_HWDEVICE_TYPE_VAAPI,
                                nullptr, nullptr, 0) < 0) {
       hw_device_ctx_ = nullptr;
@@ -509,6 +524,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
              << config_.width << "x" << config_.height << " @ " << config_.framerate
              << "fps, " << config_.bitrate_kbps << " kbps)";
     return true;
+#endif
   }
 
   bool InitSoftware() {
@@ -661,11 +677,68 @@ class FFmpegVideoEncoder : public IVideoEncoder {
   bool rtp_clock_origin_set_ = false;
 };
 
+#if defined(_WIN32)
+// Windows H.264 encoder: prefer a Media Foundation transform (hardware on
+// most machines) and fall back to FFmpeg/libx264 when no MFT accepts the
+// configuration. The choice is made at Initialize() time so callers don't
+// need to know which backend won.
+class WindowsVideoEncoder : public IVideoEncoder {
+ public:
+  bool Initialize(const VideoEncoderConfig& config) override {
+    if (config.codec == VideoCodec::kH264 && !SoftwareEncodeForced()) {
+      auto mf = std::make_unique<MediaFoundationVideoEncoder>();
+      if (mf->Initialize(config)) {
+        active_ = std::move(mf);
+        return true;
+      }
+      LOG_INFO << "Media Foundation H.264 unavailable; using FFmpeg encoder";
+    }
+    auto ff = std::make_unique<FFmpegVideoEncoder>();
+    if (!ff->Initialize(config)) return false;
+    active_ = std::move(ff);
+    return true;
+  }
+
+  bool Reconfigure(const VideoEncoderConfig& config) override {
+    if (!active_) return Initialize(config);
+    if (active_->Reconfigure(config)) return true;
+    // Backend can't reopen at the new config (e.g. MF MFT vanished) — retry
+    // the full MF->FFmpeg selection before giving up.
+    return Initialize(config);
+  }
+
+  bool Encode(const CapturedVideoFrame& frame, EncodedFrame& out) override {
+    return active_ && active_->Encode(frame, out);
+  }
+  void ForceKeyFrame() override { if (active_) active_->ForceKeyFrame(); }
+  void SetBitrate(uint32_t kbps) override { if (active_) active_->SetBitrate(kbps); }
+  void SetFramerate(int fps) override { if (active_) active_->SetFramerate(fps); }
+  void SetClockOrigin(std::chrono::steady_clock::time_point o) override {
+    if (active_) active_->SetClockOrigin(o);
+  }
+  std::string EncoderName() const override {
+    return active_ ? active_->EncoderName() : "none";
+  }
+  const VideoEncoderConfig& GetConfig() const override {
+    return active_ ? active_->GetConfig() : empty_config_;
+  }
+
+ private:
+  std::unique_ptr<IVideoEncoder> active_;
+  VideoEncoderConfig empty_config_{};
+};
+#endif
+
 std::unique_ptr<IVideoEncoder> VideoEncoderFactory::Create(VideoCodec codec) {
   if (codec == VideoCodec::kAV1) {
     LOG_INFO << "AV1 video encoder is deferred / experimental; returning nullptr until validated on real hardware";
     return nullptr;
   }
+#if defined(_WIN32)
+  if (codec == VideoCodec::kH264) {
+    return std::make_unique<WindowsVideoEncoder>();
+  }
+#endif
   return std::make_unique<FFmpegVideoEncoder>();
 }
 

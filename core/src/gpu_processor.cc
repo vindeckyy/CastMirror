@@ -8,10 +8,12 @@ extern "C" {
 
 #include <algorithm>
 #include <cstring>
+#if !defined(_WIN32)
 #include <sys/mman.h>
 #include <unistd.h>
 #if defined(__linux__)
 #include <libdrm/drm_fourcc.h>
+#endif
 #endif
 
 namespace castcore {

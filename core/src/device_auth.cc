@@ -247,12 +247,18 @@ int DeviceAuth::SslVerifyCallback(int preverify_ok, X509_STORE_CTX* ctx) {
   if (preverify_ok) return 1;
 
   int err = X509_STORE_CTX_get_error(ctx);
-  // Log why preverify failed
+  // Cast receivers intentionally present a self-signed certificate at the TLS
+  // layer, so a chain failure here is expected and must not abort the
+  // handshake. The peer certificate is still recorded/logged, and the
+  // device's authenticity is established by the AUTH_CHALLENGE/AUTH_RESPONSE
+  // exchange (VerifyAuthResponse) which checks the Cast Root CA chain.
   X509* current_cert = X509_STORE_CTX_get_current_cert(ctx);
   std::string subject = current_cert ? X509NameToStr(X509_get_subject_name(current_cert)) : "unknown";
-  LOG_WARN << "Cast device SSL verify failed at depth " << X509_STORE_CTX_get_error_depth(ctx)
-              << ": " << X509_verify_cert_error_string(err) << " (subject: " << subject << ")";
-  return 0;
+  LOG_DEBUG << "Cast device TLS chain not publicly trusted at depth "
+            << X509_STORE_CTX_get_error_depth(ctx) << ": "
+            << X509_verify_cert_error_string(err) << " (subject: " << subject
+            << "); deferring to device-auth challenge";
+  return 1;
 }
 
 bool DeviceAuth::ConfigureSslContext(SSL_CTX* ctx, bool verify_device_cert) {
@@ -264,10 +270,10 @@ bool DeviceAuth::ConfigureSslContext(SSL_CTX* ctx, bool verify_device_cert) {
       SSL_CTX_set1_verify_cert_store(ctx, store);
     }
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, SslVerifyCallback);
-    LOG_INFO << "Cast device certificate verification enabled (Cast Root CA & Eureka Root CA enforced)";
+    LOG_INFO << "Cast device authentication enabled (device-auth challenge; TLS chain failures deferred)";
   } else {
     SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
-    LOG_WARN << "Cast device certificate verification DISABLED (--no-verify)";
+    LOG_WARN << "Cast device authentication DISABLED (--no-verify)";
   }
   return true;
 }
@@ -370,7 +376,7 @@ DeviceAuthResult DeviceAuth::VerifyAuthResponse(
     const std::vector<uint8_t>& leaf_cert_der,
     const std::vector<std::vector<uint8_t>>& intermediates_der,
     const std::vector<uint8_t>& signature,
-    const std::vector<uint8_t>& nonce) {
+    const std::vector<uint8_t>& signature_input) {
   DeviceAuthResult res = VerifyDerCertificateChain(leaf_cert_der, intermediates_der);
   if (!res.verified) {
     return res;
@@ -404,7 +410,7 @@ DeviceAuthResult DeviceAuth::VerifyAuthResponse(
   if (md_ctx) {
     // Cast devices sign with SHA-256 or SHA-1 with RSA/ECDSA
     if (EVP_DigestVerifyInit(md_ctx, nullptr, EVP_sha256(), nullptr, pubkey) == 1) {
-      if (EVP_DigestVerifyUpdate(md_ctx, nonce.data(), nonce.size()) == 1) {
+      if (EVP_DigestVerifyUpdate(md_ctx, signature_input.data(), signature_input.size()) == 1) {
         if (EVP_DigestVerifyFinal(md_ctx, signature.data(), signature.size()) == 1) {
           sig_ok = true;
         }
@@ -415,7 +421,7 @@ DeviceAuthResult DeviceAuth::VerifyAuthResponse(
     if (!sig_ok) {
       EVP_MD_CTX_reset(md_ctx);
       if (EVP_DigestVerifyInit(md_ctx, nullptr, EVP_sha1(), nullptr, pubkey) == 1) {
-        if (EVP_DigestVerifyUpdate(md_ctx, nonce.data(), nonce.size()) == 1) {
+        if (EVP_DigestVerifyUpdate(md_ctx, signature_input.data(), signature_input.size()) == 1) {
           if (EVP_DigestVerifyFinal(md_ctx, signature.data(), signature.size()) == 1) {
             sig_ok = true;
           }

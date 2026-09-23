@@ -64,6 +64,7 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
     pkt.packet_id = pid;
     pkt.max_packet_id = max_packet_id;
     pkt.is_key_frame = is_key_frame;
+    pkt.capture_time = encrypted_frame.capture_time;
 
     pkt.data.resize(current_header_size + chunk_len);
     uint8_t* p = pkt.data.data();

@@ -3,6 +3,7 @@
 #include "castcore/capability_model.h"
 #include "castcore/config.h"
 #include "castcore/logger.h"
+#include "castcore/net_platform.h"
 #include "castcore/thread_util.h"
 #include <nlohmann/json.hpp>
 #include <cstdint>
@@ -17,6 +18,12 @@ namespace {
 int64_t SteadyNowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+int64_t SteadyUs(std::chrono::steady_clock::time_point tp) {
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             tp.time_since_epoch())
       .count();
 }
 
@@ -227,6 +234,19 @@ bool CastSession::NegotiateControlPlane() {
   }
 
   state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
+      "Authenticating " + target_device_.name);
+
+  {
+    int auth_s = ConfigStore::Instance().Get().answer_timeout_s > 0
+                     ? ConfigStore::Instance().Get().answer_timeout_s
+                     : 5;
+    if (!cast_channel_->AuthenticateDevice(auth_s * 1000)) {
+      LOG_ERROR << "Device authentication failed for " << target_device_.name;
+      return false;
+    }
+  }
+
+  state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
       "Launching the TV's built-in mirroring app on " + target_device_.name);
 
 
@@ -297,7 +317,11 @@ bool CastSession::FallbackToHttpCafStreaming() {
     return false;
   }
 
-  std::string stream_url = http_fallback_server_->GetStreamUrl("");
+  // Advertise the LAN address that routes to the receiver — 127.0.0.1 would
+  // only be reachable from the sender itself, so the CAF receiver could never
+  // pull the stream.
+  std::string local_ip = LocalIpForTarget(target_device_.ip_address);
+  std::string stream_url = http_fallback_server_->GetStreamUrl(local_ip);
   const std::string& caf_app = options_.caf_receiver_app_id.empty() ? "CC1AD845" : options_.caf_receiver_app_id;
   LOG_INFO << "Launching CAF fallback receiver app " << caf_app << " for HTTP streaming at " << stream_url;
 
@@ -350,6 +374,7 @@ bool CastSession::FallbackToHttpCafStreaming() {
 bool CastSession::StartStreamingMedia() {
   LOG_INFO << "Starting live media capture and encoding pipeline...";
   adaptive_controller_.ResetFeedbackWindow();
+  playout_delay_ms_.store(adaptive_controller_.GetPlayoutDelayMs());
 
   video_crypto_ = std::make_unique<FrameCrypto>(video_keys_.aes_key, video_keys_.aes_iv_mask);
   if (enable_audio_) {
@@ -410,7 +435,13 @@ bool CastSession::StartStreamingMedia() {
   // encoder sets its own origin from its first frame, and if the first audio
   // and video frames arrive at different times the receiver sees them on
   // different timelines, causing persistent A/V desync.
-  auto shared_clock_origin = std::chrono::steady_clock::now();
+  //
+  // The origin is latched slightly in the past because capture timestamps now
+  // come from the source (WASAPI QPC position / DXGI LastPresentTime) and can
+  // predate this call; encoders clamp negative offsets to zero, which would
+  // shift the first frames of one stream and break their relative alignment.
+  auto shared_clock_origin =
+      std::chrono::steady_clock::now() - std::chrono::milliseconds(500);
   video_encoder_->SetClockOrigin(shared_clock_origin);
 
   if (enable_audio_) {
@@ -561,6 +592,9 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     return;
   }
 
+  last_video_capture_us_.store(SteadyUs(vf.timestamp));
+  SampleAvCaptureOffset();
+
   // Structured diagnostics: per-frame breadcrumb capture->gpu->encode->crypto->rtp->udp
   // capture stage starts now, gpu is inside Encode (BGRA->YUV), encode measured directly
   auto pipeline_start = std::chrono::steady_clock::now();
@@ -590,12 +624,14 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
   }
 
   // Synchronize adaptive playout delay target with video frame emission
-  int adapted_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
+  // Use the latched delay (updated once per adaptation tick) so audio and
+  // video never advertise different latencies during an adaptation step,
+  // which would momentarily desync the two streams.
+  int adapted_delay_ms = playout_delay_ms_.load();
   if (adapted_delay_ms > 0) {
     raw_frame.playout_delay = std::chrono::milliseconds(adapted_delay_ms);
   }
 
-  // crypto stage
   std::vector<uint8_t> encrypted_payload = video_crypto_->Encrypt(raw_frame.frame_id, raw_frame.data);
   raw_frame.data = std::move(encrypted_payload);
 
@@ -633,12 +669,15 @@ void CastSession::ProcessAudioFrame(const CapturedAudioFrame& af) {
     return;
   }
 
+  last_audio_capture_us_.store(SteadyUs(af.timestamp));
+  SampleAvCaptureOffset();
+
   EncodedFrame raw_frame;
   if (!audio_encoder_->Encode(af, raw_frame)) {
     return;
   }
 
-  int adapted_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
+  int adapted_delay_ms = playout_delay_ms_.load();
   if (adapted_delay_ms > 0) {
     raw_frame.playout_delay = std::chrono::milliseconds(adapted_delay_ms);
   }
@@ -662,6 +701,14 @@ void CastSession::InjectSilenceAudioFrame() {
   ProcessAudioFrame(af);
 }
 
+void CastSession::SampleAvCaptureOffset() {
+  const int64_t audio_us = last_audio_capture_us_.load();
+  const int64_t video_us = last_video_capture_us_.load();
+  if (audio_us == 0 || video_us == 0) return;
+  av_offset_sum_us_.fetch_add(audio_us - video_us);
+  av_offset_count_.fetch_add(1);
+}
+
 void CastSession::MaybeLogSessionStats() {
   auto now = std::chrono::steady_clock::now();
   if (last_session_log_.time_since_epoch().count() != 0 &&
@@ -677,6 +724,12 @@ void CastSession::MaybeLogSessionStats() {
            << " bitrate=" << s.bitrate_kbps << "kbps"
            << " fps=" << s.current_fps
            << " audio_ok=" << (enable_audio_ ? "yes" : "off");
+  const int64_t offset_samples = av_offset_count_.exchange(0);
+  const int64_t offset_sum = av_offset_sum_us_.exchange(0);
+  if (offset_samples > 0) {
+    LOG_INFO << "A/V capture offset avg: " << (offset_sum / offset_samples)
+             << " us over " << offset_samples << " samples";
+  }
 }
 
 void CastSession::AdaptationLoop() {
@@ -758,6 +811,11 @@ void CastSession::AdaptationLoop() {
     }
     if (stop_requested_.load()) break;
     if (recovery_.IsRecovering()) continue;
+
+    // Latch the adaptive playout delay once per tick; both the audio and the
+    // video packetizer read this single value so their latency extensions
+    // always agree.
+    playout_delay_ms_.store(adaptive_controller_.GetPlayoutDelayMs());
 
     if (fail_requested_.load()) {
       RequestReconnect(fail_reason_.empty() ? "Connection lost" : fail_reason_);

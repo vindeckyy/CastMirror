@@ -1,5 +1,6 @@
 #include "castcore/http_fallback_server.h"
 #include "castcore/logger.h"
+#include "castcore/net_platform.h"
 
 #include <cstring>
 #include <sstream>
@@ -28,8 +29,10 @@ bool HttpFallbackServer::Start(uint16_t requested_port) {
   Stop();
 
 #if defined(_WIN32)
-  WSADATA wsa;
-  WSAStartup(MAKEWORD(2, 2), &wsa);
+  if (!EnsureSocketInit()) {
+    LOG_ERROR << "Socket subsystem initialization failed";
+    return false;
+  }
 #endif
 
   server_socket_ = socket(AF_INET, SOCK_STREAM, 0);

@@ -4,6 +4,7 @@
 #include "castcore/types.h"
 #include <vector>
 #include <cstdint>
+#include <chrono>
 
 namespace castcore {
 
@@ -14,6 +15,11 @@ struct RtpPacket {
   uint16_t packet_id = 0;
   uint16_t max_packet_id = 0;
   bool is_key_frame = false;
+  // Capture instant of the media this packet carries. The packetizer copies it
+  // from EncodedFrame::capture_time so the transport can map the frame's RTP
+  // timestamp back to the wall-clock instant it was captured, which is what an
+  // RTCP Sender Report must advertise (not the send instant).
+  std::chrono::steady_clock::time_point capture_time{};
 };
 
 class RtpPacketizer {

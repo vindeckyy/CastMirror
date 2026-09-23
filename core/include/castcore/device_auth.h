@@ -30,10 +30,15 @@ class DeviceAuth {
   static DeviceAuthResult VerifyPeerCertificate(X509* peer_cert,
                                                 STACK_OF(X509)* untrusted_chain = nullptr);
 
-  // Custom verify callback for OpenSSL SSL_CTX_set_verify
+  // OpenSSL verify callback that records why chain validation failed but
+  // still accepts the handshake. Cast receivers always present a self-signed
+  // TLS certificate; authenticity is established afterwards by the
+  // device-auth challenge/response (see VerifyAuthResponse).
   static int SslVerifyCallback(int preverify_ok, X509_STORE_CTX* ctx);
 
-  // Configure SSL_CTX with Cast Root CA store and peer verification policy
+  // Configure SSL_CTX to request the device certificate. With
+  // verify_device_cert=true the chain is inspected (and failures logged) but
+  // never fails the handshake; the flag only gates the device-auth check.
   static bool ConfigureSslContext(SSL_CTX* ctx, bool verify_device_cert);
 
   // Verify a raw DER leaf certificate + untrusted intermediates against Cast Root Store
@@ -44,12 +49,15 @@ class DeviceAuth {
   // Generate a random 16-byte nonce for DeviceAuth challenge
   static std::vector<uint8_t> GenerateNonce(size_t length = 16);
 
-  // Verify Cast DeviceAuth response signature and certificate chain
+  // Verify a Cast DeviceAuth response: the certificate chain must anchor in
+  // the Cast/Eureka root CAs and `signature` must verify over
+  // `signature_input` (the echoed sender nonce followed by the TLS peer
+  // certificate DER, per the Cast protocol) with the leaf's public key.
   static DeviceAuthResult VerifyAuthResponse(
       const std::vector<uint8_t>& leaf_cert_der,
       const std::vector<std::vector<uint8_t>>& intermediates_der,
       const std::vector<uint8_t>& signature,
-      const std::vector<uint8_t>& nonce);
+      const std::vector<uint8_t>& signature_input);
 
   // Raw DER constants accessors for testing
   static const uint8_t* GetCastRootCaDer(size_t* len);

@@ -370,6 +370,8 @@ struct SessionOptions {
   uint32_t audio_bitrate_bps = 192000;
   int capture_fps = 0;                  // 0 = follow display refresh
   int target_delay_ms = 200;
+  // Ignored on Windows: zeroing the endpoint volume can mute WASAPI loopback
+  // capture (driver-dependent), which would send silence to the receiver.
   bool silence_host_speakers = true;
   bool adaptive_enabled = true;
   bool adaptive_resolution_enabled = true;

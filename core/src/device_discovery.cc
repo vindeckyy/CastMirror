@@ -1,6 +1,7 @@
 #include "castcore/device_discovery.h"
 #include "castcore/logger.h"
 #include "castcore/config.h"
+#include "castcore/net_platform.h"
 
 #include <nlohmann/json.hpp>
 #include <cstring>
@@ -109,11 +110,20 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
       return false;
     }
 
+#if defined(_WIN32)
+    // Windows SO_RCVTIMEO/SO_SNDTIMEO take a DWORD in milliseconds, not a
+    // struct timeval — passing a timeval is read as timeout=0 (infinite) and
+    // can hang the probe forever.
+    DWORD sock_timeout_ms = static_cast<DWORD>(kTimeoutUs / 1000);
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&sock_timeout_ms), sizeof(sock_timeout_ms));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sock_timeout_ms), sizeof(sock_timeout_ms));
+#else
     struct timeval tv{};
     tv.tv_sec = 0;
     tv.tv_usec = kTimeoutUs;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+#endif
 
 #if defined(_WIN32)
     u_long mode = 1;
@@ -134,15 +144,21 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
       connected = true;
     } else {
 #if defined(_WIN32)
-      fd_set setW;
+      fd_set setW, setE;
       FD_ZERO(&setW);
+      FD_ZERO(&setE);
       FD_SET(fd, &setW);
+      FD_SET(fd, &setE);
       struct timeval ctv{};
       ctv.tv_sec = 0;
       ctv.tv_usec = kTimeoutUs;
-      int sel = select(0, nullptr, &setW, nullptr, &ctv);
-      if (sel > 0 && FD_ISSET(fd, &setW)) {
-        connected = true;
+      int sel = select(0, nullptr, &setW, &setE, &ctv);
+      if (sel > 0 && FD_ISSET(fd, &setW) && !FD_ISSET(fd, &setE)) {
+        int err = 0;
+        socklen_t len = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &len) == 0 && err == 0) {
+          connected = true;
+        }
       }
 #else
       // Non-blocking connect: poll for writability with timeout
@@ -284,6 +300,15 @@ DeviceDiscovery::~DeviceDiscovery() {
 
 bool DeviceDiscovery::Start() {
   if (running_.exchange(true)) return true;
+
+  // Winsock must be up before the discovery thread calls socket(); on POSIX
+  // this is a no-op. Without it every socket() call fails with
+  // WSANOTINITIALISED and discovery silently finds nothing.
+  if (!EnsureSocketInit()) {
+    LOG_ERROR << "Socket subsystem initialization failed; discovery cannot run";
+    running_ = false;
+    return false;
+  }
 
   LOG_INFO << "Starting Cast device discovery...";
   discovery_thread_ = std::thread(&DeviceDiscovery::DiscoveryLoop, this);
@@ -525,35 +550,32 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
   unsigned char loop = 1;
   setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_LOOP, reinterpret_cast<const char*>(&loop), sizeof(loop));
 
-#if !defined(_WIN32)
-  // Transmit on each non-loopback network interface
-  struct ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) != -1) {
-    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
-      if (ifa->ifa_flags & IFF_LOOPBACK) continue;
-      if (!(ifa->ifa_flags & IFF_UP)) continue;
+  // Transmit on each active non-loopback IPv4 interface. This matters on
+  // multi-NIC machines (Ethernet + WiFi + VPN/virtual adapters): the default
+  // route can point at a virtual adapter while the Chromecasts live on the
+  // physical LAN, so only sending on the default interface loses devices.
+  for (const auto& iface : EnumerateIPv4Interfaces()) {
+    if (!iface.is_up || iface.is_loopback) continue;
 
-      auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
-      setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_IF, &sa->sin_addr, sizeof(sa->sin_addr));
+    struct in_addr if_addr{};
+    if (inet_pton(AF_INET, iface.address.c_str(), &if_addr) <= 0) continue;
+    setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_IF,
+               reinterpret_cast<const char*>(&if_addr), sizeof(if_addr));
 
-      for (const auto& target : service_targets) {
-        size_t len = build_query(target, 0x0001, q_buf); // QM (Multicast response)
-        sendto(socket_fd, reinterpret_cast<const char*>(q_buf), len, 0,
-               reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
-        size_t qlen = build_query(target, 0x8001, q_buf); // QU (Unicast response)
-        sendto(socket_fd, reinterpret_cast<const char*>(q_buf), qlen, 0,
-               reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
-      }
+    for (const auto& target : service_targets) {
+      size_t len = build_query(target, 0x0001, q_buf); // QM (Multicast response)
+      sendto(socket_fd, reinterpret_cast<const char*>(q_buf), len, 0,
+             reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
+      size_t qlen = build_query(target, 0x8001, q_buf); // QU (Unicast response)
+      sendto(socket_fd, reinterpret_cast<const char*>(q_buf), qlen, 0,
+             reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
     }
-    freeifaddrs(ifaddr);
   }
-#endif
 
   // Default interface send
   struct in_addr any_addr{};
   any_addr.s_addr = htonl(INADDR_ANY);
-  setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_IF, &any_addr, sizeof(any_addr));
+  setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_IF, reinterpret_cast<const char*>(&any_addr), sizeof(any_addr));
 
   for (const auto& target : service_targets) {
     size_t len = build_query(target, 0x0001, q_buf);
@@ -672,6 +694,9 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
 
 void DeviceDiscovery::DiscoveryLoop() {
   int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) {
+    LOG_ERROR << "Failed to create mDNS discovery socket: " << SocketErrorString();
+  }
   if (fd >= 0) {
     int reuse = 1;
 #if defined(SO_REUSEPORT)
@@ -685,8 +710,13 @@ void DeviceDiscovery::DiscoveryLoop() {
     bind_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(fd, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
+      LOG_WARN << "mDNS bind to port " << kMdnsPort << " failed: " << SocketErrorString()
+               << " — discovery will rely on unicast replies and subnet probing";
       close(fd);
       fd = socket(AF_INET, SOCK_DGRAM, 0);
+      if (fd < 0) {
+        LOG_ERROR << "Failed to recreate discovery socket: " << SocketErrorString();
+      }
     }
 
     if (fd >= 0) {
@@ -696,24 +726,15 @@ void DeviceDiscovery::DiscoveryLoop() {
       mreq.imr_interface.s_addr = htonl(INADDR_ANY);
       setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
 
-#if !defined(_WIN32)
-      // Join on each active non-loopback network interface
-      struct ifaddrs* ifaddr = nullptr;
-      if (getifaddrs(&ifaddr) != -1) {
-        for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-          if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
-          if (ifa->ifa_flags & IFF_LOOPBACK) continue;
-          if (!(ifa->ifa_flags & IFF_UP)) continue;
-
-          auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
-          struct ip_mreq if_mreq{};
-          inet_pton(AF_INET, kMdnsMulticastGroup, &if_mreq.imr_multiaddr);
-          if_mreq.imr_interface = sa->sin_addr;
-          setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&if_mreq), sizeof(if_mreq));
-        }
-        freeifaddrs(ifaddr);
+      // Join on each active non-loopback IPv4 interface so multicast replies
+      // reach us no matter which NIC the Chromecasts are on.
+      for (const auto& iface : EnumerateIPv4Interfaces()) {
+        if (!iface.is_up || iface.is_loopback) continue;
+        struct ip_mreq if_mreq{};
+        inet_pton(AF_INET, kMdnsMulticastGroup, &if_mreq.imr_multiaddr);
+        if (inet_pton(AF_INET, iface.address.c_str(), &if_mreq.imr_interface) <= 0) continue;
+        setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&if_mreq), sizeof(if_mreq));
       }
-#endif
 
       unsigned char ttl = 255;
       setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char*>(&ttl), sizeof(ttl));
@@ -770,30 +791,16 @@ void DeviceDiscovery::DiscoveryLoop() {
 void DeviceDiscovery::ProbeLocalSubnets() {
   std::vector<std::string> target_subnets;
 
-#if !defined(_WIN32)
-  struct ifaddrs* ifaddr = nullptr;
-  if (getifaddrs(&ifaddr) != -1) {
-    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
-      if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
-      if (ifa->ifa_flags & IFF_LOOPBACK) continue;
-      if (!(ifa->ifa_flags & IFF_UP)) continue;
-
-      auto* sa = reinterpret_cast<struct sockaddr_in*>(ifa->ifa_addr);
-      char ip_buf[INET_ADDRSTRLEN];
-      inet_ntop(AF_INET, &sa->sin_addr, ip_buf, sizeof(ip_buf));
-      std::string ip_str(ip_buf);
-      size_t last_dot = ip_str.rfind('.');
-      if (last_dot != std::string::npos) {
-        target_subnets.push_back(ip_str.substr(0, last_dot + 1));
-      }
+  // Probe the /24 containing each active non-loopback interface. This is the
+  // same heuristic used on every platform: Chromecasts are almost always on
+  // the host's own subnet, and a /24 keeps the probe bounded (~4s at 64/s).
+  for (const auto& iface : EnumerateIPv4Interfaces()) {
+    if (!iface.is_up || iface.is_loopback) continue;
+    size_t last_dot = iface.address.rfind('.');
+    if (last_dot != std::string::npos) {
+      target_subnets.push_back(iface.address.substr(0, last_dot + 1));
     }
-    freeifaddrs(ifaddr);
   }
-#else
-  // Windows fallback default subnets
-  target_subnets.push_back("192.168.0.");
-  target_subnets.push_back("192.168.1.");
-#endif
 
   // Remove duplicates
   std::sort(target_subnets.begin(), target_subnets.end());

@@ -65,6 +65,10 @@ struct AppConfig {
   bool adaptive_resolution_enabled = true;
   bool verify_device_cert = true;
   bool latency_hud_enabled = false;
+  // UI color scheme preference ("", "light", "dark"). Empty means "follow the
+  // system". Only the Windows (WinUI) front-end reads it today; persisted here
+  // so settings stay in a single config file.
+  std::string ui_theme;
 
   // Per-device profile persistence
   std::map<std::string, DeviceProfile> device_profiles;

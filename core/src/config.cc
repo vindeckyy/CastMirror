@@ -106,6 +106,12 @@ void AppConfig::Validate() {
 }
 
 std::string ConfigStore::GetDefaultConfigPath() {
+  // Tests and portable runs redirect the config away from the user profile;
+  // without this a test binary would rewrite the user's real settings.
+  const char* override_dir = std::getenv("CASTMIRROR_CONFIG_DIR");
+  if (override_dir && override_dir[0] != '\0') {
+    return (fs::path(override_dir) / "config.json").string();
+  }
 #if defined(_WIN32)
   const char* appdata = std::getenv("APPDATA");
   if (appdata) {
@@ -211,6 +217,7 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("adaptive_resolution_enabled")) config_.adaptive_resolution_enabled = j["adaptive_resolution_enabled"].get<bool>();
     if (j.contains("verify_device_cert")) config_.verify_device_cert = j["verify_device_cert"].get<bool>();
     if (j.contains("latency_hud_enabled")) config_.latency_hud_enabled = j["latency_hud_enabled"].get<bool>();
+    if (j.contains("ui_theme")) config_.ui_theme = j["ui_theme"].get<std::string>();
 
     config_.Validate();
     LOG_INFO << "Loaded configuration from " << path_to_load;
@@ -288,6 +295,7 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["adaptive_resolution_enabled"] = config_.adaptive_resolution_enabled;
     j["verify_device_cert"] = config_.verify_device_cert;
     j["latency_hud_enabled"] = config_.latency_hud_enabled;
+    j["ui_theme"] = config_.ui_theme;
 
     // Atomic write: write to tmp + fsync + rename, backup previous
     std::string tmp_path = path_to_save + ".tmp";

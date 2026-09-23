@@ -4,7 +4,13 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
 #include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <chrono>
 #include <cstring>
 #include <string>
@@ -13,6 +19,8 @@
 
 #if !defined(_WIN32)
   #include <pulse/pulseaudio.h>
+#else
+  #include "castcore/audio_capture_wasapi.h"
 #endif
 
 namespace castcore {
@@ -553,8 +561,6 @@ class PulseAudioCapture : public IAudioCapture {
   bool have_saved_volume_ = false;
 };
 #endif
-
-#include "castcore/audio_capture_wasapi.h"
 
 std::unique_ptr<IAudioCapture> AudioCaptureFactory::Create() {
 #if defined(_WIN32)
