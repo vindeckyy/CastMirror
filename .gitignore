@@ -25,5 +25,13 @@ CMakeUserPresets.json
 !docs/bench/
 !docs/bench/baseline.csv
 
+# Windows publish output (self-contained WinUI bundle, 80+ locale dirs)
+publish/
+
+# MSBuild intermediate/output trees (machine-local project.assets.json lives here)
+app/winui/bin/
+app/winui/obj/
+
 # Agent workspace artifacts
 .agents/
+.empryo

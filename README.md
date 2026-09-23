@@ -34,7 +34,7 @@ The shipping UI is a **GTK 4 + libadwaita** desktop app. A CLI is included.
 - Not Sunshine or Moonlight (those are ~20–50 ms game streams; Cast keeps a **playout delay**, about **200 ms** here)
 - Not an HLS/DASH “fling” to the Default Media Receiver
 - **Not affiliated with Google.** Chromecast, Google Cast, and Google TV are Google trademarks
-- `app/winui/` is a **blueprint**, not the shipping Windows product
+- `app/winui/` is a Windows client built on the same core; the GTK app remains the primary target and Windows is not covered by CI
 
 Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is private as a product and open as a protocol. CastMirror implements that protocol as a LAN sender.
 
@@ -48,6 +48,7 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 - Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop
 - **Adaptive bitrate is always on**: it holds your selected bitrate target, drops on congestion, and ramps back up aggressively once the link recovers
 - **Appearance & Diagnostics** — System / Light / Dark theme switcher and built-in hardware/network self-test wizard
+- **Windows client (WinUI 3)** — settings parity with the Linux GUI (bitrate, capture fps, audio quality, playout delay, latency HUD, subnet scan, tray, notifications, theme, self-test), Freeze/Mute TV live controls, and a paced `Windows.Graphics.Capture` loop that holds a steady 30 or 60 fps even on a static desktop
 - AES-128-CTR per-frame media crypto as required by Cast Streaming
 - TLS control plane on port **8009**
 - Stop budget under **500 ms** (capture does not run except during a live session)
@@ -147,7 +148,7 @@ Chromecast 3rd gen, Ultra, Google TV / Streamer, and built-in Cast TVs. **Nest H
 CastMirror/
 ├── app/gui/                 # Shipping GTK 4 + libadwaita UI
 ├── app/cli/                 # Interactive / flag CLI
-├── app/winui/               # Windows UI blueprint (not v1 shipping)
+├── app/winui/               # Windows client (WinUI 3)
 ├── core/                    # castcore C++20 library
 ├── tests/                   # Google Test
 ├── tools/                   # poc-control, poc-streaming, poc-encode, poc-join, fake-receiver

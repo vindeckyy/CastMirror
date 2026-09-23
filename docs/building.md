@@ -60,6 +60,7 @@ Config and logs: `~/.config/castmirror/config.json` and `~/.config/castmirror/ca
 
 - `CASTMIRROR_FORCE_SOFTWARE_ENCODE=1`: Force FFmpeg `libx264` software encoding even on systems where VAAPI hardware encoding is available.
 - `CASTMIRROR_FORCE_X11=1`: Force X11 display capture instead of the PipeWire portal when running under a Wayland compositor via XWayland.
+- `CASTMIRROR_CONFIG_DIR=/path/to/dir`: Read and write `config.json` in this directory instead of the default per-user location (used by the test binary to keep test runs off your real settings).
 
 ## Network
 
@@ -71,4 +72,17 @@ Capture uses the PulseAudio/PipeWire **default sink monitor**. While mirroring w
 
 ## Windows
 
-`app/winui/` is a UI blueprint. There is no supported Windows CI or shipping DXGI/WASAPI GUI in v1.
+`app/winui/` is the Windows client (WinUI 3) on top of the same `castcore`: display capture uses `Windows.Graphics.Capture`, audio uses WASAPI loopback, and the settings window mirrors the Linux GUI (bitrate cap, capture fps, audio quality, playout delay, latency HUD, subnet scan, force software encode, tray, close-to-tray, notifications, theme, self-test).
+
+```bat
+:: core first (MSYS2 UCRT64 toolchain), then the app
+cmake -S . -B build -G Ninja
+cmake --build build
+
+cd app\winui
+dotnet build CastMirrorApp.csproj -p:Platform=x64 -r win-x64 --self-contained true
+```
+
+The app loads `castcore.dll` from `PATH`, so add the core build output (e.g. `build\core`) before launching. Settings persist to `%APPDATA%\CastMirror\config.json` through the same `ConfigStore` the Linux build uses, so `capture_fps`, per-preset bitrate caps, and the rest of the config apply identically. Set `CASTMIRROR_CONFIG_DIR` to redirect that file (the test binary does this so it never rewrites your settings).
+
+Capture is paced: the capture loop re-sends the newest frame on a fixed cadence, so a 30/60 fps session keeps its rate on a static desktop instead of collapsing to zero and tripping the stall detector. Windows is not covered by CI.
