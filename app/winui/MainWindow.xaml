@@ -38,20 +38,62 @@
                 <ColumnDefinition Width="1*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Left: Display Preview Stage -->
+            <!-- Left: Session Status Stage -->
             <Border Grid.Column="0" Margin="0,0,16,0" Background="#111115" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
                 <Grid>
-                    <Image Source="{x:Bind ViewModel.LiveThumbnail, Mode=OneWay}" Stretch="Uniform"/>
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}">
-                        <ProgressRing IsActive="True" Width="48" Height="48"/>
-                        <TextBlock Text="Looking for Cast devices on your Wi-Fi..." Margin="0,12,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" MaxWidth="420">
+                        <FontIcon Glyph="&#xE7F4;" FontSize="48" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                        <TextBlock Text="{x:Bind ViewModel.PreviewTitle, Mode=OneWay}"
+                                   FontSize="20" FontWeight="SemiBold" Foreground="White"
+                                   HorizontalAlignment="Center" TextAlignment="Center"/>
+                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextAlignment="Center" TextWrapping="Wrap"/>
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}"
+                                      Visibility="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}"
+                                      Width="32" Height="32"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
             <!-- Right: Device Selector & Quality Controls -->
             <StackPanel Grid.Column="1" Spacing="16">
-                <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Rescan" Click="OnRescanClicked" Padding="10,4" FontSize="12" Margin="0,0,8,0"/>
+                    <Button Grid.Column="2" Content="Add by IP" Click="OnAddByIpClicked" Padding="10,4" FontSize="12"/>
+                </Grid>
+
+                <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                        CornerRadius="4" Padding="10,8"
+                        Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="1"
+                                Click="OnDismissErrorClicked"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Padding="6,2"
+                                Margin="8,0,0,0"
+                                ToolTipService.ToolTip="Dismiss">
+                            <FontIcon Glyph="&#xE711;" FontSize="12"
+                                      Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                        </Button>
+                    </Grid>
+                </Border>
 
                 <ListView ItemsSource="{x:Bind ViewModel.Devices, Mode=OneWay}" SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}" MaxHeight="220">
                     <ListView.ItemTemplate>
@@ -73,31 +115,67 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                <!-- Source Display Picker -->
-                <TextBlock Text="Source Display" FontSize="14" FontWeight="Medium"/>
-                <ComboBox ItemsSource="{x:Bind ViewModel.Displays, Mode=OneWay}" SelectedIndex="0" HorizontalAlignment="Stretch"/>
+                <!-- Capture Source Picker -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Capture Source" FontSize="14" FontWeight="Medium" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="Refresh" Click="OnRefreshSourcesClicked" Padding="10,4" FontSize="12"/>
+                </Grid>
+                <ComboBox ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
+                          SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=TwoWay}"
+                          DisplayMemberPath="Name"
+                          HorizontalAlignment="Stretch"/>
 
                 <!-- Quality Preset Selector -->
                 <TextBlock Text="Quality Preset" FontSize="14" FontWeight="Medium"/>
-                <Segmented SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch">
-                    <SegmentedItem Content="Auto"/>
-                    <SegmentedItem Content="High"/>
-                    <SegmentedItem Content="Balanced"/>
-                    <SegmentedItem Content="Smooth"/>
-                </Segmented>
+                <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="Auto"/>
+                    <ComboBoxItem Content="High"/>
+                    <ComboBoxItem Content="Balanced"/>
+                    <ComboBoxItem Content="Smooth"/>
+                    <ComboBoxItem Content="Game (Low Latency)"/>
+                    <ComboBoxItem Content="Cinema"/>
+                </ComboBox>
 
                 <!-- Audio Toggle -->
                 <ToggleSwitch Header="System Audio" IsOn="{x:Bind ViewModel.AudioEnabled, Mode=TwoWay}"/>
 
+                <!-- Live session controls -->
+                <StackPanel Orientation="Horizontal" Spacing="20"
+                            Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
+                    <ToggleSwitch Header="Freeze" IsOn="{x:Bind ViewModel.FreezeStream, Mode=TwoWay}"/>
+                    <ToggleSwitch Header="Mute TV audio" IsOn="{x:Bind ViewModel.MuteTvAudio, Mode=TwoWay}"/>
+                </StackPanel>
+
                 <!-- Primary Action Button -->
-                <Button Content="{x:Bind ViewModel.ActionButtonText, Mode=OneWay}"
-                        Background="{x:Bind ViewModel.ActionButtonBrush, Mode=OneWay}"
-                        Foreground="White"
-                        FontSize="16"
-                        FontWeight="SemiBold"
-                        Padding="0,12"
-                        HorizontalAlignment="Stretch"
-                        Click="OnActionButtonClicked"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Content="{x:Bind ViewModel.ActionButtonText, Mode=OneWay}"
+                            IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
+                            Background="{x:Bind ViewModel.ActionButtonBrush, Mode=OneWay}"
+                            Foreground="White"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Padding="0,12"
+                            HorizontalAlignment="Stretch"
+                            Click="OnActionButtonClicked"/>
+                    <ProgressRing Grid.Column="1"
+                                  IsActive="{x:Bind ViewModel.CastPending, Mode=OneWay}"
+                                  Visibility="{x:Bind ViewModel.CastPending, Mode=OneWay}"
+                                  Width="24" Height="24"
+                                  Margin="10,0,0,0"/>
+                </Grid>
+
+                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                           FontSize="12"
+                           TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
         </Grid>
 
@@ -106,6 +184,7 @@
             <Grid>
                 <StackPanel Orientation="Horizontal" Spacing="24">
                     <TextBlock Text="{x:Bind ViewModel.StatsFpsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.StatsQualityText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock Text="{x:Bind ViewModel.StatsBitrateText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock Text="{x:Bind ViewModel.StatsLatencyText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock Text="{x:Bind ViewModel.StatsLossText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="CastMirror.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="CastMirror Settings">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Padding="20,14" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" Padding="20,16">
+            <StackPanel Spacing="10" MaxWidth="620" HorizontalAlignment="Left">
+
+                <!-- Picture &amp; encoding -->
+                <Expander Header="Picture &amp; encoding" IsExpanded="True" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Video bitrate cap" FontWeight="Medium"/>
+                            <TextBlock Text="Bitrate CastMirror holds while streaming. Drops only on network congestion and ramps back up quickly when the link recovers."
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Slider x:Name="BitrateSlider" Maximum="25000" Minimum="1000" StepFrequency="500"
+                                    SnapsTo="StepValues" ValueChanged="OnBitrateChanged" Margin="0,6,0,0"/>
+                            <TextBlock x:Name="BitrateValueText" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Capture frame rate" FontWeight="Medium"/>
+                            <TextBlock Text="Most Cast devices only accept 30 or 60 fps. Auto follows the monitor's refresh rate, clamped to what the TV supports."
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ComboBox x:Name="FpsCombo" HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                                      SelectionChanged="OnFpsChanged">
+                                <ComboBoxItem Content="Auto"/>
+                                <ComboBoxItem Content="24 fps"/>
+                                <ComboBoxItem Content="25 fps"/>
+                                <ComboBoxItem Content="30 fps"/>
+                                <ComboBoxItem Content="50 fps"/>
+                                <ComboBoxItem Content="60 fps"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <ToggleSwitch x:Name="SteadySwitch" Header="Steady frame rate"
+                                      OnContent="On" OffContent="Off" Toggled="OnSteadyToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Locks resolution and frame rate for smooth video. Turn off to let CastMirror lower the resolution when the network is congested."/>
+
+                        <ToggleSwitch x:Name="SoftwareEncodeSwitch" Header="Force software encode"
+                                      OnContent="On" OffContent="Off" Toggled="OnSoftwareEncodeToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Never use the Media Foundation hardware encoder; always encode with libx264 on the CPU. Takes effect on the next cast."/>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Audio -->
+                <Expander Header="Audio" IsExpanded="True" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                        <ToggleSwitch x:Name="AudioSwitch" Header="Computer sound"
+                                      OnContent="On" OffContent="Off" Toggled="OnAudioToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Streams the system audio output (WASAPI loopback) to the TV."/>
+
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Audio quality" FontWeight="Medium"/>
+                            <TextBlock Text="Opus bitrate. 192 kbps is recommended; 64 kbps is best for weak Wi-Fi."
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ComboBox x:Name="AudioQualityCombo" HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                                      SelectionChanged="OnAudioQualityChanged">
+                                <ComboBoxItem Content="64 kbps"/>
+                                <ComboBoxItem Content="96 kbps"/>
+                                <ComboBoxItem Content="128 kbps"/>
+                                <ComboBoxItem Content="192 kbps"/>
+                                <ComboBoxItem Content="256 kbps"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <ToggleSwitch x:Name="SilenceSwitch" Header="Mute sound while streaming"
+                                      IsEnabled="False" OnContent="On" OffContent="Off"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Not supported on Windows: muting the speaker would also mute the captured audio."/>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Latency &amp; buffering -->
+                <Expander Header="Latency &amp; buffering" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Target delay" FontWeight="Medium"/>
+                            <TextBlock Text="How long the TV waits before drawing each frame (buffer depth). 200 ms gives responsive cursor movement; 400 ms is Chrome's default buffer to withstand Wi-Fi retransmits."
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Slider x:Name="DelaySlider" Maximum="400" Minimum="100" StepFrequency="10"
+                                    SnapsTo="StepValues" ValueChanged="OnDelayChanged" Margin="0,6,0,0"/>
+                            <TextBlock x:Name="DelayValueText" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <ToggleSwitch x:Name="LatencyHudSwitch" Header="Latency HUD overlay"
+                                      OnContent="On" OffContent="Off" Toggled="OnLatencyHudToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Draws frame rate, bitrate and round-trip time into the streamed picture."/>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Device discovery -->
+                <Expander Header="Device discovery" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                        <ToggleSwitch x:Name="SubnetScanSwitch" Header="Scan LAN for silent TVs"
+                                      OnContent="On" OffContent="Off" Toggled="OnSubnetScanToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="TCP-probes port 8009 on your local /24 subnet if mDNS discovery is blocked."/>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Desktop integration -->
+                <Expander Header="Desktop integration" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                        <ToggleSwitch x:Name="TraySwitch" Header="Show a system tray icon"
+                                      OnContent="On" OffContent="Off" Toggled="OnTrayToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Lets CastMirror keep running even if you close the application window."/>
+
+                        <ToggleSwitch x:Name="CloseToTraySwitch" Header="Closing window hides to tray"
+                                      OnContent="On" OffContent="Off" Toggled="OnCloseToTrayToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="When enabled, the window close button minimizes to the tray instead of quitting."/>
+
+                        <ToggleSwitch x:Name="NotifySwitch" Header="Desktop notifications"
+                                      OnContent="On" OffContent="Off" Toggled="OnNotifyToggled"/>
+                        <TextBlock x:Name="NotifyHelpText" Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Shows desktop notifications when casting starts, disconnects, or reconnects."/>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Appearance -->
+                <Expander Header="Appearance" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="10" Padding="4,10,4,4">
+                        <TextBlock Text="Color scheme" FontWeight="Medium"/>
+                        <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Stretch"
+                                  SelectionChanged="OnThemeChanged">
+                            <ComboBoxItem Content="System default"/>
+                            <ComboBoxItem Content="Light"/>
+                            <ComboBoxItem Content="Dark"/>
+                        </ComboBox>
+                    </StackPanel>
+                </Expander>
+
+                <!-- Diagnostics -->
+                <Expander Header="Diagnostics" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <StackPanel Spacing="10" Padding="4,10,4,4">
+                        <Button Content="Run self-test" Click="OnSelfTestClicked"/>
+                        <TextBlock x:Name="SelfTestText" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Button Content="Open logs folder" Click="OnOpenLogsClicked"/>
+                    </StackPanel>
+                </Expander>
+
+                <TextBlock x:Name="SaveErrorText" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"
+                           Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
