@@ -1,4 +1,5 @@
 #include "castcore/logger.h"
+#include "castcore/net_platform.h"
 #include "castcore/types.h"
 #include "cast_channel.pb.h"
 #include <nlohmann/json.hpp>
@@ -67,6 +68,10 @@ class FakeCastReceiver {
   }
 
   bool Start() {
+    if (!EnsureSocketInit()) {
+      LOG_ERROR << "Failed to initialize the socket subsystem";
+      return false;
+    }
     running_ = true;
     is_ready_ = false;
     tls_thread_ = std::thread(&FakeCastReceiver::TlsServerLoop, this);
@@ -337,7 +342,7 @@ class FakeCastReceiver {
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
     if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-      LOG_ERROR << "Fake receiver failed to bind TLS port " << tls_port_ << " (" << strerror(errno) << ")";
+      LOG_ERROR << "Fake receiver failed to bind TLS port " << tls_port_ << " (" << SocketErrorString() << ")";
       SSL_CTX_free(ctx);
       return;
     }
@@ -473,6 +478,63 @@ class FakeCastReceiver {
     SSL_CTX_free(ctx);
   }
 
+  // RTCP Sender Report (PT 200, RFC 3550 layout) riding the media 5-tuple.
+  // The sender stamps the NTP field with the capture instant of the frame whose
+  // RTP timestamp it advertises (cast_transport.cc SendPackets), so
+  // (SR NTP - local arrival) is negative by that frame's capture->send latency:
+  // ~1-5 ms audio, ~20-40 ms video (encode + pacing). A silent fallback to the
+  // send instant would pin both offsets to ~0.
+  // Arrival is sampled on system_clock because the SR's NTP field is Unix-epoch
+  // wall time; the audio-minus-video delta cancels this host's residual clock
+  // offset, the same way the RTP epoch probe below cancels the boot epoch.
+  void HandleSenderReport(const uint8_t* buf) {
+    const auto be32 = [](const uint8_t* p) {
+      return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+             (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+    };
+    const uint32_t ssrc = be32(buf + 4);
+    const uint32_t ntp_sec = be32(buf + 8);
+    const uint32_t ntp_frac = be32(buf + 12);
+    (void)be32(buf + 16);  // RTP timestamp: not needed by the offset metric.
+
+    const double sr_ntp_us = (static_cast<double>(ntp_sec) - 2208988800.0) * 1e6 +
+                             static_cast<double>(ntp_frac) * 1e6 / 4294967296.0;
+    const auto arrival = std::chrono::system_clock::now();
+    const double arrival_us =
+        std::chrono::duration_cast<std::chrono::duration<double, std::micro>>(
+            arrival.time_since_epoch())
+            .count();
+
+    SrProbe* probe = (ssrc == 1) ? &sr_audio_probe_ : (ssrc == 2) ? &sr_video_probe_ : nullptr;
+    if (probe) {
+      probe->offset_sum_us += sr_ntp_us - arrival_us;
+      probe->count++;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (last_sr_log_.time_since_epoch().count() == 0) {
+      last_sr_log_ = now;
+    } else if (now - last_sr_log_ >= std::chrono::seconds(5)) {
+      if (sr_audio_probe_.count > 0 && sr_video_probe_.count > 0) {
+        const double audio_ms = sr_audio_probe_.offset_sum_us / sr_audio_probe_.count / 1000.0;
+        const double video_ms = sr_video_probe_.offset_sum_us / sr_video_probe_.count / 1000.0;
+        std::string regressions =
+            ", audio ts regressions: " + std::to_string(audio_ts_regressions_);
+        if (audio_ts_regressions_ > 0) {
+          regressions += " (largest " +
+                         std::to_string(largest_audio_ts_regression_samples_ * 1000.0 / 48000.0) +
+                         " ms)";
+        }
+        LOG_INFO << "SR NTP offset: audio " << audio_ms << " ms over " << sr_audio_probe_.count
+                 << " SRs, video " << video_ms << " ms over " << sr_video_probe_.count
+                 << " SRs, delta " << (audio_ms - video_ms) << " ms" << regressions;
+      }
+      sr_audio_probe_ = SrProbe{};
+      sr_video_probe_ = SrProbe{};
+      last_sr_log_ = now;
+    }
+  }
+
   void UdpMediaLoop() {
     udp_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
     if (udp_fd_ < 0) return;
@@ -482,7 +544,7 @@ class FakeCastReceiver {
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
     if (bind(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-      LOG_ERROR << "Fake receiver failed to bind UDP port " << udp_port_ << " (" << strerror(errno) << ")";
+      LOG_ERROR << "Fake receiver failed to bind UDP port " << udp_port_ << " (" << SocketErrorString() << ")";
       return;
     }
 
@@ -526,8 +588,67 @@ class FakeCastReceiver {
         }
 
         packets_received_++;
+        // Audio rides payload type 127, video 96 (mirroring_negotiator.cc).
+        const uint8_t payload_type = (r >= 2) ? static_cast<uint8_t>(buf[1] & 0x7F) : 0;
         if (is_rtp) {
           video_packets_received_++;
+        }
+        // RTCP Sender Reports (PT 200, >= 28 bytes) share the media 5-tuple but
+        // never match the RTP test above, so they are handled in their own
+        // branch: RTP counters and the loss simulation stay untouched.
+        if (r >= 28 && buf[1] == 200) {
+          HandleSenderReport(buf);
+        }
+        if (r >= 12 && (payload_type == 96 || payload_type == 127)) {
+          const uint32_t ssrc = (static_cast<uint32_t>(buf[8]) << 24) |
+                                (static_cast<uint32_t>(buf[9]) << 16) |
+                                (static_cast<uint32_t>(buf[10]) << 8) | buf[11];
+          const uint32_t rtp_ts = (static_cast<uint32_t>(buf[4]) << 24) |
+                                  (static_cast<uint32_t>(buf[5]) << 16) |
+                                  (static_cast<uint32_t>(buf[6]) << 8) | buf[7];
+          const bool is_audio = (payload_type == 127);
+
+          // Audio timeline regression check (reported in the SR NTP line).
+          if (payload_type == 127 || ssrc == 1) {
+            if (audio_ts_valid_) {
+              const int32_t step = static_cast<int32_t>(rtp_ts - prev_audio_rtp_ts_);
+              if (step < 0) {
+                // Genuine backwards step: a drop of more than 2^31 wraps and
+                // therefore shows up as a positive step here.
+                audio_ts_regressions_++;
+                largest_audio_ts_regression_samples_ = std::max(
+                    largest_audio_ts_regression_samples_, prev_audio_rtp_ts_ - rtp_ts);
+              }
+            }
+            prev_audio_rtp_ts_ = rtp_ts;
+            audio_ts_valid_ = true;
+          }
+
+          if (is_audio || ssrc == 2) {
+            const double rate = is_audio ? 48000.0 : 90000.0;
+            const auto now = std::chrono::steady_clock::now();
+            const double arrival_us =
+                std::chrono::duration_cast<std::chrono::duration<double, std::micro>>(
+                    now.time_since_epoch())
+                    .count();
+            StreamProbe& probe = is_audio ? audio_probe_ : video_probe_;
+            probe.offset_sum_us += arrival_us - (static_cast<double>(rtp_ts) * 1e6 / rate);
+            probe.packets++;
+            if (last_probe_log_.time_since_epoch().count() == 0) {
+              last_probe_log_ = now;
+            } else if (now - last_probe_log_ >= std::chrono::seconds(5)) {
+              if (audio_probe_.packets > 0 && video_probe_.packets > 0) {
+                const double audio_ms = audio_probe_.offset_sum_us / audio_probe_.packets / 1000.0;
+                const double video_ms = video_probe_.offset_sum_us / video_probe_.packets / 1000.0;
+                LOG_INFO << "A/V epoch delta: " << (audio_ms - video_ms) << " ms (audio offset "
+                         << audio_ms << " ms over " << audio_probe_.packets << " pkts, video offset "
+                         << video_ms << " ms over " << video_probe_.packets << " pkts)";
+              }
+              audio_probe_ = StreamProbe{};
+              video_probe_ = StreamProbe{};
+              last_probe_log_ = now;
+            }
+          }
         }
 
         loop_count++;
@@ -554,6 +675,38 @@ class FakeCastReceiver {
   std::atomic<double> simulated_loss_rate_{0.0};
   std::atomic<int> jitter_min_ms_{0};
   std::atomic<int> jitter_max_ms_{0};
+
+  // A/V skew probe. RTP timestamps of the audio (SSRC 1) and video (SSRC 2)
+  // streams must be stamped from one shared sender clock epoch, so the mean of
+  // (arrival - rtp_time) over a window differs between the streams by exactly
+  // the A/V offset a receiver would play out. Both means use this process's
+  // clock, so transport jitter cancels.
+  struct StreamProbe {
+    double offset_sum_us = 0.0;
+    uint32_t packets = 0;
+  };
+  StreamProbe audio_probe_;
+  StreamProbe video_probe_;
+  std::chrono::steady_clock::time_point last_probe_log_{};
+
+  // RTCP Sender Report probe: sum of (SR NTP instant - local arrival instant),
+  // i.e. how far in the past the SR's announced instant is when it lands.
+  // SSRC 1 = audio, SSRC 2 = video (mirroring_negotiator.cc).
+  struct SrProbe {
+    double offset_sum_us = 0.0;
+    uint32_t count = 0;
+  };
+  SrProbe sr_audio_probe_;
+  SrProbe sr_video_probe_;
+  std::chrono::steady_clock::time_point last_sr_log_{};
+
+  // Cumulative audio RTP timestamp regressions (48 kHz samples): a capture-time
+  // audio timeline should never step backwards, but an idle->active transition
+  // could land a real packet behind the last silence frame's timestamp.
+  bool audio_ts_valid_ = false;
+  uint32_t prev_audio_rtp_ts_ = 0;
+  uint32_t audio_ts_regressions_ = 0;
+  uint32_t largest_audio_ts_regression_samples_ = 0;
 
   std::mutex sender_mutex_;
   struct sockaddr_in sender_addr_{};
@@ -622,7 +775,10 @@ int main(int argc, char** argv) {
   if (jitter_max > 0 || jitter_min > 0) {
     receiver.SetSimulatedJitter(jitter_min, jitter_max);
   }
-  receiver.Start();
+  if (!receiver.Start()) {
+    LOG_ERROR << "Fake Receiver failed to start";
+    return 1;
+  }
 
   LOG_INFO << "Fake Receiver ready on 127.0.0.1 (TLS:" << receiver.GetTlsPort()
            << " UDP:" << receiver.GetUdpPort() << "). Press Ctrl+C to terminate.";

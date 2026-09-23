@@ -4,7 +4,27 @@
 
 using namespace castcore;
 
+namespace {
+
+// ConfigStore is a process-wide singleton: without this guard a test that
+// mutates it leaks into every later test in the same binary (capture backend
+// selection, bitrates, fps). Snapshots on construction, restores on exit.
+class ConfigGuard {
+ public:
+  ConfigGuard() : saved_(ConfigStore::Instance().Get()) {}
+  ~ConfigGuard() { ConfigStore::Instance().Mutable() = saved_; }
+
+  ConfigGuard(const ConfigGuard&) = delete;
+  ConfigGuard& operator=(const ConfigGuard&) = delete;
+
+ private:
+  AppConfig saved_;
+};
+
+}  // namespace
+
 TEST(ConfigTest, DefaultsAndSaveLoad) {
+  ConfigGuard guard;
   std::string temp_path = "/tmp/castmirror_test_config.json";
   if (std::filesystem::exists(temp_path)) {
     std::filesystem::remove(temp_path);
@@ -86,6 +106,7 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
 }
 
 TEST(ConfigTest, PerDeviceProfilesPersistenceAndPresets) {
+  ConfigGuard guard;
   std::string temp_path = "/tmp/castmirror_test_device_profiles.json";
   if (std::filesystem::exists(temp_path)) {
     std::filesystem::remove(temp_path);

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "castcore/display_capture.h"
+#include "castcore/logger.h"
 #include "castcore/types.h"
 #include "castcore/gpu_processor.h"
 
@@ -33,6 +34,11 @@
 extern "C" {
 #include <X11/Xlib.h>
 }
+#else
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 using namespace castcore;
@@ -156,6 +162,142 @@ TEST(DisplayCaptureTest, X11StartHonorsDisplayId) {
   EXPECT_EQ(frame.width, EvenRound(target.width));
   EXPECT_EQ(frame.height, EvenRound(target.height));
 }
+#endif
+
+#if defined(_WIN32)
+// DXGI only delivers frames when the desktop changes, so the capturer must
+// re-send the newest frame on a fixed cadence. Without pacing, an idle desktop
+// starves the encoder and trips the session's video-stall detector.
+class WgcPacingTest : public ::testing::TestWithParam<int> {};
+
+// Moves a small always-on-top window so the desktop keeps changing for the
+// duration of the measurement; without it a static desktop yields no frames.
+class DesktopChangeProbe {
+ public:
+  DesktopChangeProbe() {
+    running_ = true;
+    thread_ = std::thread([this] {
+      WNDCLASSA wc{};
+      wc.lpfnWndProc = DefWindowProcA;
+      wc.hInstance = GetModuleHandleA(nullptr);
+      wc.lpszClassName = "CastMirrorPacingProbe";
+      RegisterClassA(&wc);
+      HWND hwnd = CreateWindowExA(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, wc.lpszClassName, "", WS_POPUP | WS_VISIBLE,
+                                  0, 0, 120, 120, nullptr, nullptr, wc.hInstance, nullptr);
+      if (hwnd == nullptr) return;
+      for (int i = 0; running_ && i < 5000; ++i) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 80 + (i * 13) % 600, 80 + (i * 7) % 400, 120, 120, SWP_NOACTIVATE);
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+      }
+      DestroyWindow(hwnd);
+    });
+  }
+
+  ~DesktopChangeProbe() {
+    running_ = false;
+    if (thread_.joinable()) thread_.join();
+  }
+
+ private:
+  std::atomic<bool> running_{false};
+  std::thread thread_;
+};
+
+// Steady cadence: the requested rate ±25% (the first frame lands up to one
+// interval after Start), monotonically advancing timestamps, and no gap beyond
+// ~3 nominal intervals — a count-only check would also pass a burst.
+void ExpectSteadyCadence(const std::vector<std::chrono::steady_clock::time_point>& stamps, int target_fps,
+                         int seconds) {
+  const int count = static_cast<int>(stamps.size());
+  const int expected = target_fps * seconds;
+  EXPECT_GE(count, expected * 3 / 4) << "too few frames: capture is not paced on an idle desktop";
+  EXPECT_LE(count, expected * 5 / 4) << "too many frames: pacing is bursting";
+  for (size_t i = 1; i < stamps.size(); ++i) {
+    EXPECT_GT(stamps[i], stamps[i - 1]) << "frame timestamps must advance monotonically";
+  }
+
+  long long max_gap_ms = 0;
+  for (size_t i = 1; i < stamps.size(); ++i) {
+    max_gap_ms = std::max(max_gap_ms,
+                          std::chrono::duration_cast<std::chrono::milliseconds>(stamps[i] - stamps[i - 1]).count());
+  }
+  LOG_INFO << "Paced capture @" << target_fps << "fps: " << count << " frames in " << seconds << " s ("
+           << (count / static_cast<double>(seconds)) << " fps), max gap " << max_gap_ms << " ms";
+  EXPECT_LE(max_gap_ms, 3000 / target_fps) << "cadence gap too large: capture stalls between frames";
+}
+
+struct PacingMeasurement {
+  bool started = false;
+  std::vector<std::chrono::steady_clock::time_point> stamps;
+};
+
+// Runs a capture for `seconds` and collects the emitted frame timestamps.
+PacingMeasurement MeasurePacedFrames(IDisplayCapture* capture, int display_id, int target_fps, int seconds) {
+  PacingMeasurement result;
+  std::mutex mutex;
+  capture->SetFrameCallback([&](const CapturedVideoFrame& f) {
+    std::lock_guard<std::mutex> lock(mutex);
+    result.stamps.push_back(f.timestamp);
+  });
+  result.started = capture->Start(display_id, target_fps);
+  if (!result.started) return result;
+  std::this_thread::sleep_for(std::chrono::seconds(seconds));
+  capture->Stop();
+  std::lock_guard<std::mutex> lock(mutex);
+  return result;
+}
+
+TEST_P(WgcPacingTest, WgcCapturePacedFrameRate) {
+  const int target_fps = GetParam();
+  auto capture = DisplayCaptureFactory::Create();
+  ASSERT_NE(capture, nullptr);
+  // Another test could leave force_x11_capture set; fail loudly rather than
+  // silently measuring the synthetic fallback.
+  ASSERT_EQ(capture->BackendName(), std::string("windows_graphics_capture"));
+
+  auto displays = capture->EnumerateDisplays();
+  if (displays.empty()) {
+    GTEST_SKIP() << "No DXGI outputs available";
+  }
+
+  DesktopChangeProbe probe;
+  PacingMeasurement measured = MeasurePacedFrames(capture.get(), displays.front().id, target_fps, 2);
+  if (!measured.started) {
+    GTEST_SKIP() << "Desktop duplication unavailable in this session";
+  }
+  if (measured.stamps.empty()) {
+    // A locked or non-interactive desktop never delivers a duplication frame,
+    // so pacing cannot be observed. The cadence itself is covered by
+    // FramePacerTest.
+    GTEST_SKIP() << "Desktop duplication delivered no frames in this session";
+  }
+  ExpectSteadyCadence(measured.stamps, target_fps, 2);
+}
+
+// The user-visible requirement: a desktop that is not changing must still
+// stream at the requested rate. Nothing here moves a window, so the only
+// frames the capturer can emit are the placeholder seed and re-sends of it.
+TEST_P(WgcPacingTest, WgcCapturePacedOnStaticDesktop) {
+  const int target_fps = GetParam();
+  auto capture = DisplayCaptureFactory::Create();
+  ASSERT_NE(capture, nullptr);
+  ASSERT_EQ(capture->BackendName(), std::string("windows_graphics_capture"));
+
+  auto displays = capture->EnumerateDisplays();
+  if (displays.empty()) {
+    GTEST_SKIP() << "No DXGI outputs available";
+  }
+
+  PacingMeasurement measured = MeasurePacedFrames(capture.get(), displays.front().id, target_fps, 2);
+  if (!measured.started) {
+    GTEST_SKIP() << "Desktop duplication unavailable in this session";
+  }
+  // No zero-frame escape hatch: an idle desktop must still produce the full
+  // cadence, which is exactly what the seed frame and re-sends guarantee.
+  ExpectSteadyCadence(measured.stamps, target_fps, 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(DisplayCaptureTest, WgcPacingTest, ::testing::Values(30, 60));
 #endif
 
 TEST(DisplayCaptureTest, DmaBufMetadataHandling) {

@@ -8,7 +8,21 @@
 #if defined(_WIN32)
   #include <winsock2.h>
   #include <ws2tcpip.h>
+  #include <timeapi.h>
   #define close closesocket
+
+struct GlobalWinsockInit : public ::testing::Environment {
+  void SetUp() override {
+    timeBeginPeriod(1);
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+  }
+  void TearDown() override {
+    timeEndPeriod(1);
+    WSACleanup();
+  }
+};
+::testing::Environment* const kWinsockEnv = ::testing::AddGlobalTestEnvironment(new GlobalWinsockInit);
 #else
   #include <sys/socket.h>
   #include <netinet/in.h>
@@ -156,17 +170,21 @@ TEST(CastTransportTest, ReportsRollingVideoFpsAfterRateChange) {
     ASSERT_TRUE(transport.SendPackets({packet}));
   };
 
+  auto next_time = std::chrono::steady_clock::now();
   for (uint32_t i = 0; i < 30; ++i) {
     send_video_frame(i);
-    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    next_time += std::chrono::milliseconds(16);
+    std::this_thread::sleep_until(next_time);
   }
   const double fast_fps = transport.GetStats().current_fps;
   EXPECT_GT(fast_fps, 45.0);
   EXPECT_LT(fast_fps, 75.0);
 
+  next_time = std::chrono::steady_clock::now();
   for (uint32_t i = 30; i < 45; ++i) {
     send_video_frame(i);
-    std::this_thread::sleep_for(std::chrono::milliseconds(33));
+    next_time += std::chrono::milliseconds(33);
+    std::this_thread::sleep_until(next_time);
   }
   const double slow_fps = transport.GetStats().current_fps;
   EXPECT_GT(slow_fps, 20.0);
@@ -495,5 +513,126 @@ TEST(CastTransportTest, RetransmitCacheBoundedTo500msWorthOfFrames) {
   EXPECT_LE(transport.GetCachedFrameCount(ssrc), 30u);
   EXPECT_GT(transport.GetCachedFrameCount(ssrc), 0u);
   transport.Stop();
+}
+
+namespace {
+
+uint32_t ReadBe32(const uint8_t* p) {
+  return (static_cast<uint32_t>(p[0]) << 24) | (static_cast<uint32_t>(p[1]) << 16) |
+         (static_cast<uint32_t>(p[2]) << 8) | static_cast<uint32_t>(p[3]);
+}
+
+int BindLoopbackReceiver() {
+  int fd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (fd < 0) return -1;
+  struct sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = 0;
+  inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+  if (bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
+    close(fd);
+    return -1;
+  }
+  return fd;
+}
+
+uint16_t SocketPort(int fd) {
+  struct sockaddr_in addr{};
+  socklen_t len = sizeof(addr);
+  getsockname(fd, reinterpret_cast<struct sockaddr*>(&addr), &len);
+  return ntohs(addr.sin_port);
+}
+
+// Receives datagrams until an RTCP Sender Report (PT 200, 28 bytes) arrives and
+// returns the NTP instant it carries as microseconds since the Unix epoch, or 0
+// if none arrives within the timeout. Asserting on the datagram bytes keeps the
+// test independent of CastTransport internals.
+int64_t ReceiveSenderReportUnixUs(int fd) {
+#if defined(_WIN32)
+  DWORD timeout_ms = 500;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+             reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+#else
+  struct timeval timeout{};
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 500000;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
+  constexpr uint64_t kNtpUnixEpochOffset = 2208988800ULL;
+  uint8_t buf[256];
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+  while (std::chrono::steady_clock::now() < deadline) {
+    ssize_t got = recvfrom(fd, reinterpret_cast<char*>(buf), sizeof(buf), 0, nullptr, nullptr);
+    if (got != 28) continue;
+    if (buf[1] != 200) continue;  // RTCP PT 200 = Sender Report
+    const uint64_t ntp_sec = ReadBe32(buf + 8);
+    const uint64_t ntp_frac = ReadBe32(buf + 12);
+    return static_cast<int64_t>((ntp_sec - kNtpUnixEpochOffset) * 1000000ULL +
+                                ((ntp_frac * 1000000ULL) >> 32));
+  }
+  return 0;
+}
+
+}  // namespace
+
+TEST(CastTransportTest, SenderReportNtpReflectsFrameCaptureTime) {
+  int recv_fd = BindLoopbackReceiver();
+  ASSERT_GE(recv_fd, 0);
+
+  CastTransport transport;
+  ASSERT_TRUE(transport.Start("127.0.0.1", SocketPort(recv_fd)));
+
+  // RTP timestamp belongs to a frame captured 250 ms ago; the SR must map it
+  // to the capture instant, not to the send instant.
+  RtpPacket pkt;
+  pkt.frame_id = 7;
+  pkt.capture_time = std::chrono::steady_clock::now() - std::chrono::milliseconds(250);
+  pkt.data = {0x80, 96, 0, 1, 0, 0, 0x00, 0x2A, 12, 34, 56, 78, 0x40, 7, 0, 0, 0, 0, 0};
+
+  auto send_start = std::chrono::system_clock::now();
+  ASSERT_TRUE(transport.SendPackets({pkt}));
+  auto send_end = std::chrono::system_clock::now();
+
+  const int64_t sr_unix_us = ReceiveSenderReportUnixUs(recv_fd);
+  ASSERT_NE(sr_unix_us, 0) << "No RTCP Sender Report received";
+  const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                             (send_start.time_since_epoch() + send_end.time_since_epoch()) / 2)
+                             .count();
+  const int64_t sr_age_us = now_us - sr_unix_us;
+  EXPECT_GE(sr_age_us, 190000) << "SR NTP instant is not 250 ms in the past (age "
+                               << sr_age_us << " us)";
+  EXPECT_LE(sr_age_us, 310000) << "SR NTP instant is not 250 ms in the past (age "
+                               << sr_age_us << " us)";
+
+  transport.Stop();
+  close(recv_fd);
+}
+
+TEST(CastTransportTest, SenderReportNtpDefaultsToNowWithoutCaptureTime) {
+  int recv_fd = BindLoopbackReceiver();
+  ASSERT_GE(recv_fd, 0);
+
+  CastTransport transport;
+  ASSERT_TRUE(transport.Start("127.0.0.1", SocketPort(recv_fd)));
+
+  // Default-constructed (zero) capture_time: no capture clock to map, so the
+  // SR falls back to the current wall-clock instant.
+  RtpPacket pkt;
+  pkt.frame_id = 8;
+  pkt.data = {0x80, 96, 0, 2, 0, 0, 0x00, 0x2B, 12, 34, 56, 79, 0x40, 8, 0, 0, 0, 0, 0};
+
+  auto send_start = std::chrono::system_clock::now();
+  ASSERT_TRUE(transport.SendPackets({pkt}));
+  auto send_end = std::chrono::system_clock::now();
+
+  const int64_t sr_unix_us = ReceiveSenderReportUnixUs(recv_fd);
+  ASSERT_NE(sr_unix_us, 0) << "No RTCP Sender Report received";
+  const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                             (send_start.time_since_epoch() + send_end.time_since_epoch()) / 2)
+                             .count();
+  EXPECT_NEAR(static_cast<double>(now_us - sr_unix_us), 0.0, 60000.0);
+
+  transport.Stop();
+  close(recv_fd);
 }
 

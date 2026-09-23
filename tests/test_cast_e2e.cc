@@ -20,6 +20,9 @@
   #include <winsock2.h>
   #include <ws2tcpip.h>
   #define close closesocket
+  #ifndef SHUT_RDWR
+    #define SHUT_RDWR SD_BOTH
+  #endif
 #else
   #include <sys/types.h>
   #include <sys/socket.h>
@@ -42,6 +45,10 @@ class TestReceiverServer {
   ~TestReceiverServer() { Stop(); }
 
   void Start() {
+#if defined(_WIN32)
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
     running_ = true;
     is_ready_ = false;
     tls_thread_ = std::thread(&TestReceiverServer::TlsLoop, this);
@@ -306,6 +313,7 @@ class TestReceiverServer {
     if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
       LOG_ERROR << "[TestReceiver] Failed to bind dynamic TLS port: " << strerror(errno);
       SSL_CTX_free(ctx);
+      running_ = false;
       return;
     }
     socklen_t slen = sizeof(addr);
@@ -420,7 +428,11 @@ class TestReceiverServer {
     addr.sin_port = 0; // Dynamic ephemeral UDP port
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-    bind(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
+    if (bind(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+      LOG_ERROR << "[TestReceiver] Failed to bind dynamic UDP port: " << strerror(errno);
+      running_ = false;
+      return;
+    }
     socklen_t ulen = sizeof(addr);
     getsockname(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), &ulen);
     udp_port_ = ntohs(addr.sin_port);
@@ -762,8 +774,11 @@ TEST(CastE2ETest, UnverifiedDeviceRejectedWhenVerificationEnforced) {
   auto& engine = CastEngine::Instance();
   engine.Initialize();
   AppConfig saved_cfg = ConfigStore::Instance().Get();
-  // Ensure certificate verification against Cast Root CA is strictly enforced
+  // Ensure certificate verification against Cast Root CA is strictly enforced.
+  // Keep the auth timeout short: the fake receiver never answers the
+  // device-auth challenge, so this test fails by timeout.
   ConfigStore::Instance().Mutable().verify_device_cert = true;
+  ConfigStore::Instance().Mutable().answer_timeout_s = 1;
 
   CastDevice dev;
   dev.id = "test-e2e-untrusted-device";

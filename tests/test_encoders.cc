@@ -2,6 +2,17 @@
 #include "castcore/video_encoder.h"
 #include "castcore/audio_encoder.h"
 #include <chrono>
+#include <cstdlib>
+
+#if defined(_WIN32)
+inline int setenv(const char* name, const char* value, int overwrite) {
+  if (!overwrite && std::getenv(name)) return 0;
+  return _putenv_s(name, value);
+}
+inline int unsetenv(const char* name) {
+  return _putenv_s(name, "");
+}
+#endif
 
 using namespace castcore;
 
@@ -140,7 +151,8 @@ TEST(EncoderTest, VideoEncoderNameIsNonEmpty) {
   auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
   ASSERT_TRUE(encoder->Initialize(cfg));
   std::string name = encoder->EncoderName();
-  EXPECT_TRUE(name == "libx264" || name == "h264_vaapi");
+  EXPECT_TRUE(name == "libx264" || name == "h264_vaapi" ||
+              name == "mf_h264_hw" || name == "mf_h264_sw");
 }
 
 TEST(EncoderTest, VideoRtpTimestampsFollowCaptureClock) {

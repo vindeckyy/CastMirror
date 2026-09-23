@@ -103,6 +103,10 @@ TEST(OfferAnswerTest, OfferMatchesChromeGoldenNetlogSchema) {
     golden_path = "../tests/data/chrome_offer_golden.json";
     golden_file.open(golden_path);
   }
+  if (!golden_file.is_open()) {
+    golden_path = "../../tests/data/chrome_offer_golden.json";
+    golden_file.open(golden_path);
+  }
   ASSERT_TRUE(golden_file.is_open()) << "Failed to open chrome_offer_golden.json";
 
   nlohmann::json golden = nlohmann::json::parse(golden_file);
