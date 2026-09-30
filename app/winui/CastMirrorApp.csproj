@@ -29,6 +29,15 @@
     <Product>CastMirror</Product>
     <Company>CastMirror Maintainers</Company>
     <Description>Send this PC's screen to a Chromecast or Cast TV</Description>
+    <!-- Ship English resources only. The default publish carries ~90 locale folders
+         (over 100 MB) for languages the app does not translate yet. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- Symbols stay out of release builds; CI keeps them as a separate artifact. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
   <ItemGroup>

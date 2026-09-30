@@ -69,6 +69,7 @@ namespace CastMirror
             var dialog = new ContentDialog
             {
                 Title = $"CastMirror {version}",
+                SecondaryButtonText = "Check for updates",
                 Content = new StackPanel
                 {
                     Spacing = 8,
@@ -92,7 +93,13 @@ namespace CastMirror
                 CloseButtonText = "Close",
                 DefaultButton = ContentDialogButton.Close
             };
-            if (await Dialogs.ShowAsync(dialog, Content.XamlRoot) == ContentDialogResult.Primary)
+            ContentDialogResult choice = await Dialogs.ShowAsync(dialog, Content.XamlRoot);
+            if (choice == ContentDialogResult.Secondary)
+            {
+                await CheckForUpdatesAsync();
+                return;
+            }
+            if (choice == ContentDialogResult.Primary)
             {
                 try
                 {
@@ -100,6 +107,56 @@ namespace CastMirror
                     System.Diagnostics.Process.Start(
                         new System.Diagnostics.ProcessStartInfo("explorer.exe", LogService.DirectoryPath)
                         { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    MainViewModel.LogError(ex);
+                }
+            }
+        }
+
+        /// <summary>Runs only on request; CastMirror never checks for updates by itself.</summary>
+        private async System.Threading.Tasks.Task CheckForUpdatesAsync()
+        {
+            string title;
+            string body;
+            string? pageUrl = null;
+            try
+            {
+                UpdateInfo? update = await UpdateService.CheckAsync();
+                if (update == null)
+                {
+                    title = "You're up to date";
+                    body = $"CastMirror {UpdateService.Current.ToString(3)} is the latest release.";
+                }
+                else
+                {
+                    title = $"CastMirror {update.Latest.ToString(3)} is available";
+                    body = "Open the release page to download it.";
+                    pageUrl = update.PageUrl;
+                }
+            }
+            catch (Exception ex)
+            {
+                MainViewModel.LogError(ex);
+                title = "Couldn't check for updates";
+                body = "GitHub didn't answer. Check your connection and try again.";
+            }
+
+            var result = new ContentDialog
+            {
+                Title = title,
+                Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
+                PrimaryButtonText = pageUrl != null ? "Open release page" : string.Empty,
+                CloseButtonText = "Close",
+                DefaultButton = pageUrl != null ? ContentDialogButton.Primary : ContentDialogButton.Close
+            };
+            if (await Dialogs.ShowAsync(result, Content.XamlRoot) == ContentDialogResult.Primary && pageUrl != null)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(pageUrl) { UseShellExecute = true });
                 }
                 catch (Exception ex)
                 {
@@ -126,9 +183,13 @@ namespace CastMirror
             }
         }
 
-        public MainWindow()
+        /// <summary>True when launched at sign-in with the tray on: the window is never shown.</summary>
+        public bool StartHidden { get; }
+
+        public MainWindow(bool startInBackground = false)
         {
             this.InitializeComponent();
+            StartHidden = startInBackground && ViewModel.Settings.EnableTrayOnStartup;
             Title = "CastMirror";
             // 1100x720 is a logical (DIP) size. AppWindow.Resize takes physical
             // pixels, so passing those numbers raw would give a window that

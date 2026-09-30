@@ -1,0 +1,47 @@
+CastMirror third-party components (Windows build)
+
+CastMirror's own source is licensed under the Apache License 2.0 (see LICENSE).
+The Windows package also carries the libraries below. Their licences apply to
+the parts of the package they cover.
+
+------------------------------------------------------------------------------
+IMPORTANT: this package includes GPL-licensed code
+------------------------------------------------------------------------------
+
+castcore.dll links FFmpeg (libavcodec, libswscale, libavutil) and libx264.
+The FFmpeg build shipped here is configured with --enable-gpl and includes
+x264, which is licensed under the GNU General Public License, version 2 or
+later. As a result, castcore.dll and the package as a whole are distributed
+under the terms of the GPL. You may copy and redistribute it under those terms.
+
+Complete corresponding source code
+  CastMirror:  https://github.com/vindeckyy/CastMirror  (the tag matching this version)
+  FFmpeg:      https://ffmpeg.org/download.html
+  x264:        https://code.videolan.org/videolan/x264
+  MSYS2 package recipes used to build the DLLs in this folder:
+               https://github.com/msys2/MINGW-packages
+To request the source for a specific binary by mail or e-mail, open an issue at
+https://github.com/vindeckyy/CastMirror/issues. We keep each release's source
+available for at least three years.
+
+CastMirror uses hardware H.264 encoders through Media Foundation when the GPU
+offers one, and falls back to libx264 only when it does not.
+
+------------------------------------------------------------------------------
+Components
+------------------------------------------------------------------------------
+
+FFmpeg            LGPL 2.1+ / GPL 2+ (this build: GPL)     https://ffmpeg.org/
+x264              GPL 2+                                   https://www.videolan.org/developers/x264.html
+OpenSSL           Apache License 2.0                       https://www.openssl.org/
+Protocol Buffers  BSD-3-Clause                             https://github.com/protocolbuffers/protobuf
+Opus              BSD-3-Clause                             https://opus-codec.org/
+nlohmann/json     MIT                                      https://github.com/nlohmann/json
+zlib, bzip2, xz, zstd, libiconv, libintl, libwinpthread, libgcc, libstdc++, libgomp
+                  zlib/BSD/LGPL/MIT-style, as published by MSYS2; libgcc and libstdc++
+                  carry the GCC Runtime Library Exception
+.NET 8 runtime    MIT                                      https://github.com/dotnet/runtime
+Windows App SDK   MIT (Microsoft Software License Terms)  https://github.com/microsoft/WindowsAppSDK
+
+CastMirror is not affiliated with, endorsed by, or sponsored by Google LLC.
+Chromecast, Google Cast and Google TV are trademarks of Google LLC.

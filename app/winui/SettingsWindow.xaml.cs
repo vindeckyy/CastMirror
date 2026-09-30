@@ -114,6 +114,7 @@ namespace CastMirror
                 SubnetScanSwitch.IsOn = settings.SubnetScanEnabled;
                 TraySwitch.IsOn = settings.EnableTrayOnStartup;
                 CloseToTraySwitch.IsOn = settings.CloseToTray;
+                AutostartSwitch.IsOn = AutostartService.IsEnabled;
 
                 NotifySwitch.IsOn = settings.NotifyOnEvents && NotificationService.IsSupported;
                 NotifySwitch.IsEnabled = NotificationService.IsSupported;
@@ -301,6 +302,20 @@ namespace CastMirror
             _viewModel.ApplyCloseToTray(CloseToTraySwitch.IsOn);
             ClearError();
             _desktopIntegrationChanged?.Invoke();
+        }
+
+        private void OnAutostartToggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading) return;
+            if (!AutostartService.Set(AutostartSwitch.IsOn))
+            {
+                ShowError("Windows would not let CastMirror change its sign-in entry.");
+                _loading = true;
+                AutostartSwitch.IsOn = AutostartService.IsEnabled;
+                _loading = false;
+                return;
+            }
+            ClearError();
         }
 
         private void OnNotifyToggled(object sender, RoutedEventArgs e)

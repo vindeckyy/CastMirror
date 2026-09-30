@@ -108,8 +108,17 @@ jobs:
   build-windows:
     name: Build Windows Client
     runs-on: windows-latest
+    env:
+      SIGN_CERT_BASE64: ${{ secrets.SIGN_CERT_BASE64 }}
+      SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # A release must carry one version everywhere: the tag, CMakeLists.txt and the
+      # WinUI project. Fail before spending time on a build that would be mislabelled.
+      - name: Check the tag matches the version files
+        shell: pwsh
+        run: ./scripts/check_version.ps1 -Tag '${{ github.ref_name }}'
 
       - name: Set up MSYS2 UCRT64
         uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2 # v2.29.0
@@ -163,23 +172,68 @@ jobs:
           Write-Host "CASTMIRROR_DOTNET_ROOT=$env:CASTMIRROR_DOTNET_ROOT"
           ./package.ps1
 
+      # Code signing is optional so forks and dry runs still build. Set the
+      # SIGN_CERT_BASE64 (a .pfx, base64) and SIGN_CERT_PASSWORD repository secrets to
+      # sign; without them the artifacts are unsigned and Windows SmartScreen warns.
+      - name: Sign the application binaries
+        if: env.SIGN_CERT_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_CERT_BASE64))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+                       Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName | Select-Object -Last 1).FullName
+          foreach ($file in 'publish\CastMirror.exe', 'publish\castcore.dll') {
+            & $signtool sign /f $pfx /p $env:SIGN_CERT_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 $file
+            if ($LASTEXITCODE -ne 0) { throw "signing $file failed" }
+          }
+          Remove-Item $pfx -Force
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          & $iscc "installer\CastMirror.iss" "/DAppVersion=$version"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+      - name: Sign the installer
+        if: env.SIGN_CERT_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGN_CERT_BASE64))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+                       Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName | Select-Object -Last 1).FullName
+          Get-ChildItem dist -Filter 'CastMirror-Setup-*.exe' | ForEach-Object {
+            & $signtool sign /f $pfx /p $env:SIGN_CERT_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signing $($_.Name) failed" }
+          }
+          Remove-Item $pfx -Force
+
       - name: Archive and checksum the Windows client
         shell: pwsh
         run: |
-          $zip = Join-Path $PWD 'CastMirror-win-x64.zip'
+          $zip = Join-Path $PWD 'dist\CastMirror-win-x64.zip'
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path (Join-Path $PWD 'publish\*') -DestinationPath $zip
-          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          "$hash  CastMirror-win-x64.zip" | Out-File -Encoding ascii "$zip.sha256"
-          Get-Content "$zip.sha256"
+          Push-Location dist
+          $lines = Get-ChildItem CastMirror-* -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          $lines | Out-File -Encoding ascii SHA256SUMS-windows.txt
+          Pop-Location
+          Get-Content dist\SHA256SUMS-windows.txt
 
       - name: Upload Windows client
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-client
           path: |
-            CastMirror-win-x64.zip
-            CastMirror-win-x64.zip.sha256
+            dist/CastMirror-Setup-*.exe
+            dist/CastMirror-win-x64.zip
+            dist/SHA256SUMS-windows.txt
           if-no-files-found: error
 
   validate-flatpak:
@@ -239,7 +293,7 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum -c SHA256SUMS
-          sha256sum -c CastMirror-win-x64.zip.sha256
+          sha256sum -c SHA256SUMS-windows.txt
           ls -l
 
       - name: Create GitHub Release
@@ -249,7 +303,9 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/SHA256SUMS
+            dist/SHA256SUMS-windows.txt
+            dist/CastMirror-Setup-*.exe
             dist/CastMirror-win-x64.zip
-            dist/CastMirror-win-x64.zip.sha256
-          fail_on_unmatched_files: false
+          # A release missing any of these is a broken release; do not publish part of it.
+          fail_on_unmatched_files: true
           generate_release_notes: true

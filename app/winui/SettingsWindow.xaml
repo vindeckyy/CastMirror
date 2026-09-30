@@ -155,6 +155,12 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="The close button hides the window instead of quitting, so a cast keeps running. Quit from the tray icon."/>
 
+                        <ToggleSwitch x:Name="AutostartSwitch" Header="Start when I sign in"
+                                      OnContent="On" OffContent="Off" Toggled="OnAutostartToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Starts CastMirror hidden in the tray, so your TV is ready to cast to. Needs the tray icon; without it the window opens."/>
+
                         <ToggleSwitch x:Name="NotifySwitch" Header="Desktop notifications"
                                       OnContent="On" OffContent="Off" Toggled="OnNotifyToggled"/>
                         <TextBlock x:Name="NotifyHelpText" Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"

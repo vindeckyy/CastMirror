@@ -84,6 +84,20 @@ while ($toCheck.Count -gt 0) {
 
 Write-Host "Copied $($visited.Count) native runtime libraries." -ForegroundColor Green
 
+# Licence texts travel with the binaries. libx264 is GPL, so shipping the DLLs
+# without THIRD-PARTY-LICENSES.txt (which carries the GPL notice and the source
+# offer) would be a compliance failure, not just untidiness.
+foreach ($doc in 'LICENSE', 'NOTICE', 'THIRD-PARTY-LICENSES.txt') {
+    Copy-Item (Join-Path $rootDir $doc) -Destination $publishDir -Force
+}
+# Symbols are for crash analysis, not for the download.
+Get-ChildItem $publishDir -Recurse -Filter *.pdb | Remove-Item -Force
+# The Windows App SDK ships ~85 per-language resource folders. The app is English
+# only for now and Windows falls back to en-US, so the rest is clutter in the install.
+Get-ChildItem $publishDir -Directory |
+    Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -ne 'en-US' } |
+    Remove-Item -Recurse -Force
+
 # Smoke check: the publish dir must contain the exe plus a castcore.dll that
 # exports the ABI-version entrypoint CastCoreBridge requires. A stale or
 # foreign DLL (e.g. copied from the wrong build dir) fails loudly here instead
@@ -95,6 +109,9 @@ if (-not (Test-Path $shippedDll)) { throw "publish output missing castcore.dll" 
 $exports = & (Join-Path $binDir "objdump.exe") -p $shippedDll | Select-String 'castmirror_abi_version'
 if (-not $exports) { throw "publish\castcore.dll does not export castmirror_abi_version - wrong or stale DLL" }
 Write-Host "Smoke check passed: CastMirror.exe + castcore.dll (ABI export present)." -ForegroundColor Green
+
+& (Join-Path $rootDir "scripts\check_windows_package.ps1") -PublishDir $publishDir
+if ($LASTEXITCODE -ne 0) { throw "package checks failed" }
 Write-Host "`n========================================================" -ForegroundColor Green
 Write-Host "Standalone CastMirror.exe is ready at:" -ForegroundColor Green
 Write-Host (Join-Path $publishDir "CastMirror.exe") -ForegroundColor White

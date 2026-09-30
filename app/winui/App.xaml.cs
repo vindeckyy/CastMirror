@@ -50,8 +50,16 @@ namespace CastMirror
             // deliver toasts, and the settings window asks IsSupported.
             Services.NotificationService.Initialize();
 
-            _window = new MainWindow();
-            _window.Activate();
+            // Started from the Run key at sign-in: stay in the tray instead of
+            // throwing a window over whatever the user opened first.
+            bool background = Array.Exists(Environment.GetCommandLineArgs(),
+                arg => string.Equals(arg, Services.AutostartService.BackgroundFlag, StringComparison.OrdinalIgnoreCase));
+            var main = new MainWindow(background);
+            _window = main;
+            if (!main.StartHidden)
+            {
+                main.Activate();
+            }
         }
 
         private static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

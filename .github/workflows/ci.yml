@@ -344,6 +344,14 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Client unit tests
+        shell: pwsh
+        run: dotnet test tests/winui/CastMirror.Tests.csproj
+
+      - name: Version files agree
+        shell: pwsh
+        run: ./scripts/check_version.ps1
+
       # The WinUI client is what the Windows release ships, so it must compile
       # on every change, not only when a tag is cut. It copies build/core/
       # castcore.dll, which is why the native build runs first.

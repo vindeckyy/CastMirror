@@ -45,3 +45,4 @@ scripts/*.tmp
 
 .w.sh
 .w_build.log
+dist/
