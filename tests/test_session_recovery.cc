@@ -29,3 +29,21 @@ TEST(SessionRecoveryTest, TimesOutAfterLimit) {
   EXPECT_FALSE(rec.IsRecovering());
   EXPECT_EQ(rec.GetAttemptCount(), 0);
 }
+
+// Several threads noticing the same drop must open exactly one recovery window.
+TEST(SessionRecoveryTest, ConcurrentStartRecoveryOpensExactlyOneWindow) {
+  SessionRecovery rec(30);
+  std::atomic<int> winners{0};
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 8; ++i) {
+    threads.emplace_back([&] {
+      if (rec.StartRecovery("drop")) ++winners;
+    });
+  }
+  for (auto& th : threads) th.join();
+  EXPECT_EQ(winners.load(), 1);
+  EXPECT_TRUE(rec.IsRecovering());
+  rec.Reset();
+  EXPECT_FALSE(rec.IsRecovering());
+  EXPECT_TRUE(rec.StartRecovery("again"));
+}

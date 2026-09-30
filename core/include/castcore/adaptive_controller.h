@@ -61,13 +61,15 @@ class AdaptiveController {
   // Periodic evaluation (e.g. every 1 second). Bitrate-only; resolution/fps stay put.
   bool CheckAdaptation(StreamStats& out_updated_settings);
 
-  uint32_t GetCurrentBitrateKbps() const { return current_bitrate_kbps_; }
-  int GetCurrentLadderIndex() const { return current_rung_idx_; }
-  const std::vector<LadderRung>& GetLadder() const { return ladder_; }
-  Resolution GetCurrentResolution() const { return current_resolution_; }
-  int GetCurrentFramerate() const { return current_framerate_; }
-  double GetEwmaRttMs() const { return ewma_rtt_ms_; }
-  double GetEwmaJitterMs() const { return ewma_jitter_ms_; }
+  // Getters take state_mutex_: OnFeedback() runs on the RTCP thread while the
+  // adaptation thread and the UI read these.
+  uint32_t GetCurrentBitrateKbps() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_bitrate_kbps_; }
+  int GetCurrentLadderIndex() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_rung_idx_; }
+  const std::vector<LadderRung>& GetLadder() const { return ladder_; }  // immutable after construction
+  Resolution GetCurrentResolution() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_resolution_; }
+  int GetCurrentFramerate() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_framerate_; }
+  double GetEwmaRttMs() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return ewma_rtt_ms_; }
+  double GetEwmaJitterMs() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return ewma_jitter_ms_; }
 
   // Test helpers for fast simulation without long sleep
   void SetEvaluationIntervalMsForTest(int ms) { eval_interval_ms_ = ms; }
@@ -85,14 +87,14 @@ class AdaptiveController {
   std::vector<LadderRung> ladder_;
   int current_rung_idx_ = 0;
   uint32_t current_bitrate_kbps_ = 6000;
-  int current_target_delay_ms_ = kDefaultPlayoutDelayMs;
+  std::atomic<int> current_target_delay_ms_{kDefaultPlayoutDelayMs};
   Resolution current_resolution_{1920, 1080};
   int current_framerate_ = 60;
   int max_encode_width_ = 1920;
   int max_encode_height_ = 1080;
   int initial_framerate_ = 60;
-  bool enabled_ = true;
-  bool allow_resolution_change_ = true;
+  std::atomic<bool> enabled_{true};
+  std::atomic<bool> allow_resolution_change_{true};
   uint32_t user_bitrate_cap_kbps_ = 0;
   uint32_t custom_target_kbps_ = 0;   // user-selected bitrate held & ramped back to
   uint32_t stability_cap_kbps_ = 0;
@@ -108,6 +110,9 @@ class AdaptiveController {
   double ewma_rtt_ms_ = 0.0;
   double ewma_jitter_ms_ = 0.0;
   bool ewma_initialized_ = false;
+  // Guards every non-atomic field above and below. Recursive because
+  // Initialize() calls ResetFeedbackWindow().
+  mutable std::recursive_mutex state_mutex_;
   mutable std::mutex feedback_mutex_;
   std::unordered_set<uint64_t> recent_nack_keys_;
   std::atomic<bool> recent_pli_{false};

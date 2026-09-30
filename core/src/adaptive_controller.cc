@@ -27,6 +27,7 @@ void AdaptiveController::BuildLadder() {
 }
 
 void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPreset preset) {
+  std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   preset_ = preset;
   current_target_delay_ms_ = initial_target.target_delay_ms > 0
                                  ? std::clamp(initial_target.target_delay_ms, kMinPlayoutDelayMs, kMaxPlayoutDelayMs)
@@ -76,6 +77,7 @@ void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPr
 }
 
 void AdaptiveController::SetBitrateCapKbps(uint32_t kbps) {
+  std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   user_bitrate_cap_kbps_ = kbps;
   // The user's bitrate cap is also the hold target: the controller holds
   // this value on a clean link and ramps back to it after a congestion drop.
@@ -86,6 +88,7 @@ void AdaptiveController::SetBitrateCapKbps(uint32_t kbps) {
 }
 
 void AdaptiveController::ResetRungForBitrate(uint32_t bitrate_kbps) {
+  std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   // Find the highest rung whose bitrate does not exceed the user's target.
   // This ensures the emergency downshift starts from the right place when
   // the user manually changes the bitrate cap.
@@ -136,6 +139,7 @@ void AdaptiveController::StepDownPlayoutDelay() {
 }
 
 void AdaptiveController::OnFeedback(const RtcpFeedback& feedback) {
+  std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   // Phase 2 EWMA smoothing: rtt 0.8/0.2 jitter 0.9/0.1
   double sample_rtt = feedback.rtt_ms;
   double sample_jitter = static_cast<double>(feedback.jitter);
@@ -170,6 +174,7 @@ void AdaptiveController::OnFeedback(const RtcpFeedback& feedback) {
 }
 
 void AdaptiveController::ResetFeedbackWindow() {
+  std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   recent_loss_fraction_.store(0.0);
   recent_rtt_ms_.store(0.0);
   recent_jitter_ms_.store(0.0);
@@ -191,6 +196,7 @@ void AdaptiveController::ResetFeedbackWindow() {
 }
 
 bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
+  std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   auto now = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_eval_time_).count() < eval_interval_ms_) {
     return false;

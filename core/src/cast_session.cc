@@ -929,14 +929,14 @@ void CastSession::AdaptationLoop() {
 void CastSession::RequestReconnect(const std::string& reason) {
   if (stop_requested_.load()) return;
 
-  if (recovery_.IsRecovering()) {
+  // StartRecovery() is atomic: exactly one of several racing threads opens the
+  // window, the rest just check whether it has run out.
+  if (!recovery_.StartRecovery(reason)) {
     if (recovery_.HasTimedOut()) {
       FailSession(reason);
     }
     return;
   }
-
-  recovery_.StartRecovery(reason);
   media_stopped_for_reconnect_ = false;
   fail_requested_ = false;
   // Phase 0.5 audit: ensure TransitionTo caller is valid against matrix.

@@ -3,7 +3,10 @@
 
 #include "castcore/types.h"
 #include <chrono>
+#include <atomic>
 #include <functional>
+#include <mutex>
+#include <string>
 
 namespace castcore {
 
@@ -14,20 +17,26 @@ class SessionRecovery {
   SessionRecovery(int max_timeout_seconds = 30);
   ~SessionRecovery();
 
-  void StartRecovery(const std::string& reason);
+  // Called from the channel, encode and adaptation threads, so every method
+  // is safe to call concurrently.
+  //
+  // Begins a recovery window. Returns false, changing nothing, if one is
+  // already open: two threads noticing the same drop must not both start it.
+  bool StartRecovery(const std::string& reason);
   void Reset();
 
-  bool IsRecovering() const { return is_recovering_; }
+  bool IsRecovering() const { return is_recovering_.load(); }
   bool HasTimedOut() const;
   int GetElapsedSeconds() const;
 
-  int GetAttemptCount() const { return attempt_count_; }
+  int GetAttemptCount() const { return attempt_count_.load(); }
   void IncrementAttempt() { attempt_count_++; }
 
  private:
-  bool is_recovering_ = false;
+  mutable std::mutex mutex_;
+  std::atomic<bool> is_recovering_{false};
   int max_timeout_seconds_ = 30;
-  int attempt_count_ = 0;
+  std::atomic<int> attempt_count_{0};
   std::string reason_;
   std::chrono::steady_clock::time_point recovery_start_time_;
 };
