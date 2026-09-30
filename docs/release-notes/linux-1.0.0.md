@@ -55,7 +55,7 @@ The complete list is in the [changelog](https://github.com/vindeckyy/CastMirror/
 
 - **Not yet verified on a physical-device matrix.** The device rows in `docs/DEVICE_MATRIX.md` predate this release and were not re-measured for it.
 - The maintainers' hands-on testing this cycle was on Windows. The GTK app, the Wayland portal path and the VAAPI encoder were built and unit-tested in CI but not exercised on a live desktop for this release. Bug reports with the output of the in-app **Logs** tab are welcome.
-- Tray support needs the Ayatana AppIndicator library at runtime.
+- This .deb is built without the system tray icon. The tray needs the `ayatana-appindicator-glib` library, which Ubuntu 24.04, the build image, does not package. A build from source on a distribution that has the library gets the tray.
 - Cast keeps a playout buffer, so expect about 150 to 400 ms of delay depending on the preset.
 - Cast receivers accept H.264 and VP8 for mirroring, so there is no HEVC or VP9 option.
 

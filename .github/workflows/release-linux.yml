@@ -43,7 +43,6 @@ jobs:
             libxcomposite-dev libxdamage-dev \
             libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
             nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb \
-            libayatana-appindicator-glib-dev \
             dpkg-dev rpm
 
       - name: Install GoogleTest (Ubuntu source package)
@@ -54,16 +53,13 @@ jobs:
             sudo cmake --install /tmp/gtest-build
           fi
 
-      # The tray is built ON so the released .deb matches what
-      # docs/ARCHITECTURE.md advertises. CASTMIRROR_REQUIRE_TRAY makes a missing
-      # Ayatana dev package a hard failure instead of a silently tray-less
-      # artifact, which is how the tray dependency branch went dead before.
+      # The system tray needs ayatana-appindicator-glib-2.0, which Ubuntu 24.04 (the runner image)
+      # does not package, so the 1.0.0 .deb is built without the tray icon. See the release notes.
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCASTMIRROR_ENABLE_TRAY=ON \
-            -DCASTMIRROR_REQUIRE_TRAY=ON
+            -DCASTMIRROR_ENABLE_TRAY=OFF
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
