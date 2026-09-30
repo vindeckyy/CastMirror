@@ -129,6 +129,8 @@ class CastSession {
 
   std::atomic<bool> is_streaming_{false};
   std::atomic<bool> stop_requested_{false};
+  // True while Start() is on its way to Streaming; see the note in Start().
+  std::atomic<bool> starting_{false};
 
   mutable std::mutex callbacks_mutex_;
   mutable std::mutex params_mutex_;
@@ -144,6 +146,8 @@ class CastSession {
   std::atomic<uint64_t> video_frames_dropped_capture_{0};
   std::thread video_encode_thread_;
   std::mutex video_encoder_mutex_;
+  // Guards pipeline construction/teardown (StartStreamingMedia/StopMediaPipeline).
+  std::recursive_mutex pipeline_mutex_;
 
   std::thread adapt_thread_;
   ErrorCallback error_callback_;

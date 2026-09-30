@@ -78,7 +78,10 @@ class CastEngine {
 
   StateMachine state_machine_;
   DeviceDiscovery discovery_;
-  std::unique_ptr<CastSession> active_session_;
+  // shared so Start()/Stop() can run without holding engine_mutex_ (session
+  // callbacks re-enter the engine) while the object stays alive.
+  std::shared_ptr<CastSession> active_session_;
+  std::shared_ptr<CastSession> CurrentSession() const;
   mutable std::mutex engine_mutex_;
   mutable std::mutex callbacks_mutex_;
 

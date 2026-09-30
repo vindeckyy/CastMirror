@@ -57,6 +57,11 @@ CastSession::CastSession(StateMachine& state_machine)
 
 CastSession::~CastSession() {
   Stop();
+  // A Stop() that raced a still-running Start() returns early (the flag was
+  // already set) and can precede the pipeline being built; tear down whatever
+  // Start() left behind so no joinable thread is destroyed.
+  StopMediaPipeline();
+  JoinOrDetach(adapt_thread_, 500, "adaptation");
 }
 
 bool CastSession::IsActive() const {
@@ -88,12 +93,23 @@ bool CastSession::Start(const CastDevice& device,
 }
 
 bool CastSession::Start(const CastDevice& device, int display_id, const SessionOptions& options) {
-  std::lock_guard<std::mutex> lock(params_mutex_);
+  // params_mutex_ guards the runtime parameters GetStats() and the live setters
+  // touch. It is held only while Start() writes them, never across the blocking
+  // connect/negotiate waits or state callbacks: otherwise a callback (or a UI
+  // poll, or GET_STATUS from the receiver) that reads stats would deadlock or
+  // stall for the whole connect. While starting_ is set those readers take a
+  // reduced view instead of the half-built pipeline.
+  std::unique_lock<std::mutex> lock(params_mutex_);
 
   if (state_machine_.IsActive()) {
     LOG_WARN << "CastSession::Start called while session already active";
     return false;
   }
+  starting_ = true;
+  struct StartGuard {
+    std::atomic<bool>& flag;
+    ~StartGuard() { flag = false; }
+  } start_guard{starting_};
 
   target_device_ = device;
   display_id_ = display_id;
@@ -123,6 +139,7 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
   }
   answer_received_ = false;
   launch_received_ = false;
+  lock.unlock();
 
   state_machine_.TransitionTo(SessionState::kConnecting, "Connecting to " + device.name);
 
@@ -194,6 +211,7 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     }
   }
 
+  lock.lock();
   current_stats_ = CapabilityModel::GetRecommendedSettings(
       device, preset_, disp_w, disp_h, disp_fps, options_.capture_fps);
   if (options_.target_delay_ms > 0) {
@@ -217,7 +235,7 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
   adaptive_controller_.SetEnabled(options_.adaptive_enabled);
   adaptive_controller_.SetAllowResolutionChange(options_.adaptive_resolution_enabled);
   adaptive_controller_.SetBitrateCapKbps(bitrate_cap_kbps);
-
+  lock.unlock();
 
   if (!NegotiateControlPlane()) {
     state_machine_.TransitionTo(SessionState::kFailed, "Initial connection failed to " + device.name);
@@ -399,6 +417,10 @@ bool CastSession::FallbackToHttpCafStreaming() {
 }
 
 bool CastSession::StartStreamingMedia() {
+  // Serialised with StopMediaPipeline(): a Stop() from another thread must not
+  // tear the pipeline down while it is still being built.
+  std::lock_guard<std::recursive_mutex> pipeline_lock(pipeline_mutex_);
+  if (stop_requested_.load()) return false;
   LOG_INFO << "Starting live media capture and encoding pipeline...";
   adaptive_controller_.ResetFeedbackWindow();
   playout_delay_ms_.store(adaptive_controller_.GetPlayoutDelayMs());
@@ -993,6 +1015,7 @@ void CastSession::RequestReconnect(const std::string& reason) {
 }
 
 void CastSession::StopMediaPipeline() {
+  std::lock_guard<std::recursive_mutex> pipeline_lock(pipeline_mutex_);
   auto pipeline_start = std::chrono::steady_clock::now();
   is_streaming_ = false;
   // NOTE: is_frozen_ / is_audio_muted_ are intentionally NOT reset here.
@@ -1070,12 +1093,15 @@ void CastSession::FailSession(const std::string& reason) {
 
 void CastSession::SetLiveVideoBitrateKbps(uint32_t kbps) {
   kbps = std::max<uint32_t>(1000, kbps);
-  const auto caps = CapabilityModel::Evaluate(target_device_);
-  kbps = std::min(kbps, caps.max_bitrate_kbps);
 
   std::lock_guard<std::mutex> lock(params_mutex_);
+  const auto caps = CapabilityModel::Evaluate(target_device_);
+  kbps = std::min(kbps, caps.max_bitrate_kbps);
   bitrate_override_kbps_ = kbps;
   options_.video_bitrate_kbps = kbps;
+  if (starting_.load()) {
+    return;  // Start() picks the new cap up when it sizes the encoder.
+  }
   adaptive_controller_.SetBitrateCapKbps(kbps);
   // Reset the adaptive rung to match the user's new bitrate target so
   // emergency downshifts start from the right place.
@@ -1117,7 +1143,7 @@ void CastSession::SetLiveAudioBitrateBps(uint32_t bps) {
   }
   std::lock_guard<std::mutex> lock(params_mutex_);
   options_.audio_bitrate_bps = bps;
-  if (audio_encoder_) {
+  if (!starting_.load() && audio_encoder_) {
     audio_encoder_->SetBitrate(static_cast<int>(bps));
   }
 }
@@ -1332,6 +1358,13 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
 StreamStats CastSession::GetStats() const {
   std::lock_guard<std::mutex> lock(params_mutex_);
   StreamStats s = current_stats_;
+  if (starting_.load()) {
+    // Start() is still building the pipeline on another thread; only the
+    // parameters written under params_mutex_ are safe to read.
+    s.device_name = target_device_.name;
+    s.device_ip = target_device_.ip_address;
+    return s;
+  }
   s.video_frames_dropped_capture = video_frames_dropped_capture_.load();
   s.video_queue_overruns = video_queue_overruns_.load();
   s.target_delay_ms = adaptive_controller_.GetPlayoutDelayMs();

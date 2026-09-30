@@ -247,30 +247,45 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   }
   ConfigStore::Instance().Save();
 
-  EnterSessionLogging();
+  // Retire any session still registered (a Failed one lingers until the next
+  // start), outside engine_mutex_ because Stop() fires state callbacks.
+  std::shared_ptr<CastSession> previous;
   {
     std::lock_guard<std::mutex> lock(engine_mutex_);
-    active_session_ = std::make_unique<CastSession>(state_machine_);
-    active_session_->SetDeviceLookup([this](const std::string& id, const std::string& ip) {
-      auto d = discovery_.FindDeviceById(id);
-      if (!d) d = discovery_.FindDeviceByIp(ip);
-      return d;
-    });
-    active_session_->SetErrorCallback([this](const std::string& err) {
-      std::lock_guard<std::mutex> lock(callbacks_mutex_);
-      last_error_ = err;
-    });
-    {
-      std::lock_guard<std::mutex> clock(callbacks_mutex_);
-      last_error_.clear();
-    }
+    previous = std::move(active_session_);
+  }
+  if (previous) previous->Stop();
+  previous.reset();
+
+  EnterSessionLogging();
+  auto session = std::make_shared<CastSession>(state_machine_);
+  session->SetDeviceLookup([this](const std::string& id, const std::string& ip) {
+    auto d = discovery_.FindDeviceById(id);
+    if (!d) d = discovery_.FindDeviceByIp(ip);
+    return d;
+  });
+  session->SetErrorCallback([this](const std::string& err) {
+    std::lock_guard<std::mutex> lock(callbacks_mutex_);
+    last_error_ = err;
+  });
+  {
+    std::lock_guard<std::mutex> clock(callbacks_mutex_);
+    last_error_.clear();
+  }
+  {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    active_session_ = session;
   }
 
-  bool ok = active_session_->Start(dev, display_id, options);
+  // Start() blocks for the whole connect/negotiate; StopCasting() can cancel
+  // it from another thread because `session` keeps the object alive here.
+  bool ok = session->Start(dev, display_id, options);
   if (!ok) {
     std::lock_guard<std::mutex> lock(engine_mutex_);
-    active_session_.reset();
-    LeaveSessionLogging();
+    if (active_session_ == session) {
+      active_session_.reset();
+      LeaveSessionLogging();
+    }
   }
   return ok;
 }
@@ -331,19 +346,29 @@ bool CastEngine::StartCastingLastDevice() {
   return StartCasting(target, cfg.last_display_id, options);
 }
 
-void CastEngine::StopCasting() {
+std::shared_ptr<CastSession> CastEngine::CurrentSession() const {
   std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->Stop();
-    active_session_.reset();
+  return active_session_;
+}
+
+void CastEngine::StopCasting() {
+  // Detach first, stop outside the lock: Stop() fires state callbacks that may
+  // call back into the engine, and a concurrent Start() still holds its own
+  // reference so the session cannot be freed underneath it.
+  std::shared_ptr<CastSession> session;
+  {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    session = std::move(active_session_);
+  }
+  if (session) {
+    session->Stop();
   }
   LeaveSessionLogging();
 }
 
 void CastEngine::SetLiveVideoBitrateKbps(uint32_t kbps) {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->SetLiveVideoBitrateKbps(kbps);
+  if (auto session = CurrentSession()) {
+    session->SetLiveVideoBitrateKbps(kbps);
   }
   auto& cfg = ConfigStore::Instance().Mutable();
   cfg.SetPresetBitrateKbps(cfg.quality_preset, kbps);
@@ -352,55 +377,48 @@ void CastEngine::SetLiveVideoBitrateKbps(uint32_t kbps) {
 }
 
 void CastEngine::SetLiveAudioBitrateBps(uint32_t bps) {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->SetLiveAudioBitrateBps(bps);
+  if (auto session = CurrentSession()) {
+    session->SetLiveAudioBitrateBps(bps);
   }
   ConfigStore::Instance().Mutable().audio_bitrate_bps = bps;
   ConfigStore::Instance().Save();
 }
 
 void CastEngine::SetFreezeStream(bool freeze) {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->SetStreamFrozen(freeze);
+  if (auto session = CurrentSession()) {
+    session->SetStreamFrozen(freeze);
   }
 }
 
 bool CastEngine::IsStreamFrozen() const {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    return active_session_->IsStreamFrozen();
+  if (auto session = CurrentSession()) {
+    return session->IsStreamFrozen();
   }
   return false;
 }
 
 void CastEngine::SetLiveAudioMuted(bool muted) {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->SetAudioMuted(muted);
+  if (auto session = CurrentSession()) {
+    session->SetAudioMuted(muted);
   }
 }
 
 bool CastEngine::IsLiveAudioMuted() const {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    return active_session_->IsAudioMuted();
+  if (auto session = CurrentSession()) {
+    return session->IsAudioMuted();
   }
   return false;
 }
 
 void CastEngine::SetPlayoutDelayMs(int delay_ms) {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->SetPlayoutDelayMs(delay_ms);
+  if (auto session = CurrentSession()) {
+    session->SetPlayoutDelayMs(delay_ms);
   }
 }
 
 void CastEngine::SetAdaptiveResolutionChangeAllowed(bool allow) {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    active_session_->SetAdaptiveResolutionChangeAllowed(allow);
+  if (auto session = CurrentSession()) {
+    session->SetAdaptiveResolutionChangeAllowed(allow);
   }
 }
 
@@ -409,9 +427,8 @@ SessionState CastEngine::GetState() const {
 }
 
 StreamStats CastEngine::GetStats() const {
-  std::lock_guard<std::mutex> lock(engine_mutex_);
-  if (active_session_) {
-    return active_session_->GetStats();
+  if (auto session = CurrentSession()) {
+    return session->GetStats();
   }
   return StreamStats{};
 }

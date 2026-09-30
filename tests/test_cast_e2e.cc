@@ -942,3 +942,55 @@ TEST(CastE2ETest, FrozenStreamSurvivesStallDetectorWindow) {
   server.Stop();
 }
 
+
+// Regression: state callbacks fire from inside Start()/Stop(). Reading stats or
+// state from them used to self-deadlock on the session/engine mutexes, and a
+// StopCasting() racing a still-connecting Start() could free the session under it.
+TEST(CastE2ETest, StateCallbackMayReadStatsAndStopMayCancelStart) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-reentrant-device";
+  dev.name = "Reentrancy Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  std::atomic<int> callbacks{0};
+  engine.SetOnStateChanged([&](SessionState, SessionState, const std::string&) {
+    (void)engine.GetStats();
+    (void)engine.GetState();
+    ++callbacks;
+  });
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  EXPECT_GT(callbacks.load(), 0);
+  engine.StopCasting();
+  EXPECT_EQ(engine.GetState(), SessionState::kIdle);
+
+  // Cancel a Start() that is still connecting.
+  std::atomic<bool> start_returned{false};
+  std::thread starter([&] {
+    (void)engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true);
+    start_returned = true;
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  engine.StopCasting();
+  starter.join();
+  EXPECT_TRUE(start_returned.load());
+  engine.StopCasting();
+
+  engine.SetOnStateChanged(nullptr);
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
