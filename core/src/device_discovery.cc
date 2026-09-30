@@ -433,6 +433,34 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
 }
 
 
+size_t DeviceDiscovery::ExpireStaleDevices(std::chrono::steady_clock::time_point now,
+                                           std::chrono::seconds ttl) {
+  DevicesCallback cb;
+  std::vector<CastDevice> current;
+  size_t removed = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto it = devices_.begin(); it != devices_.end();) {
+      const bool from_mdns = mdns_ids_.count(it->id) > 0;
+      if (from_mdns && now - it->last_seen > ttl) {
+        LOG_INFO << "Device " << it->name << " has not been seen for "
+                 << ttl.count() << " s; removing it from the list";
+        mdns_ids_.erase(it->id);
+        it = devices_.erase(it);
+        ++removed;
+      } else {
+        ++it;
+      }
+    }
+    if (removed > 0) {
+      current = devices_;
+      cb = callback_;
+    }
+  }
+  if (cb) cb(current);
+  return removed;
+}
+
 void DeviceDiscovery::RemoveDevice(const std::string& device_id) {
   DevicesCallback cb;
   std::vector<CastDevice> current;
@@ -720,6 +748,10 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
     CastDevice dev = ParseFromMdnsData(parsed_name, parsed_ip.empty() ? sender_ip : parsed_ip,
                                        parsed_port, txt_entries);
     AddOrUpdateDevice(dev);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      mdns_ids_.insert(dev.id);
+    }
   }
 }
 
@@ -785,6 +817,7 @@ void DeviceDiscovery::DiscoveryLoop() {
   }
 
   auto last_mdns_query = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+  auto last_expiry = std::chrono::steady_clock::now();
 
   while (running_.load()) {
     auto now = std::chrono::steady_clock::now();
@@ -794,6 +827,13 @@ void DeviceDiscovery::DiscoveryLoop() {
                     std::chrono::duration_cast<std::chrono::seconds>(now - last_mdns_query).count() >= 3)) {
       SendMdnsQuery(fd);
       last_mdns_query = now;
+    }
+
+    // Devices answer every 3 s query while they are on. Ten minutes of silence
+    // means switched off or gone, not a dropped packet.
+    if (now - last_expiry >= std::chrono::seconds(30)) {
+      ExpireStaleDevices(now, std::chrono::minutes(10));
+      last_expiry = now;
     }
 
     if (fd >= 0) {

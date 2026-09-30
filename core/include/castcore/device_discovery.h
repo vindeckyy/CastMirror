@@ -2,6 +2,8 @@
 #define CASTCORE_DEVICE_DISCOVERY_H_
 
 #include "castcore/types.h"
+#include <set>
+#include <chrono>
 #include <vector>
 #include <string>
 #include <mutex>
@@ -47,6 +49,11 @@ class DeviceDiscovery {
   // can be unit-tested directly. Normally only reached from DiscoveryLoop().
   void ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip);
 
+  // Drops devices that mDNS found but has not heard from within `ttl`, so a TV that
+  // was switched off leaves the list. Devices added by address or by the subnet
+  // probe are kept: nothing re-announces them. Returns how many were removed.
+  size_t ExpireStaleDevices(std::chrono::steady_clock::time_point now, std::chrono::seconds ttl);
+
  private:
   void DiscoveryLoop();
   void SendMdnsQuery(int socket_fd);
@@ -58,6 +65,7 @@ class DeviceDiscovery {
   std::atomic<bool> force_mdns_query_{false};
   mutable std::mutex mutex_;
   std::vector<CastDevice> devices_;
+  std::set<std::string> mdns_ids_;  // ids seen through mDNS; guarded by mutex_
   DevicesCallback callback_;
 };
 

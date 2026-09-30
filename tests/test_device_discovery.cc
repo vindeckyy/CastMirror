@@ -310,3 +310,27 @@ TEST(DeviceDiscoveryTest, ProcessMdnsResponsePrefersTheARecordAddress) {
   ASSERT_EQ(devices.size(), 1u);
   EXPECT_EQ(devices.front().ip_address, "192.168.7.33");
 }
+TEST(DeviceDiscoveryTest, ExpireStaleDevicesDropsSilentMdnsDevicesButKeepsManualOnes) {
+  DeviceDiscovery discovery;
+
+  std::vector<uint8_t> pkt = MdnsHeader(0, 2, 0, 0);
+  AppendSrvRecord(pkt, kInstance, 8009);
+  AppendTxtRecord(pkt, kInstance, {"id=uuid-expire", "fn=Bedroom TV"});
+  discovery.ProcessMdnsResponse(pkt.data(), pkt.size(), "192.168.7.50");
+
+  CastDevice manual;
+  manual.id = "192.168.7.60";  // added by address: nothing re-announces it
+  manual.name = "Manual TV";
+  manual.ip_address = "192.168.7.60";
+  manual.port = 8009;
+  discovery.AddOrUpdateDevice(manual);
+  ASSERT_EQ(discovery.GetDevices().size(), 2u);
+
+  const auto now = std::chrono::steady_clock::now();
+  EXPECT_EQ(discovery.ExpireStaleDevices(now, std::chrono::minutes(10)), 0u);  // just seen
+  EXPECT_EQ(discovery.ExpireStaleDevices(now + std::chrono::minutes(11), std::chrono::minutes(10)), 1u);
+
+  auto left = discovery.GetDevices();
+  ASSERT_EQ(left.size(), 1u);
+  EXPECT_EQ(left.front().id, "192.168.7.60");
+}
