@@ -125,6 +125,7 @@ SessionOptions BuildSessionOptions(const AppConfig& cfg, const SessionOverrides&
   }
   opts.silence_host_speakers = cfg.silence_host_speakers;
   opts.show_cursor = cfg.show_cursor;
+  opts.reconnect_window_s = cfg.reconnect_window_s;
   opts.adaptive_enabled = cfg.adaptive_enabled;
   // Game keeps the resolution fixed: a mid-game resolution change stalls the
   // picture for the keyframe that follows it.
@@ -152,6 +153,7 @@ void AppConfig::SetDeviceProfile(const std::string& device_id, const DeviceProfi
 }
 
 void AppConfig::Validate() {
+  reconnect_window_s = std::clamp(reconnect_window_s, 10, 600);
   auto clamp_kbps = [](uint32_t v) -> uint32_t {
     if (v == 0) return 0;
     return std::clamp(v, 1000u, 25000u);
@@ -310,6 +312,7 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("verify_device_cert")) ConfigReadBool(j, "verify_device_cert", &config_.verify_device_cert);
     if (j.contains("latency_hud_enabled")) ConfigReadBool(j, "latency_hud_enabled", &config_.latency_hud_enabled);
     if (j.contains("show_cursor")) ConfigReadBool(j, "show_cursor", &config_.show_cursor);
+    if (j.contains("reconnect_window_s")) ConfigReadInt(j, "reconnect_window_s", &config_.reconnect_window_s);
     if (j.contains("ui_theme")) ConfigReadString(j, "ui_theme", &config_.ui_theme);
 
     config_.Validate();
@@ -393,6 +396,7 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["verify_device_cert"] = config_.verify_device_cert;
     j["latency_hud_enabled"] = config_.latency_hud_enabled;
     j["show_cursor"] = config_.show_cursor;
+    j["reconnect_window_s"] = config_.reconnect_window_s;
     j["ui_theme"] = config_.ui_theme;
 
     // Atomic write: write to tmp + fsync + rename, backup previous

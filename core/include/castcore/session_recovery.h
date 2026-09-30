@@ -23,6 +23,8 @@ class SessionRecovery {
   // Begins a recovery window. Returns false, changing nothing, if one is
   // already open: two threads noticing the same drop must not both start it.
   bool StartRecovery(const std::string& reason);
+  // How long a dropped connection is retried before the session gives up.
+  void SetTimeoutSeconds(int seconds);
   void Reset();
 
   bool IsRecovering() const { return is_recovering_.load(); }
@@ -35,7 +37,7 @@ class SessionRecovery {
  private:
   mutable std::mutex mutex_;
   std::atomic<bool> is_recovering_{false};
-  int max_timeout_seconds_ = 30;
+  std::atomic<int> max_timeout_seconds_{30};
   std::atomic<int> attempt_count_{0};
   std::string reason_;
   std::chrono::steady_clock::time_point recovery_start_time_;

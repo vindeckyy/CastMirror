@@ -1090,6 +1090,12 @@ namespace CastMirror.ViewModels
             }
         }
 
+        public void ApplyReconnectWindow(int seconds)
+        {
+            Settings.ReconnectWindowSeconds = seconds;
+            PersistSettings();
+        }
+
         public void ApplyShowCursor(bool enabled)
         {
             Settings.ShowCursor = enabled;
@@ -1110,6 +1116,14 @@ namespace CastMirror.ViewModels
         {
             ErrorMessage = "Something went wrong inside CastMirror. Your cast keeps running. " +
                            "If it happens again, open Logs and copy the log into a bug report.";
+        }
+
+        /// <summary>Tells the user the last run ended in a crash and where the crash file is.</summary>
+        public void ReportPreviousCrash(string dumpPath)
+        {
+            ErrorMessage = "CastMirror closed unexpectedly last time. A crash file was saved in " +
+                           $"{System.IO.Path.GetDirectoryName(dumpPath)}. It contains a copy of the program's " +
+                           "memory, so attach it to a bug report only if you're comfortable sharing that.";
         }
 
         /// <summary>Removes a device the user added by address.</summary>

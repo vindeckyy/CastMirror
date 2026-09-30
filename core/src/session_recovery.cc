@@ -6,6 +6,10 @@ namespace castcore {
 SessionRecovery::SessionRecovery(int max_timeout_seconds)
     : max_timeout_seconds_(max_timeout_seconds) {}
 
+void SessionRecovery::SetTimeoutSeconds(int seconds) {
+  max_timeout_seconds_ = seconds > 0 ? seconds : 30;
+}
+
 SessionRecovery::~SessionRecovery() = default;
 
 bool SessionRecovery::StartRecovery(const std::string& reason) {

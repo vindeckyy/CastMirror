@@ -157,6 +157,7 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     answer_failed_ = false;
     launch_received_ = false;
   }
+  recovery_.SetTimeoutSeconds(options.reconnect_window_s);
   launch_sent_ = false;
   lock.unlock();
 

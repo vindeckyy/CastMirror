@@ -402,6 +402,7 @@ struct SessionOptions {
   bool adaptive_enabled = true;
   bool adaptive_resolution_enabled = true;
   bool show_cursor = false;  // Composite hardware cursor into captured frames
+  int reconnect_window_s = 30;  // How long a dropped connection is retried
   bool verify_device_cert = true;  // Verify receiver certificates against Cast Root CA
   // Selected capture source. When unset, the legacy display_id argument
   // (passed alongside these options) is used as a Monitor source.

@@ -67,6 +67,7 @@ struct AppConfig {
   bool verify_device_cert = true;
   bool latency_hud_enabled = false;
   bool show_cursor = true;  // draw the mouse pointer into the mirrored picture
+  int reconnect_window_s = 30;  // seconds a dropped connection is retried (10-600)
   // UI color scheme preference ("", "light", "dark"). Empty means "follow the
   // system". Only the Windows (WinUI) front-end reads it today; persisted here
   // so settings stay in a single config file.

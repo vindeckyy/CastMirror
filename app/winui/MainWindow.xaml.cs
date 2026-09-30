@@ -215,6 +215,9 @@ namespace CastMirror
             AddKeyboardShortcuts();
             UpdateFirstRunFocusTrap();
 
+            string? previousCrash = CrashHandler.TakePreviousCrash();
+            if (previousCrash != null) ViewModel.ReportPreviousCrash(previousCrash);
+
             // A second launch asks this instance to show itself instead of doing
             // nothing, which matters most when the window is hidden in the tray.
             SingleInstance.ListenForActivation(() => DispatcherQueue.TryEnqueue(RestoreWindow));

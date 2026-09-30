@@ -22,6 +22,7 @@ namespace CastMirror
     {
         private static readonly int[] FpsOptions = { 0, 24, 25, 30, 50, 60 };
         private static readonly uint[] AudioQualityOptions = { 64000, 96000, 128000, 192000, 256000 };
+        private static readonly int[] ReconnectOptions = { 30, 60, 120, 300, 600 };
 
         private readonly MainViewModel _viewModel;
         private readonly Action _desktopIntegrationChanged;
@@ -111,6 +112,15 @@ namespace CastMirror
 
                 LatencyHudSwitch.IsOn = settings.LatencyHudEnabled;
                 CursorSwitch.IsOn = settings.ShowCursor;
+                int reconnectIndex = Array.IndexOf(ReconnectOptions, settings.ReconnectWindowSeconds);
+                if (reconnectIndex < 0)
+                {
+                    NoteUnsupportedValue("reconnect_window_s", settings.ReconnectWindowSeconds);
+                }
+                else
+                {
+                    ReconnectCombo.SelectedIndex = reconnectIndex;
+                }
                 SubnetScanSwitch.IsOn = settings.SubnetScanEnabled;
                 TraySwitch.IsOn = settings.EnableTrayOnStartup;
                 CloseToTraySwitch.IsOn = settings.CloseToTray;
@@ -248,6 +258,15 @@ namespace CastMirror
         {
             if (_loading) return;
             _viewModel.ApplyAudioEnabled(AudioSwitch.IsOn);
+            ClearError();
+        }
+
+        private void OnReconnectChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            int index = ReconnectCombo.SelectedIndex;
+            if (index < 0 || index >= ReconnectOptions.Length) return;
+            _viewModel.ApplyReconnectWindow(ReconnectOptions[index]);
             ClearError();
         }
 

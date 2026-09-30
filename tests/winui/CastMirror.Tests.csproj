@@ -20,5 +20,6 @@
     <Compile Include="..\..\app\winui\Services\UpdateService.cs" Link="Services\UpdateService.cs" />
     <Compile Include="..\..\app\winui\Services\DiagnosticsService.cs" Link="Services\DiagnosticsService.cs" />
     <Compile Include="..\..\app\winui\Services\LogService.cs" Link="Services\LogService.cs" />
+    <Compile Include="..\..\app\winui\Services\CrashHandler.cs" Link="Services\CrashHandler.cs" />
   </ItemGroup>
 </Project>

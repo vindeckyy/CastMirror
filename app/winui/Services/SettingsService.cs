@@ -82,6 +82,7 @@ namespace CastMirror.Services
         [JsonPropertyName("first_run_complete")] public bool FirstRunComplete { get; set; }
         [JsonPropertyName("ui_theme")] public string UiTheme { get; set; } = string.Empty;
         [JsonPropertyName("show_cursor")] public bool ShowCursor { get; set; } = true;
+        [JsonPropertyName("reconnect_window_s")] public int ReconnectWindowSeconds { get; set; } = 30;
 
         // Window size in DIPs. The engine's own default (920x700) doubles as
         // "never saved", so the client falls back to its 1100x720 layout then.

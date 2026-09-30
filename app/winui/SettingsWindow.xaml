@@ -121,6 +121,22 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Draws the pointer into the mirrored picture. Applies to the next cast."/>
 
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="Keep reconnecting for" FontWeight="Medium"/>
+                            <TextBlock Text="How long CastMirror keeps trying after the connection drops, for example when the PC wakes from sleep or Wi-Fi changes. After that the cast ends. Applies to the next cast."
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ComboBox x:Name="ReconnectCombo" HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                                      AutomationProperties.Name="Keep reconnecting for"
+                                      SelectionChanged="OnReconnectChanged">
+                                <ComboBoxItem Content="30 seconds"/>
+                                <ComboBoxItem Content="1 minute"/>
+                                <ComboBoxItem Content="2 minutes"/>
+                                <ComboBoxItem Content="5 minutes"/>
+                                <ComboBoxItem Content="10 minutes"/>
+                            </ComboBox>
+                        </StackPanel>
+
                         <ToggleSwitch x:Name="LatencyHudSwitch" Header="Latency HUD overlay"
                                       OnContent="On" OffContent="Off" Toggled="OnLatencyHudToggled"/>
                         <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"

@@ -118,3 +118,55 @@ namespace CastMirror.Tests
         }
     }
 }
+
+namespace CastMirror.Tests
+{
+    public class CrashHandlerTests
+    {
+        [Fact]
+        public void PruneKeepsOnlyTheNewestDumps()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "castmirror-crash-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                for (int i = 0; i < 8; i++)
+                {
+                    string file = Path.Combine(dir, $"crash-2026010{i}-000000.dmp");
+                    File.WriteAllText(file, "x");
+                    File.SetLastWriteTimeUtc(file, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddDays(i));
+                }
+                File.WriteAllText(Path.Combine(dir, "notes.txt"), "keep me");
+
+                CrashHandler.PruneOldDumps(dir, 3);
+
+                var left = Directory.GetFiles(dir, "crash-*.dmp");
+                Assert.Equal(3, left.Length);
+                Assert.Contains(Path.Combine(dir, "crash-20260107-000000.dmp"), left);
+                Assert.True(File.Exists(Path.Combine(dir, "notes.txt")));
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+
+        [Fact]
+        public void PreviousCrashIsReportedOnceThenCleared()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "castmirror-marker-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                Assert.Null(CrashHandler.TakePreviousCrash(dir));
+                File.WriteAllText(Path.Combine(dir, "last-crash.txt"), @"C:\x\crash-1.dmp");
+                Assert.Equal(@"C:\x\crash-1.dmp", CrashHandler.TakePreviousCrash(dir));
+                Assert.Null(CrashHandler.TakePreviousCrash(dir));
+            }
+            finally
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+}
