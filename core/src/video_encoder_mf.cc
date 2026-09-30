@@ -471,7 +471,7 @@ bool MediaFoundationVideoEncoder::DrainOutput(EncodedFrame& out_encoded_frame) {
   if (output_provides_samples_) {
     // The MFT allocated this sample; ProcessOutput handed us the reference, so
     // hold it until the copy below is done or it leaks.
-    mft_owned_sample = out.pSample;
+    mft_owned_sample.Attach(out.pSample);  // adopt, don't AddRef: that would leak one sample per frame
   }
   return CopyOutputSample(out.pSample, out_encoded_frame);
 }

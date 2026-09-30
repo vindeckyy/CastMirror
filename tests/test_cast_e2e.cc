@@ -1,4 +1,10 @@
 #include <gtest/gtest.h>
+#if defined(_WIN32)
+#include <windows.h>
+#include <psapi.h>
+#endif
+#include <cstdio>
+#include <cstdlib>
 #include "castcore/logger.h"
 #include "castcore/cast_engine.h"
 #include "castcore/cast_session.h"
@@ -1036,3 +1042,84 @@ TEST(CastE2ETest, RejectedOfferFailsFast) {
   ConfigStore::Instance().Save();
   server.Stop();
 }
+#if defined(_WIN32)
+// Long-running stream against the simulated receiver, watching for leaks. Off unless
+// CASTMIRROR_SOAK_MINUTES is set, because it takes that long. scripts/soak_windows.ps1
+// runs it and prints the samples. Memory and handle counts must level off: after a
+// warm-up, growth beyond a small margin means something is not being released.
+TEST(CastE2ETest, SoakStreamDoesNotLeakMemoryOrHandles) {
+  const char* minutes_env = std::getenv("CASTMIRROR_SOAK_MINUTES");
+  if (!minutes_env) GTEST_SKIP() << "set CASTMIRROR_SOAK_MINUTES to run the soak test";
+  const int minutes = std::max(1, std::atoi(minutes_env));
+
+  TestReceiverServer server;
+  server.Start();
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-soak-device";
+  dev.name = "Soak Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+
+  auto sample = [] {
+    PROCESS_MEMORY_COUNTERS pmc{};
+    pmc.cb = sizeof(pmc);
+    GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc));
+    DWORD handles = 0;
+    GetProcessHandleCount(GetCurrentProcess(), &handles);
+    return std::pair<size_t, DWORD>{pmc.WorkingSetSize, handles};
+  };
+
+  const auto start = std::chrono::steady_clock::now();
+  const auto end = start + std::chrono::minutes(minutes);
+  const auto warmup_end = start + std::chrono::minutes(std::min(2, minutes));
+  size_t baseline_ws = 0;
+  DWORD baseline_handles = 0;
+  size_t peak_ws = 0;
+  DWORD peak_handles = 0;
+  int samples = 0;
+  while (std::chrono::steady_clock::now() < end) {
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    ASSERT_EQ(engine.GetState(), SessionState::kStreaming) << "the stream must stay up for the whole soak";
+    auto [ws, handles] = sample();
+    if (std::chrono::steady_clock::now() < warmup_end) {
+      baseline_ws = ws;
+      baseline_handles = handles;
+    }
+    peak_ws = std::max(peak_ws, ws);
+    peak_handles = std::max(peak_handles, handles);
+    if (++samples % 6 == 0) {
+      std::fprintf(stderr, "[soak] %3d s  working set %6.1f MB  handles %u  frames %llu\n",
+                   static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
+                                        std::chrono::steady_clock::now() - start).count()),
+                   ws / 1048576.0, static_cast<unsigned>(handles),
+                   static_cast<unsigned long long>(engine.GetStats().frames_sent));
+    }
+  }
+
+  const StreamStats stats = engine.GetStats();
+  engine.StopCasting();
+  EXPECT_GT(stats.frames_sent, static_cast<uint64_t>(minutes) * 60 * 10) << "frames must keep flowing";
+  // After the warm-up the working set may wander, but it must not climb: allow 64 MB
+  // (allocator slack, stats windows) and 40 extra handles (sockets in flight).
+  EXPECT_LT(peak_ws, baseline_ws + 64u * 1048576u) << "working set kept growing";
+  EXPECT_LT(peak_handles, baseline_handles + 40u) << "handle count kept growing";
+  std::fprintf(stderr, "[soak] done: baseline %.1f MB / %u handles, peak %.1f MB / %u handles\n",
+               baseline_ws / 1048576.0, static_cast<unsigned>(baseline_handles),
+               peak_ws / 1048576.0, static_cast<unsigned>(peak_handles));
+
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+#endif

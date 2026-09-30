@@ -102,3 +102,8 @@ What this run did not cover, and why it matters:
 - **OFFER/ANSWER Negotiation:** ~3 ms
 - **Media Delivery:** UDP Cast RTP/RTCP transport active with pacing and NACK retransmission
 - **Clean Session Teardown:** ~93.6 ms - 121.6 ms (Budget <= 500 ms)
+
+## Soak (10 minutes, 1080p desktop to the in-process receiver)
+
+The first run showed the working set climbing about 110 MB a minute with handles flat. Cause: the Media Foundation encoder took an extra reference on each sample the MFT allocated itself, so one sample leaked per frame. After the fix a 10-minute run stays within 12 MB of baseline (117 to 129 MB) and 6 handles. Run it with scripts/soak_windows.ps1; use -Minutes 480 for a release soak.
+

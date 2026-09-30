@@ -44,6 +44,9 @@ endif()
 
 add_executable(castmirror_tests ${TEST_SOURCES})
 target_link_libraries(castmirror_tests PRIVATE castcore GTest::gtest)
+if(WIN32)
+    target_link_libraries(castmirror_tests PRIVATE psapi)  # soak test reads process memory
+endif()
 
 # gtest_discover_tests is the single source of truth for the registered suite:
 # it enumerates one ctest case per TEST/TEST_P macro, which is what gives
