@@ -47,7 +47,7 @@
       </div>
       <div class="strip" style="margin-top: 8px;">
         <span class="chip">⏱️ <strong>~200 ms</strong> Target Playout</span>
-        <span class="chip">🧪 <strong>87 / 87</strong> Tests Passed</span>
+        <span class="chip">🧪 <strong><!-- testcount -->182<!-- /testcount --></strong> Test Cases</span>
         <span class="chip">⚡ <strong>VAAPI</strong> HW Encode</span>
       </div>
     </div>
@@ -158,7 +158,7 @@
         <nav class="docs-nav" aria-label="Documentation Table of Contents">
           <div class="docs-nav-header">
             <span>Documentation Hub</span>
-            <span>5 Guides</span>
+            <span>6 Guides</span>
           </div>
           <a class="docs-nav-link is-active" data-doc="all" href="#documentation">📖 All Documentation</a>
           <a class="docs-nav-link" data-doc="doc-building" href="#doc-building">🛠️ Building &amp; Install</a>
@@ -166,6 +166,7 @@
           <a class="docs-nav-link" data-doc="doc-compatibility" href="#doc-compatibility">📺 Devices &amp; Ladder</a>
           <a class="docs-nav-link" data-doc="doc-protocol" href="#doc-protocol">📡 Cast Protocol</a>
           <a class="docs-nav-link" data-doc="doc-tests" href="#doc-tests">🧪 Test &amp; Verification</a>
+          <a class="docs-nav-link" data-doc="doc-devices" href="#doc-devices">🖥️ Physical Device Matrix</a>
         </nav>
 
         <!-- Documentation Content Body (All Docs Open Simultaneously) -->
@@ -200,7 +201,7 @@ cmake --build build -j"12"</pre>
                 <tbody>
                   <tr><td><code>build/app/castmirror-gui</code></td><td>Modern GTK 4 + Libadwaita desktop graphical application</td></tr>
                   <tr><td><code>build/app/castmirror</code></td><td>Interactive and non-interactive command-line interface</td></tr>
-                  <tr><td><code>build/tests/castmirror_tests</code></td><td>Full Google Test test suite (87 tests)</td></tr>
+                  <tr><td><code>build/tests/castmirror_tests</code></td><td>Full Google Test test suite (<!-- testcount -->182<!-- /testcount --> tests)</td></tr>
                   <tr><td><code>build/tools/poc-*</code></td><td>Protocol, encoding, and transport benchmark tools</td></tr>
                   <tr><td><code>build/tools/fake-receiver</code></td><td>Automated simulated Cast receiver for local loopback verification</td></tr>
                 </tbody>
@@ -242,7 +243,7 @@ cmake --build build -j"12"</pre>
             <h4>Performance &amp; Latency Contract</h4>
             <ul>
               <li><strong>Connect to First Frame:</strong> &le; 8 seconds typical (including TLS, app launch, and OFFER/ANSWER negotiation).</li>
-              <li><strong>Glass-to-Glass Latency:</strong> &le; 200–250 ms on a clean 5 GHz LAN with <code>targetDelay: 200</code>.</li>
+              <li><strong>Glass-to-Glass Latency:</strong> ~200 ms typical on a clean 5 GHz LAN at the default <code>targetDelay: 200</code>. The value stays in a 150–400 ms band (<strong>Game</strong> starts at 150 ms, <strong>Cinema</strong> at 400 ms) and the adaptive controller steps it 150→200→300→400 ms under loss/jitter and back down when clean. Chrome's own default is 400 ms.</li>
               <li><strong>Teardown Budget:</strong> Clean Stop within &le; 500 ms (guaranteed halt of capture, encoders, and UDP sockets).</li>
               <li><strong>Idle Safety:</strong> Capture and encoders never run in the background when disconnected.</li>
             </ul>
@@ -284,45 +285,44 @@ cmake --build build -j"12"</pre>
               <h3>3. Device Compatibility &amp; Adaptation Ladder</h3>
               <span class="doc-badge">Matrix</span>
             </div>
-            <p>CastMirror classifies receivers using mDNS capability bitmasks (<code>ca</code>) and model identifiers (<code>md</code>), verified against the receiver's negotiation ANSWER.</p>
+            <p>CastMirror classifies receivers <strong>by model name</strong>: <code>CapabilityModel::Evaluate</code> lowercases the mDNS <code>md</code> value and substring-matches it. The mDNS <code>ca</code> capability bitmask is parsed into <code>CastDevice::capabilities</code> but no classifier consumes it.</p>
 
             <h4>Receiver Compatibility Matrix</h4>
             <div class="doc-table-wrap">
               <table class="doc-table">
                 <thead>
-                  <tr><th>Device Model</th><th>Model String (md)</th><th>H.264 Profile</th><th>Max Resolution &amp; FPS</th><th>Playout Delay</th></tr>
+                  <tr><th>Device family (as classified)</th><th>Matched <code>md</code> substring</th><th>H.264 Level</th><th>Max Resolution &amp; FPS</th><th>Max Bitrate</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td>Chromecast (1st/2nd Gen)</td><td><code>Chromecast</code> / <code>NC2-6A5</code></td><td>Level 4.1</td><td>1080p30, 720p60</td><td>400 ms</td></tr>
-                  <tr><td>Chromecast (3rd Gen)</td><td><code>GA00439</code></td><td>Level 4.2</td><td>1080p60, 720p60</td><td>200 - 400 ms</td></tr>
-                  <tr><td>Chromecast Ultra</td><td><code>NC2-6A5-D</code></td><td>Level 5.1</td><td>4K30, 1080p60</td><td>200 - 400 ms</td></tr>
-                  <tr><td>Chromecast with Google TV (HD)</td><td><code>G454V</code></td><td>Level 4.2</td><td>1080p60, 720p60</td><td>200 - 400 ms</td></tr>
-                  <tr><td>Chromecast with Google TV (4K)</td><td><code>GZRNL</code></td><td>Level 5.1</td><td>4K60 (VP9), 4K30 (H.264), 1080p60</td><td>200 - 400 ms</td></tr>
-                  <tr><td>Google TV Streamer (4K)</td><td><code>GR1XN</code></td><td>Level 5.2</td><td>4K60, 1080p60</td><td>200 - 400 ms</td></tr>
-                  <tr><td>Google Nest Hub (1st/2nd Gen)</td><td><code>Google Nest Hub</code></td><td>Level 3.1</td><td>720p60, 720p30 (720p-class)</td><td>400 ms</td></tr>
-                  <tr><td>Cast TVs (Sony, Vizio, Philips)</td><td><code>Cast TV</code></td><td>Level 4.2</td><td>1080p60, 720p60</td><td>200 - 400 ms</td></tr>
-                </tbody>
-              </table>
-            </div>
+                  <tr><td>Nest Hub</td><td><code>nest hub</code>, <code>google home hub</code></td><td>Level 3.1</td><td>1280x720 @ 60</td><td>5000 kbps</td></tr>
+                  <tr><td>Chromecast Ultra</td><td><code>ultra</code></td><td>Level 5.1</td><td>3840x2160 @ 60</td><td>25000 kbps</td></tr>
+                  <tr><td>Chromecast Gen 1/2</td><td><code>h2g2-42</code>, <code>nc2-6a5</code> (not <code>nc2-6a5-d</code>)</td><td>Level 4.1</td><td>1920x1080 @ 30</td><td>8000 kbps</td></tr>
+                  <tr><td>Chromecast with Google TV</td><td><code>google tv</code>, <code>streamer</code>, <code>android tv</code>, <code>bravia</code></td><td>Level 5.1</td><td>3840x2160 @ 60</td><td>25000 kbps</td></tr>
+                  <tr><td>Chromecast Gen 3</td><td><code>chromecast</code></td><td>Level 4.2</td><td>1920x1080 @ 60</td><td>15000 kbps</td></tr>
+                  <tr><td>Generic Cast TV</td><td>anything else</td><td>Level 4.2</td><td>1920x1080 @ 60</td><td>12000 kbps</td></tr>
+                  </tbody>
+                </table>
+              </div>
 
             <h4>8-Rung Dynamic Adaptation Ladder</h4>
+            <p>Defined once in <code>AdaptiveController::BuildLadder()</code> (<code>core/src/adaptive_controller.cc</code>) — each rung is only a resolution, a framerate and a target bitrate; there is no per-rung min/max bitrate and no RTT-threshold table.</p>
             <div class="doc-table-wrap">
-              <table class="doc-table">
-                <thead>
-                  <tr><th>Rung</th><th>Resolution</th><th>FPS</th><th>Target Bitrate</th><th>Trigger Condition</th></tr>
-                </thead>
+                <table class="doc-table">
+                  <thead>
+                    <tr><th>Rung</th><th>Resolution</th><th>FPS</th><th>Target Bitrate</th></tr>
+                  </thead>
                 <tbody>
-                  <tr><td><strong>0 (Ultra 4K)</strong></td><td>3840 &times; 2160</td><td>60</td><td>25.0 Mbps</td><td>4K device, 0% loss, RTT &lt; 20 ms</td></tr>
-                  <tr><td><strong>1 (4K Standard)</strong></td><td>3840 &times; 2160</td><td>30</td><td>18.0 Mbps</td><td>4K device, loss &lt; 1%, RTT &lt; 35 ms</td></tr>
-                  <tr><td><strong>2 (1440p High)</strong></td><td>2560 &times; 1440</td><td>60</td><td>12.0 Mbps</td><td>1440p+ device, loss &lt; 1.5%</td></tr>
-                  <tr><td><strong>3 (1080p60 Max)</strong></td><td>1920 &times; 1080</td><td>60</td><td>8.0 Mbps</td><td>Gen3 / Ultra / Google TV, loss &lt; 2%</td></tr>
-                  <tr><td><strong>4 (1080p30 Default)</strong></td><td>1920 &times; 1080</td><td>30</td><td>5.0 Mbps</td><td>Default baseline for all video receivers</td></tr>
-                  <tr><td><strong>5 (720p60 Smooth)</strong></td><td>1280 &times; 720</td><td>60</td><td>4.0 Mbps</td><td>Loss 2% &ndash; 5%, RTT &gt; 60 ms</td></tr>
-                  <tr><td><strong>6 (720p30 Resilient)</strong></td><td>1280 &times; 720</td><td>30</td><td>2.5 Mbps</td><td>Loss 5% &ndash; 10%, RTT &gt; 90 ms</td></tr>
-                  <tr><td><strong>7 (540p30 Emergency)</strong></td><td>960 &times; 540</td><td>30</td><td>1.2 Mbps</td><td>Loss &gt; 10%, RTT &gt; 150 ms</td></tr>
-                </tbody>
-              </table>
-            </div>
+                    <tr><td><strong>0 (4K60)</strong></td><td>3840 &times; 2160</td><td>60</td><td>25.0 Mbps</td></tr>
+                  <tr><td><strong>1 (4K30)</strong></td><td>3840 &times; 2160</td><td>30</td><td>16.0 Mbps</td></tr>
+                  <tr><td><strong>2 (1440p60)</strong></td><td>2560 &times; 1440</td><td>60</td><td>12.0 Mbps</td></tr>
+                  <tr><td><strong>3 (1080p60)</strong></td><td>1920 &times; 1080</td><td>60</td><td>8.0 Mbps</td></tr>
+                  <tr><td><strong>4 (1080p30)</strong></td><td>1920 &times; 1080</td><td>30</td><td>5.0 Mbps</td></tr>
+                  <tr><td><strong>5 (720p60)</strong></td><td>1280 &times; 720</td><td>60</td><td>3.5 Mbps</td></tr>
+                  <tr><td><strong>6 (720p30)</strong></td><td>1280 &times; 720</td><td>30</td><td>2.0 Mbps</td></tr>
+                  <tr><td><strong>7 (540p30)</strong></td><td>960 &times; 540</td><td>30</td><td>1.2 Mbps</td></tr>
+                  </tbody>
+                </table>
+              </div>
           </article>
 
           <!-- Document 4: Protocol Deep-Dive -->
@@ -375,26 +375,42 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
             </div>
             <p>CastMirror undergoes rigorous automated verification including unit tests, integration suites, synthetic network impairments, and simulated receiver loopback.</p>
 
-            <h4>Test Suite Status (87 / 87 Passed &mdash; 100%)</h4>
+            <h4>Test Suite Status (<!-- testcount -->182<!-- /testcount --> cases; generated by <code>scripts/count_tests.py</code>)</h4>
             <div class="doc-table-wrap">
               <table class="doc-table">
                 <thead>
-                  <tr><th>Test Category</th><th>Test Count</th><th>Status</th><th>Coverage</th></tr>
+                  <tr><th>Test source</th><th>Test Count</th><th>Status</th><th>Coverage</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td>State Machine &amp; Reconnection</td><td>6 tests</td><td>Passed</td><td>State transitions, callback notifications, retry limits</td></tr>
-                  <tr><td>Config Store &amp; Migrations</td><td>8 tests</td><td>Passed</td><td>v1 &rarr; v2 &rarr; v3 migration, persistence, round-trip serialization</td></tr>
-                  <tr><td>Capability &amp; Device Matching</td><td>4 tests</td><td>Passed</td><td>mDNS TXT parsing, hardware classification, resolution bounds</td></tr>
-                  <tr><td>OFFER / ANSWER Negotiation</td><td>4 tests</td><td>Passed</td><td>JSON schemas, custom bitrates, status queries</td></tr>
-                  <tr><td>AES-128-CTR Cryptography</td><td>2 tests</td><td>Passed</td><td>Roundtrip encryption/decryption, per-frame ciphertext variance</td></tr>
-                  <tr><td>RTP Packetization &amp; RTCP Parser</td><td>5 tests</td><td>Passed</td><td>7-byte Cast header, MTU slicing, checkpoint expansion</td></tr>
-                  <tr><td>Adaptive Controller Ladder</td><td>14 tests</td><td>Passed</td><td>Loss downshifts, RTT jitter delay scaling, bitrate ramp-up</td></tr>
-                  <tr><td>Video &amp; Audio Encoders</td><td>8 tests</td><td>Passed</td><td>VAAPI hardware, libx264 multi-slice, Opus 10ms cadence</td></tr>
-                  <tr><td>Display &amp; Window Capture</td><td>10 tests</td><td>Passed</td><td>XRandR, XComposite occluded window capture, DMA-BUF metadata</td></tr>
-                  <tr><td>UDP Transport &amp; Pacing</td><td>5 tests</td><td>Passed</td><td>Token bucket rate limiter, duplicate NACK suppression</td></tr>
-                  <tr><td>Session Recovery &amp; Source Selection</td><td>15 tests</td><td>Passed</td><td>Window geometry tracking, synthetic source fallback, 30s timeout</td></tr>
-                  <tr><td>End-to-End Receiver Simulation</td><td>6 tests</td><td>Passed</td><td>Full TLS + OFFER/ANSWER + media streaming + hard Stop</td></tr>
-                </tbody>
+                  <!-- testsuite:start -->
+                    <tr><td><code>test_state_machine.cc</code></td><td>6 tests</td><td>Passed</td><td>State transitions, callback notification, retry limits</td></tr>
+                    <tr><td><code>test_config.cc</code></td><td>3 tests</td><td>Passed</td><td>Defaults, save/load round-trip</td></tr>
+                    <tr><td><code>test_capability_model.cc</code></td><td>4 tests</td><td>Passed</td><td>Model classification, preset recommendations, capture-fps passthrough</td></tr>
+                    <tr><td><code>test_offer_answer.cc</code></td><td>5 tests</td><td>Passed</td><td>OFFER JSON, ANSWER parsing, custom audio bitrate, status query</td></tr>
+                    <tr><td><code>test_crypto.cc</code></td><td>2 tests</td><td>Passed</td><td>AES-128-CTR round-trip, per-frame ciphertext variance</td></tr>
+                    <tr><td><code>test_rtp_rtcp.cc</code></td><td>11 tests</td><td>Passed</td><td>7-byte Cast RTP header, MTU slicing, CAST/CST2 feedback, checkpoint expansion</td></tr>
+                    <tr><td><code>test_adaptive.cc</code></td><td>16 tests</td><td>Passed</td><td>Loss downshifts, RTT/jitter delay scaling, bitrate ramp-up, cooldown</td></tr>
+                    <tr><td><code>test_encoders.cc</code></td><td>17 tests</td><td>Passed</td><td>H.264 Annex-B output, Reconfigure, multi-slice, intra-refresh, Opus cadence</td></tr>
+                    <tr><td><code>test_cast_e2e.cc</code></td><td>9 tests</td><td>Passed</td><td>Full TLS + OFFER/ANSWER + media streaming + Stop against the simulated receiver</td></tr>
+                    <tr><td><code>test_device_selection.cc</code></td><td>2 tests</td><td>Passed</td><td>Last-device resolution by id then IP, display index</td></tr>
+                    <tr><td><code>test_logger.cc</code></td><td>2 tests</td><td>Passed</td><td>Severity filter, callback delivery</td></tr>
+                    <tr><td><code>test_display_capture.cc</code></td><td>13 tests</td><td>Passed</td><td>Synthetic/X11 enumerate and start, DMA-BUF metadata, WGC pacing (`_WIN32` only)</td></tr>
+                    <tr><td><code>test_frame_pacer.cc</code></td><td>10 tests</td><td>Passed</td><td>Frame pacing cadence</td></tr>
+                    <tr><td><code>test_session_recovery.cc</code></td><td>2 tests</td><td>Passed</td><td>Recovery state and the 30 s timeout ceiling</td></tr>
+                    <tr><td><code>test_cast_transport.cc</code></td><td>9 tests</td><td>Passed</td><td>RTCP source filter, rolling FPS, duplicate-NACK suppression, pacing</td></tr>
+                    <tr><td><code>test_capture_source.cc</code></td><td>9 tests</td><td>Passed</td><td>CaptureSource kind round-trip, config v2 to v3 migration, legacy Start forwarding</td></tr>
+                    <tr><td><code>test_portal_source.cc</code></td><td>3 tests</td><td>Passed</td><td>Portal source-type mapping (Linux only)</td></tr>
+                    <tr><td><code>test_source_selection.cc</code></td><td>5 tests</td><td>Passed</td><td>Window support reporting, geometry, config persistence</td></tr>
+                    <tr><td><code>test_device_auth.cc</code></td><td>7 tests</td><td>Passed</td><td>Device-auth challenge/response</td></tr>
+                    <tr><td><code>test_c_api.cc</code></td><td>10 tests</td><td>Passed</td><td>C ABI structs, string truncation and NUL-termination contract</td></tr>
+                    <tr><td><code>test_http_fallback.cc</code></td><td>2 tests</td><td>Passed</td><td>HTTP/CAF fallback negotiation</td></tr>
+                    <tr><td><code>test_device_discovery.cc</code></td><td>15 tests</td><td>Passed</td><td>mDNS TXT parsing, device list, subnet probe</td></tr>
+                    <tr><td><code>test_net_platform.cc</code></td><td>7 tests</td><td>Passed</td><td>Interface enumeration, socket init idempotence, error classification</td></tr>
+                    <tr><td><code>test_gpu_processor.cc</code></td><td>4 tests</td><td>Passed</td><td>Letterbox geometry, YUV/NV12 conversion correctness, invalid args</td></tr>
+                    <tr><td><code>test_audio_capture.cc</code></td><td>9 tests</td><td>Passed</td><td>10 ms cadence, monotonic timestamps, join-or-detach worker cleanup</td></tr>
+                    <tr><td><strong>Total</strong></td><td><strong><!-- testcount -->182<!-- /testcount --></strong></td><td>Passed</td><td>25 files registered in <code>tests/CMakeLists.txt</code></td></tr>
+<!-- testsuite:end -->
+                  </tbody>
               </table>
             </div>
 
@@ -414,6 +430,29 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
             </div>
           </article>
 
+            <!-- Document 6: Physical Device Matrix -->
+          <article class="doc-panel" id="doc-devices">
+            <div class="doc-panel-header">
+              <h3>6. Physical Device Matrix</h3>
+              <span class="doc-badge">Hardware</span>
+            </div>
+            <p>Real-hardware validation notes — tested firmware, empirical resolution/FPS ceilings, preferred codecs and measured playout delay per receiver generation — live in the source document: <a data-repo-file="docs/DEVICE_MATRIX.md">docs/DEVICE_MATRIX.md</a>.</p>
+
+            <h4>Playout delay bounds</h4>
+            <ul>
+              <li>Minimum target playout delay the sender will request: <strong>150 ms</strong>.</li>
+              <li>Default target delay: <strong>200 ms</strong> (Auto / High / Balanced / Smooth).</li>
+              <li>Maximum: <strong>400 ms</strong> — the <strong>Cinema</strong> preset starts there and <strong>Game</strong> starts at 150 ms; the controller clamps every value to the 150–400 ms range.</li>
+              <li>The delay is adapted at runtime: <code>AdaptiveController::StepUpPlayoutDelay</code> walks 150→200→300→400 ms when jitter exceeds 30 ms or loss exceeds 3%, and <code>StepDownPlayoutDelay</code> walks back after 15 consecutive clean intervals.</li>
+            </ul>
+
+            <h4>Keyframe cadence &amp; crypto</h4>
+            <ul>
+              <li>2000 ms periodic intra-refresh, or an IDR on packet-loss bursts.</li>
+              <li>OpenSSL AES-128-CTR, hardware-accelerated via AES-NI / ARMv8 Crypto Extensions.</li>
+            </ul>
+          </article>
+
         </div>
       </div>
     </div>
@@ -429,9 +468,9 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
       <div>
         <a data-repo-href="">GitHub</a>
         ·
-        <a data-repo-href="/blob/master/SECURITY.md">Security</a>
+        <a data-repo-file="SECURITY.md">Security</a>
         ·
-        <a data-repo-href="/blob/master/LICENSE">License</a>
+        <a data-repo-file="LICENSE">License</a>
       </div>
     </div>
   </footer>

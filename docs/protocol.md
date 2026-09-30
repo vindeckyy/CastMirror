@@ -35,7 +35,7 @@ Device authentication (`urn:x-cast:com.google.cast.tp.deviceauth`) proves a lice
 - Per-session **AES-128-CTR** keys (`aesKey`, `aesIvMask`) in the OFFER. IV mixes `frame_id` with the mask (offset as implemented in `frame_crypto`).
 - Compound **RTCP**: Sender Reports, CAST checkpoints, NACK / CST2 loss, **PLI** for keyframes.
 
-`targetDelay` is the receiver playout buffer (CastMirror currently offers **200 ms**). That is why this is Chrome-class latency, not Sunshine/Moonlight.
+`targetDelay` is the receiver playout buffer. CastMirror requests **200 ms** by default (`AdaptiveController::kDefaultPlayoutDelayMs`), clamped to 150–400 ms; the **Game** preset starts at 150 ms and **Cinema** at 400 ms, and the adaptive controller steps the value across that band at runtime (150→200→300→400 ms under loss/jitter, back down when clean). That is why this is Chrome-class latency, not Sunshine/Moonlight.
 
 ## Session teardown
 

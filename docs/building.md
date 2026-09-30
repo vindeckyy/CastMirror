@@ -72,7 +72,7 @@ Capture uses the PulseAudio/PipeWire **default sink monitor**. While mirroring w
 
 ## Windows
 
-`app/winui/` is the Windows client (WinUI 3) on top of the same `castcore`: display capture uses `Windows.Graphics.Capture`, audio uses WASAPI loopback, and the settings window mirrors the Linux GUI (bitrate cap, capture fps, audio quality, playout delay, latency HUD, subnet scan, force software encode, tray, close-to-tray, notifications, theme, self-test).
+`app/winui/` is the Windows client (WinUI 3) on top of the same `castcore`: display capture uses **DXGI Desktop Duplication** (device-independent per-monitor duplication with a per-frame window crop, recreation on `DXGI_ERROR_ACCESS_LOST`), audio uses WASAPI loopback, and the settings window mirrors the Linux GUI (bitrate cap, capture fps, audio quality, playout delay, latency HUD, subnet scan, force software encode, tray, close-to-tray, notifications, theme, self-test).
 
 ```bat
 :: core first (MSYS2 UCRT64 toolchain), then the app
@@ -85,4 +85,4 @@ dotnet build CastMirrorApp.csproj -p:Platform=x64 -r win-x64 --self-contained tr
 
 The app loads `castcore.dll` from `PATH`, so add the core build output (e.g. `build\core`) before launching. Settings persist to `%APPDATA%\CastMirror\config.json` through the same `ConfigStore` the Linux build uses, so `capture_fps`, per-preset bitrate caps, and the rest of the config apply identically. Set `CASTMIRROR_CONFIG_DIR` to redirect that file (the test binary does this so it never rewrites your settings).
 
-Capture is paced: the capture loop re-sends the newest frame on a fixed cadence, so a 30/60 fps session keeps its rate on a static desktop instead of collapsing to zero and tripping the stall detector. Windows is not covered by CI.
+Capture is paced: the capture loop re-sends the newest frame on a fixed cadence, so a 30/60 fps session keeps its rate on a static desktop instead of collapsing to zero and tripping the stall detector. CI builds this tree and runs the suite on `windows-latest` (MSYS2 UCRT64) with no interactive desktop, so the tests that need one — DXGI output enumeration, duplication pacing — report `skipped` rather than failing.

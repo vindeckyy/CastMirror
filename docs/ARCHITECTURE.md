@@ -1,7 +1,7 @@
 # CastMirror: Native Chromecast Display Mirroring
 
 **Date:** 2026-09-02  
-**Status:** Implemented — Linux GTK sender (`castmirror-gui`) and CLI (`castmirror`) on `castcore`. Windows WinUI remains a shell blueprint.  
+**Status:** Implemented — Linux GTK sender (`castmirror-gui`) and CLI (`castmirror`) on `castcore`, plus the Windows WinUI client (`app/winui/`) on the same `castcore`.
 **Working project name:** CastMirror
 
 ---
@@ -15,16 +15,16 @@
 **Success bar (primary path, LAN, modern GPU):**
 
 - Time from Cast click to first TV frame: **≤ 8 s** typical, **≤ 12 s** p95
-- Glass-to-glass latency: **≤ 400 ms** typical (Chrome-class), **≤ 250 ms** on a clean 5 GHz LAN with `targetDelay` 200
+- Glass-to-glass latency: **~200 ms** typical on a clean 5 GHz LAN at the default `targetDelay` 200 (Chrome-class)
 - 1080p30 on all Cast video devices; 1080p60 on Chromecast 3rd gen and newer; 1440p/4K only when source, decoder, encoder, and network all allow it
 - Capture **must not** run except while an active Cast session is streaming
 - Stop must halt capture/encode/sockets within **500 ms**
 
-**Honest latency ceiling:** this product should feel like Chrome’s “Cast screen”, not Sunshine/Moonlight (~20–50 ms). Cast receivers keep a **target playout delay** (Chrome default **400 ms**) so Wi-Fi retransmits do not freeze the picture. Do not promise game-streaming latency.
+**Honest latency ceiling:** this product should feel like Chrome’s “Cast screen”, not Sunshine/Moonlight (~20–50 ms). Latency is dominated by the receiver’s **target playout delay**. CastMirror asks for **200 ms** by default (Game starts at 150, Cinema at 400) and `AdaptiveController` keeps the value in a 150–400 ms band, stepping it 150→200→300→400 ms when jitter exceeds 30 ms or loss exceeds 3% and back down after 15 consecutive clean intervals; Chrome’s own default is **400 ms**. Do not promise game-streaming latency.
 
-**Default user-visible quality control:** Auto / High / Balanced / Smooth, plus a per-preset video bitrate slider (locked while a session is live).
+**Default user-visible quality control:** Auto / High / Balanced / Smooth / Game / Cinema, plus a per-preset video bitrate slider (locked while a session is live).
 
-**Shipping v1 surface:** Linux **GTK 4 + libadwaita** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** (XRandR per-monitor crop + MIT-SHM) or **Wayland** (xdg-desktop-portal ScreenCast + PipeWire); audio is **PulseAudio/PipeWire** sink monitor; video is **VAAPI H.264** hardware encode with **libx264** (`superfast`, `zerolatency`, High profile) software fallback. `app/winui/` is a UI blueprint for future Windows work.
+**Shipping v1 surface:** Linux **GTK 4 + libadwaita** GUI (`app/gui`) and CLI (`app/cli`) on `castcore`. Capture is **X11** (XRandR per-monitor crop + MIT-SHM) or **Wayland** (xdg-desktop-portal ScreenCast + PipeWire); audio is **PulseAudio/PipeWire** sink monitor; video is **VAAPI H.264** hardware encode with **libx264** (`superfast`, `zerolatency`, High profile) software fallback. The Windows WinUI client `app/winui/` is a real client on the same `castcore` (DXGI Desktop Duplication capture, WASAPI loopback, MF encoder).
 ---
 
 ## 2. How Chromecast display mirroring actually works
@@ -147,7 +147,7 @@ flowchart LR
 - `IAudioEncoder` — `OpusAudioEncoder` (libopus)
 - `CastTransport` — UDP RTP transmission, RTCP feedback parser (NACK/PLI), retransmission cache, destination IP filter
 - `AdaptiveController` — 8-rung ladder dynamically adjusting bitrate, resolution, and fps
-- `SessionRecovery` — 30 s exponential backoff reconnection policy on network blips
+- `SessionRecovery` — a 30 s recovery ceiling: `StartRecovery` stamps a start time and `HasTimedOut` fails the session once 30 s have elapsed. It holds no interval or sleep of its own; the reconnect pacing (1/2/4/8 s, capped) lives in `CastSession::AdaptationLoop`
 - `ConfigStore` — `~/.config/castmirror/config.json`
 - `Logger` — local rotating debug logs (`~/.config/castmirror/castmirror.log`)
 
@@ -157,7 +157,7 @@ flowchart LR
 Linux-native architecture built around `castcore`. Interfaces are decoupled for modular capture backends and platform abstraction.
 
 **UI: GTK 4 (>= 4.12) + libadwaita (>= 1.5).**  
-Modern GNOME desktop visual standards with `AdwViewSwitcherTitle`, `AdwViewSwitcherBar`, `AdwBreakpoint` responsive adaptation, and dark/light/system theme switching via `AdwStyleManager`. System tray integration uses Ayatana AppIndicator (`libayatana-appindicator-glib-2.0`). Desktop notifications use `org.freedesktop.Notifications`. `app/winui/` is preserved as a UI blueprint for future Windows exploration.
+Modern GNOME desktop visual standards with `AdwViewSwitcherTitle`, `AdwViewSwitcherBar`, `AdwBreakpoint` responsive adaptation, and dark/light/system theme switching via `AdwStyleManager`. System tray integration uses Ayatana AppIndicator (`libayatana-appindicator-glib-2.0`). Desktop notifications use `org.freedesktop.Notifications`. The Windows WinUI client `app/winui/` is a real client on the same `castcore`, not a blueprint.
 
 **Capture:**
 - **X11:** XRandR per-monitor crop + MIT-SHM (`XShmGetImage`) for displays; XComposite (`CompositeRedirectManual`) + XDamage + XFixes for window capture.
@@ -194,7 +194,7 @@ Maintain: `Online`, `Idle`, `Busy` (another app casting), `Unavailable`. Do not 
 8. State: `Casting`
 9. Stop: stop capture first, then `STOP` app, close sockets, drop keys
 
-**Defaults:** last TV, last display, audio on, quality Auto, `targetDelay` 400 until network looks clean then 200.
+**Defaults:** last TV, last display, audio on, quality Auto. `targetDelay` starts at **200 ms** for Auto/High/Balanced/Smooth (Game sets 150, Cinema 400) and is then adapted at runtime: `AdaptiveController` steps it 150→200→300→400 ms when jitter exceeds 30 ms or loss exceeds 3%, and steps it back down after 15 consecutive clean intervals.
 
 ---
 
@@ -248,7 +248,7 @@ System tray icon chromas during streaming via Ayatana AppIndicator. Left-click t
 
 ## 10. Performance budget (where latency lives)
 
-Aim **≤ 400 ms** end-to-end with `targetDelay=400`; tighter only when RTCP is clean.
+Aim **~200 ms** end-to-end at the default `targetDelay` 200 (same honest statement as the success bar above); the receiver jitter buffer below is the dominant, intentional term. Game starts at 150 ms and Cinema at 400 ms, and `AdaptiveController` steps the delay across 150→200→300→400 ms under congestion (and back down when the link is clean).
 
 - Capture wait: 0–16 ms — do not add extra vsync wait
 - Copies: **0 extra** GPU copies beyond NV12 convert
@@ -299,7 +299,7 @@ Receiver HTML fallback requires Google Cast Developer Console ($5) and a public 
 
 | Event | Behavior |
 |---|---|
-| Wi-Fi blip | `Reconnecting`, keep UI, retry channel + OFFER up to 30 s, then fail |
+| Wi-Fi blip | `Reconnecting`, keep UI; retry channel + OFFER with 1/2/4/8 s pacing until the 30 s recovery ceiling, then fail |
 | Receiver reboot | Rediscover UUID, relaunch app |
 | PC sleep/wake | Stop capture on sleep; full new session on wake if user still “casting” |
 | IP change | Rediscover by UUID |
@@ -309,7 +309,7 @@ Receiver HTML fallback requires Google Cast Developer Console ($5) and a public 
 | Packet loss | libcast NACK; if persistent, drop fps/bitrate |
 | Resolution change | Recreate capture pool + IDR; renegotiate if size class changes |
 | Monitor unplug | Switch or stop |
-| App crash | OS releases WGC; next launch Idle |
+| App crash | OS releases the duplication; next launch Idle |
 | Launch fail | User-visible error + retry; optional fallback path |
 
 Heartbeat miss → reconnect. Never leave a zombie capture.
@@ -318,7 +318,7 @@ Heartbeat miss → reconnect. Never leave a zombie capture.
 
 ## 14. Testing strategy
 
-- **Unit & Integration:** Google Test (`castmirror_tests`, 87 test cases) and CTest.
+- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->182<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(` macros by `python3 scripts/count_tests.py`.
 - **Network Simulation:** Linux Traffic Control (`scripts/simulate_network.sh` using `tc qdisc netem`) for packet loss, latency jitter, and packet reordering.
 - **Benchmarks:** `tools/poc-encode`, `tools/poc-join`, and `scripts/bench_baseline.sh` recording CSV baselines in `docs/bench/baseline.csv`.
 - **Simulated Receiver:** `tools/fake-receiver` for zero-hardware automated E2E testing of the TLS handshake, OFFER/ANSWER negotiation, Cast RTP packet handling, and clean session teardown.

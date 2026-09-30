@@ -25,12 +25,26 @@ Run the GUI after UI changes:
 - No drive-by clang-format of unrelated files
 - Prefer existing types in `core/include/castcore/types.h`
 - Do not add debug NDJSON / agent instrumentation
+- `.clang-format` and `.clang-tidy` are enforced by the `style` CI job. clang-format is a hard gate; clang-tidy is reported but not yet a gate while the existing backlog is worked down.
+- **Line endings:** `.gitattributes` forces LF except for `*.bat`/`*.cmd`/`*.ps1`. Do not commit CRLF into a `.sh` or a workflow — it breaks the POSIX shell and every `run: |` block.
 
 ## Tests
 
 - Add or extend Google Test cases under `tests/` when you change protocol, crypto, RTP/RTCP, config, or adaptation
 - GUI-only tweaks still need a manual pass of discover → idle controls → (if you have a device) start/stop
 - Do not weaken tests to make CI green
+- **`ctest` count vs. macro count is not a discrepancy.** `scripts/count_tests.py` counts `TEST(`/`TEST_F(` macros in the registered sources (182). `ctest` reports what `gtest_discover_tests` actually registered on the current platform: 179 on Windows, because `test_portal_source.cc` is dropped when there is no Wayland portal.
+- **New parsers get fuzz coverage.** Anything reading bytes off the LAN (RTCP, mDNS TXT, protobuf) should have a libFuzzer harness under `tests/fuzz/` wired into the `fuzz` CI job. `CASTMIRROR_BUILD_FUZZERS` is OFF by default so an ordinary build needs no Clang.
+- Coverage is gated by `CASTMIRROR_MIN_COVERAGE` in the `coverage` job. Raise the ratchet when you add tests; do not lower it to make a build pass.
+
+## Invariants
+
+"Capture must not run except while a live session is active" is a documented
+success bar, so it is checked at runtime in **all** build types
+(`CheckCaptureInvariant` in `core/include/castcore/types.h`). It deliberately
+does not rely on `assert()`, which `NDEBUG` removes from Release builds. If you
+add a lifecycle invariant, follow the same pattern and report through the
+installed reporter rather than trapping.
 
 ## Pull requests
 

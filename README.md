@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/vindeckyy/CastMirror/actions/workflows/ci.yml"><img src="https://github.com/vindeckyy/CastMirror/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-ctest-4caf50" alt="tests">
+  <img src="https://img.shields.io/badge/tests-182-4caf50" alt="GoogleTest">
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C" alt="C++20">
   <img src="https://img.shields.io/badge/platform-Linux-0078d4" alt="Linux">
   <img src="https://img.shields.io/badge/license-Apache--2.0-8c93a0" alt="Apache-2.0">
@@ -34,7 +34,7 @@ The shipping UI is a **GTK 4 + libadwaita** desktop app. A CLI is included.
 - Not Sunshine or Moonlight (those are ~20–50 ms game streams; Cast keeps a **playout delay**, about **200 ms** here)
 - Not an HLS/DASH “fling” to the Default Media Receiver
 - **Not affiliated with Google.** Chromecast, Google Cast, and Google TV are Google trademarks
-- `app/winui/` is a Windows client built on the same core; the GTK app remains the primary target and Windows is not covered by CI
+- `app/winui/` is a Windows client built on the same core, not a blueprint; the GTK app remains the primary target
 
 Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is private as a product and open as a protocol. CastMirror implements that protocol as a LAN sender.
 
@@ -42,13 +42,13 @@ Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is 
 
 - One-click Cast to Chromecast, Google TV, and Cast TVs (or add a device by IP) with dynamic hardware model glyphs
 - **Screen or window sharing** — cast an entire monitor or pick a single application window with application icon resolution. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
-- Quality presets **Auto / High / Balanced / Smooth** with an **inline bitrate slider** (1–25 Mbps) synchronized between Cast and Settings
+- Quality presets **Auto / High / Balanced / Smooth / Game / Cinema** with an **inline bitrate slider** (1–25 Mbps) synchronized between Cast and Settings
 - **Live studio controls** — Freeze display and Mute TV audio on the fly with clean silence-frame injection
 - **Real-time vector sparklines** — Hardware-accelerated Cairo mini-charts for live FPS, bitrate, RTT, and packet loss
-- Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop
+- Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop. **Linux only** — the Windows client disables this: zeroing the speaker endpoint volume also silences WASAPI loopback capture, which would send silence to the receiver
 - **Adaptive bitrate is always on**: it holds your selected bitrate target, drops on congestion, and ramps back up aggressively once the link recovers
 - **Appearance & Diagnostics** — System / Light / Dark theme switcher and built-in hardware/network self-test wizard
-- **Windows client (WinUI 3)** — settings parity with the Linux GUI (bitrate, capture fps, audio quality, playout delay, latency HUD, subnet scan, tray, notifications, theme, self-test), Freeze/Mute TV live controls, and a paced `Windows.Graphics.Capture` loop that holds a steady 30 or 60 fps even on a static desktop
+- **Windows client (WinUI 3)** — settings parity with the Linux GUI (bitrate, capture fps, audio quality, playout delay, latency HUD, subnet scan, tray, notifications, theme, self-test), Freeze/Mute TV live controls, and a paced **DXGI Desktop Duplication** capture loop that holds a steady 30 or 60 fps even on a static desktop, rebuilding the duplication across mode changes and TDRs instead of dropping the session. **Single-instance per user session**, so a second launch cannot start a competing cast, and the tray icon is created off the UI thread so the window paints immediately
 - AES-128-CTR per-frame media crypto as required by Cast Streaming
 - TLS control plane on port **8009**
 - Stop budget under **500 ms** (capture does not run except during a live session)
@@ -157,6 +157,8 @@ CastMirror/
 ```
 
 ## Development
+
+The GoogleTest suite has <!-- testcount -->182<!-- /testcount --> cases across the sources registered in `tests/CMakeLists.txt`. That number is generated from the `TEST(` / `TEST_F(` macros by `python3 scripts/count_tests.py` — do not edit it by hand.
 
 ```bash
 cd build && ctest --output-on-failure

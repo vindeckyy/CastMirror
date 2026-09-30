@@ -1,25 +1,27 @@
 # CastMirror Device Compatibility Matrix
 
-| Hardware Model | Model String (`md`) | Capability Bitmask (`ca`) | Max H.264 Level | Supported Video Resolutions | Supported Audio | Target Playout Delay |
-|---|---|---|---|---|---|---|
-| **Chromecast (1st Gen)** | `Chromecast` / `H2G2-42` | `0x00000005` | Level 4.1 | 1080p30, 720p60 | Opus 48kHz stereo, AAC | 400 ms |
-| **Chromecast (2nd Gen)** | `NC2-6A5` | `0x00000005` | Level 4.1 | 1080p30, 720p60 | Opus 48kHz stereo, AAC | 400 ms |
-| **Chromecast (3rd Gen)** | `GA00439` | `0x00000005` | Level 4.2 | 1080p60, 720p60 | Opus 48kHz stereo, AAC | 200 - 400 ms |
-| **Chromecast Ultra** | `NC2-6A5-D` | `0x00000007` | Level 4.2 / 5.1 | 4K30, 1080p60, 720p60 | Opus 48kHz stereo, AAC | 200 - 400 ms |
-| **Chromecast with Google TV (HD)** | `G454V` | `0x00000007` | Level 4.2 | 1080p60, 720p60 | Opus 48kHz stereo, AAC | 200 - 400 ms |
-| **Chromecast with Google TV (4K)** | `GZRNL` | `0x00000007` | Level 5.1 | 4K60 (VP9), 4K30 (H.264), 1080p60 | Opus 48kHz stereo, AAC | 200 - 400 ms |
-| **Google TV Streamer (4K)** | `GR1XN` | `0x00000007` | Level 5.2 | 4K60 (H.264/HEVC/AV1) | Opus 48kHz stereo, AAC | 200 - 400 ms |
-| **Google Nest Hub (1st/2nd Gen)** | `Google Nest Hub` | `0x00000005` | Level 3.1 | 720p60, 720p30 | Opus 48kHz stereo | 400 ms |
-| **Google Nest Hub Max** | `Nest Hub Max` | `0x00000005` | Level 4.1 | 1080p30, 720p60 | Opus 48kHz stereo | 400 ms |
-| **Vizio / Sony / Philips Smart TV (Built-in)** | `Cast TV` | `0x00000005` | Level 4.2 | 1080p60, 720p60 | Opus 48kHz stereo | 400 ms |
+Classification is **model-name based**: `CapabilityModel::Evaluate` (`core/src/capability_model.cc`) lowercases the mDNS `md` value and substring-matches it. The mDNS `ca` capability bitmask is parsed into `CastDevice::capabilities` (`core/src/device_discovery.cc`) but no classifier consumes it, so there is no `ca` column here.
 
-Nest Hub class devices are **720p-class**. Do not expect 1080p60 there.
+| Device family (as classified) | `md` substrings matched (lowercased) | Max H.264 level | Max resolution / FPS | Max bitrate | Supported audio |
+|---|---|---|---|---|---|
+| Nest Hub | `nest hub`, `google home hub` | 3.1 | 1280x720 @ 60 | 5000 kbps | Opus 48kHz stereo |
+| Chromecast Ultra | `ultra` | 5.1 | 3840x2160 @ 60 | 25000 kbps | Opus 48kHz stereo, AAC |
+| Chromecast Gen 1/2 | `h2g2-42`, `nc2-6a5` (excludes `nc2-6a5-d`) | 4.1 | 1920x1080 @ 30 | 8000 kbps | Opus 48kHz stereo, AAC |
+| Chromecast with Google TV | `google tv`, `streamer`, `android tv`, `bravia` | 5.1 | 3840x2160 @ 60 | 25000 kbps | Opus 48kHz stereo, AAC |
+| Chromecast Gen 3 | `chromecast` | 4.2 | 1920x1080 @ 60 | 15000 kbps | Opus 48kHz stereo, AAC |
+| Generic Cast TV | anything else | 4.2 | 1920x1080 @ 60 | 12000 kbps | Opus 48kHz stereo |
+
+Real-hardware `md` values seen in the field (informational — only the substrings above drive classification): Chromecast 1st gen `H2G2-42`, 2nd gen `NC2-6A5`, Ultra `Chromecast Ultra`, Chromecast with Google TV 4K `GZRNL`, Google TV Streamer `G3MYX`. A model code that contains none of the matched substrings falls through to the Generic Cast TV row.
+
+Nest Hub class devices are **720p-class** (`1280x720`). There is no separate Nest Hub Max branch — a model string containing `nest hub`, including `Nest Hub Max`, matches the same 720p / Level 3.1 branch.
+
+Every row defaults to a **200 ms** target playout delay (`DeviceCapabilities::default_target_delay_ms`, `core/include/castcore/capability_model.h`). Game starts at 150 ms and Cinema at 400 ms, and `AdaptiveController` clamps every value to 150–400 ms while adapting it at runtime: `StepUpPlayoutDelay` walks 150→200→300→400 ms when jitter exceeds 30 ms or loss exceeds 3% (or on a NACK burst / PLI) and `StepDownPlayoutDelay` walks back after 15 consecutive clean intervals (`core/src/adaptive_controller.cc`).
 
 ---
 
 ## Quality presets (current sender)
 
-These are the user-visible profiles in the GTK GUI and CLI. Resolution is still bounded by the device capability model. Video bitrate defaults below are the slider starting points (1–25 Mbps, remembered per profile once changed). The slider is **locked while connecting or live**.
+These six presets — `QualityPreset::kAuto, kHigh, kBalanced, kSmooth, kGame, kCinema` (`core/include/castcore/types.h`) — are the user-visible profiles in both the GTK GUI (`app/gui/cast_tab.cc` renders all six cards) and the CLI (`--preset`, and the interactive `[P]` cycle). Resolution is still bounded by the device capability model. Video bitrate defaults below are the slider starting points (1–25 Mbps, remembered per profile once changed). The slider is **locked while connecting or live**.
 
 | Preset | Encode size (typical) | Default video bitrate | Target delay |
 |---|---|---|---|
@@ -27,6 +29,10 @@ These are the user-visible profiles in the GTK GUI and CLI. Resolution is still 
 | **High** | Capture size up to device max (1080p60 / 4K when allowed) | 12 Mbps | 200 ms |
 | **Balanced** | 1080p | 8 Mbps | 200 ms |
 | **Smooth** | 720p60 | 5 Mbps | 200 ms |
+| **Game** | Locked adaptive resolution | 8 Mbps | 150 ms |
+| **Cinema** | Capture size up to device max | 16 Mbps | 400 ms |
+
+Default bitrates come from `QualityPresetDefaultBitrateKbps` (`core/include/castcore/types.h`): Cinema 16000, High 12000, Game 8000, Smooth 5000, Auto/Balanced 8000 kbps. Game and Cinema also set `target_delay_ms` to 150 / 400 and toggle `adaptive_resolution_enabled` in `CastTab::OnPresetChanged` (`app/gui/cast_tab.cc`).
 
 **Host audio:** while a session captures the default sink monitor, CastMirror mutes that sink so the PC speakers do not double the TV. Mute is restored on Stop.
 
@@ -62,13 +68,15 @@ CastMirror supports two capture source kinds:
 
 CastMirror dynamically steps down or up along the following 8 rungs depending on RTCP packet loss and round-trip time:
 
-| Rung | Resolution | FPS | Target Bitrate | Max Bitrate | Min Bitrate | Trigger Condition |
-|---|---|---|---|---|---|---|
-| **0 (Ultra 4K)** | 3840 x 2160 | 60 | 25,000 kbps | 35,000 kbps | 18,000 kbps | 4K device, 0% loss, RTT < 20ms |
-| **1 (4K Standard)** | 3840 x 2160 | 30 | 18,000 kbps | 25,000 kbps | 12,000 kbps | 4K device, loss < 1%, RTT < 35ms |
-| **2 (1440p High)** | 2560 x 1440 | 60 | 12,000 kbps | 18,000 kbps | 8,000 kbps | 1440p+ device, loss < 1.5% |
-| **3 (1080p60 Max)** | 1920 x 1080 | 60 | 8,000 kbps | 12,000 kbps | 5,000 kbps | Gen3/Ultra/GTV, loss < 2% |
-| **4 (1080p30 Default)**| 1920 x 1080 | 30 | 5,000 kbps | 8,000 kbps | 3,500 kbps | Default baseline for all devices |
-| **5 (720p60 High-Motion)**| 1280 x 720 | 60 | 4,000 kbps | 6,000 kbps | 2,500 kbps | Loss 2% - 5%, RTT > 60ms |
-| **6 (720p30 Resilient)** | 1280 x 720 | 30 | 2,500 kbps | 4,000 kbps | 1,500 kbps | Loss 5% - 10%, RTT > 90ms |
-| **7 (540p30 Emergency)** | 960 x 540 | 30 | 1,200 kbps | 2,000 kbps | 800 kbps | Loss > 10%, RTT > 150ms |
+The ladder is defined in exactly one place — `AdaptiveController::BuildLadder()` (`core/src/adaptive_controller.cc`) — and each rung is only a resolution, a framerate and a target bitrate (`struct LadderRung`, `core/include/castcore/adaptive_controller.h`). There are no per-rung min/max bitrate fields and no RTT-threshold table; the controller reacts to observed RTCP loss/RTT at runtime.
+
+| Rung | Resolution | FPS | Target bitrate |
+|---|---|---|---|
+| **0 (4K60)** | 3840 x 2160 | 60 | 25,000 kbps |
+| **1 (4K30)** | 3840 x 2160 | 30 | 16,000 kbps |
+| **2 (1440p60)** | 2560 x 1440 | 60 | 12,000 kbps |
+| **3 (1080p60)** | 1920 x 1080 | 60 | 8,000 kbps |
+| **4 (1080p30)** | 1920 x 1080 | 30 | 5,000 kbps |
+| **5 (720p60)** | 1280 x 720 | 60 | 3,500 kbps |
+| **6 (720p30)** | 1280 x 720 | 30 | 2,000 kbps |
+| **7 (540p30)** | 960 x 540 | 30 | 1,200 kbps |

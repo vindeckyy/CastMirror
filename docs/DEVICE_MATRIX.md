@@ -2,6 +2,28 @@
 
 This matrix documents real-hardware validation, empirical performance boundaries, firmware targets, and validated streaming parameters across Google Cast hardware generations.
 
+## How to read this table
+
+Two different kinds of claim appear below, and they are **not** equally strong:
+
+- **Tested Firmware** is a specific build string. If present, the row records an
+  actual session against that hardware.
+- **Playout Delay (p50 / p95)** and **Validation Status** are *measurements*, not
+  predictions. They come from real-device soak runs
+  (`scripts/soak_real_device.sh` -> `scripts/soak_parse.py`).
+- A row marked **Unverified** carries limits that come from
+  `CapabilityModel::Evaluate` (`core/src/capability_model.cc`) — a *model
+  prediction*, not a measurement.
+
+This distinction is deliberate. `scripts/soak_parse.py` records an unmeasured
+value as `null` — "never as a plausible number" — and the synthetic harness
+(`scripts/run_soak_test.sh`) labels its own output "not real hardware, not
+device validation". This table follows the same rule: a number here is a number
+someone actually saw on a TV.
+
+Firmware app IDs and device behaviour can change without notice. See
+[protocol.md](protocol.md) for the Cast Streaming namespaces CastMirror speaks.
+
 ## Physical Device Benchmark Matrix
 
 | Device Generation | Hardware Model | Tested Firmware | Max Resolution | Max FPS | Preferred Codec | Playout Delay (p50 / p95) | Mirroring App ID | Validation Status |
@@ -18,10 +40,11 @@ This matrix documents real-hardware validation, empirical performance boundaries
 
 ## Playout Delay & Adaptation Characteristics
 
-1. **Playout Delay Bounds**:
-   - Minimum target playout delay on 5 GHz 802.11ac/ax Wi-Fi: **130ms**.
-   - Standard default target delay: **200ms**.
-   - Lossy or 2.4 GHz links adapt upward to **400ms** dynamically via RTCP feedback.
+1. **Playout Delay Bounds** (source: `core/include/castcore/adaptive_controller.h` — `kMinPlayoutDelayMs` / `kDefaultPlayoutDelayMs` / `kMaxPlayoutDelayMs`, clamped in `AdaptiveController::SetPlayoutDelayMs`):
+   - Minimum target playout delay the sender will request: **150 ms**.
+   - Default target delay: **200 ms** (`CapabilityModel::GetRecommendedSettings` returns 200 for the Auto, High, Balanced and Smooth presets).
+   - Maximum: **400 ms** (the **Cinema** preset starts there, **Game** starts at 150). Every value the controller accepts is clamped to 150–400 ms.
+   - The delay is then adapted at runtime: `AdaptiveController::StepUpPlayoutDelay` walks 150→200→300→400 ms when jitter exceeds 30 ms or loss exceeds 3%, and `StepDownPlayoutDelay` walks back down after 15 consecutive clean intervals (`core/src/adaptive_controller.cc`).
 2. **Keyframe Cadence**:
    - 2000ms periodic intra-refresh or IDR on packet loss bursts.
 3. **Crypto Acceleration**:

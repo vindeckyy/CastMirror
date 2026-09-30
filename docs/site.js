@@ -13,6 +13,14 @@
     const path = el.getAttribute("data-repo-href") || "";
     el.setAttribute("href", "https://github.com/" + repo + path);
   });
+  // Same derivation for links to a file on the default branch. The branch is
+  // read from the same place the repo is: the hostname/path, defaulting to
+  // "main" (ci.yml and pages.yml both trigger on master and main).
+  const branch = (location.pathname.split("/").filter(Boolean)[1] || "main");
+  document.querySelectorAll("[data-repo-file]").forEach(function (el) {
+    const path = el.getAttribute("data-repo-file") || "";
+    el.setAttribute("href", "https://github.com/" + repo + "/blob/" + branch + "/" + path);
+  });
   document.querySelectorAll("[data-pages-href]").forEach(function (el) {
     el.setAttribute("href", "https://" + repo.split("/")[0] + ".github.io/" + repo.split("/")[1] + "/");
   });
