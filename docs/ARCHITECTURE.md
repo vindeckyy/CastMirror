@@ -318,7 +318,7 @@ Heartbeat miss → reconnect. Never leave a zombie capture.
 
 ## 14. Testing strategy
 
-- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->182<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(` macros by `python3 scripts/count_tests.py`.
+- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->214<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(` macros by `python3 scripts/count_tests.py`.
 - **Network Simulation:** Linux Traffic Control (`scripts/simulate_network.sh` using `tc qdisc netem`) for packet loss, latency jitter, and packet reordering.
 - **Benchmarks:** `tools/poc-encode`, `tools/poc-join`, and `scripts/bench_baseline.sh` recording CSV baselines in `docs/bench/baseline.csv`.
 - **Simulated Receiver:** `tools/fake-receiver` for zero-hardware automated E2E testing of the TLS handshake, OFFER/ANSWER negotiation, Cast RTP packet handling, and clean session teardown.

@@ -43,25 +43,20 @@
   const showcaseCaption = document.getElementById("showcase-caption");
 
   const showcaseData = {
-    cast: {
+    winmain: {
+      src: "assets/screenshot-windows-main.png",
+      alt: "CastMirror on Windows: two Cast devices, the capture source, quality preset and bitrate controls",
+      caption: "Windows: pick a TV, pick a display or window, choose a preset, and press Cast."
+    },
+    winsettings: {
+      src: "assets/screenshot-windows-settings.png",
+      alt: "CastMirror settings on Windows",
+      caption: "Windows settings: audio source, reconnect window, shortcuts, start at sign-in and discovery."
+    },
+    linuxcast: {
       src: "assets/screenshot-cast.png",
-      alt: "CastMirror — Cast Tab",
-      caption: "Cast Tab: Discover receivers, select screen or window with app icons, and tune bitrate."
-    },
-    live: {
-      src: "assets/screenshot-live.png",
-      alt: "CastMirror — Live Session Tab",
-      caption: "Live Session Tab: Real-time vector sparklines (FPS, Bitrate, RTT, Loss) and studio freeze/mute controls."
-    },
-    settings: {
-      src: "assets/screenshot-settings.png",
-      alt: "CastMirror — Settings Tab",
-      caption: "Settings Tab: Quality presets, audio capture, playout buffer delay, theme switcher, and diagnostics."
-    },
-    logs: {
-      src: "assets/screenshot-logs.png",
-      alt: "CastMirror — Logs Tab",
-      caption: "Logs Tab: Searchable event stream with severity filters and instant folder access."
+      alt: "CastMirror on Linux, Cast tab",
+      caption: "Linux (GTK 4): discover receivers, pick a screen or window, and tune the bitrate."
     }
   };
 

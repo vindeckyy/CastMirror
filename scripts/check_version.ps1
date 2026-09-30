@@ -1,10 +1,10 @@
-<#
+﻿<#
 .SYNOPSIS
   Fails when the version numbers that must agree do not.
 
 .DESCRIPTION
   The version lives in CMakeLists.txt (project VERSION) and app\winui\CastMirrorApp.csproj
-  (<Version>). A release tag must match both. Run with -Tag v1.2.3 in the release
+  (<Version>). A release tag must match both. Run with -Tag windows-v1.2.3 (or linux-v1.2.3) in the release
   workflow, or without it to check that the two files agree with each other.
 #>
 [CmdletBinding()]
@@ -30,7 +30,8 @@ if ($cmakeVersion -ne $csprojVersion) {
     $problems += "CMakeLists.txt says $cmakeVersion but CastMirrorApp.csproj says $csprojVersion."
 }
 if ($Tag) {
-    $tagVersion = $Tag.TrimStart('v', 'V')
+    # Windows and Linux release separately: windows-v1.0.0, linux-v1.0.0 (plain v1.0.0 also works).
+    $tagVersion = $Tag -replace '^(windows-|linux-)?[vV]', ''
     if ($tagVersion -ne $cmakeVersion) {
         $problems += "Tag $Tag does not match version $cmakeVersion. Bump both files before tagging."
     }

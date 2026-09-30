@@ -1,9 +1,12 @@
-name: Release
+name: Release (Windows)
 
+# Windows and Linux ship as separate releases with their own tags:
+#   windows-v1.0.0  ->  this workflow
+#   linux-v1.0.0    ->  release-linux.yml
 on:
   push:
     tags:
-      - 'v*'
+      - 'windows-v*'
 
 permissions:
   contents: write
@@ -21,90 +24,6 @@ permissions:
 #   softprops/action-gh-release v2.2.2
 
 jobs:
-  build-deb:
-    name: Build Debian/Ubuntu Package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
-            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
-            libxcomposite-dev libxdamage-dev \
-            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
-            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb \
-            libayatana-appindicator-glib-dev \
-            dpkg-dev rpm
-
-      - name: Install GoogleTest (Ubuntu source package)
-        run: |
-          if [ -d /usr/src/googletest ]; then
-            cmake -S /usr/src/googletest -B /tmp/gtest-build
-            cmake --build /tmp/gtest-build -j"$(nproc)"
-            sudo cmake --install /tmp/gtest-build
-          fi
-
-      # The tray is built ON so the released .deb matches what
-      # docs/ARCHITECTURE.md advertises. CASTMIRROR_REQUIRE_TRAY makes a missing
-      # Ayatana dev package a hard failure instead of a silently tray-less
-      # artifact, which is how the tray dependency branch went dead before.
-      - name: Configure
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCASTMIRROR_ENABLE_TRAY=ON \
-            -DCASTMIRROR_REQUIRE_TRAY=ON
-
-      - name: Build
-        run: cmake --build build -j"$(nproc)"
-
-      - name: Test
-        working-directory: build
-        run: CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ctest --output-on-failure
-
-      # The GPL/libx264 disclosure gate must run against the binaries that are
-      # actually shipped, before cpack turns them into the release artifact.
-      # ci.yml runs it too, but ci.yml never packages anything - see NOTICE:43-49.
-      - name: License Surface & GPL Hygiene Check (pre-packaging)
-        run: ./scripts/check_license_surface.sh
-
-      - name: Package DEB
-        working-directory: build
-        run: cpack -G DEB
-
-      # RPM is in CPACK_GENERATOR as well; rpmbuild on an Ubuntu runner is
-      # best-effort, so a failure here does not block the .deb release.
-      - name: Package RPM (best effort)
-        working-directory: build
-        continue-on-error: true
-        run: cpack -G RPM
-
-      - name: Generate SHA256SUMS next to the packages
-        working-directory: build
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          assets=( *.deb *.rpm )
-          if [ ${#assets[@]} -eq 0 ]; then
-            echo "ERROR: cpack produced no packages" >&2
-            exit 1
-          fi
-          sha256sum "${assets[@]}" | tee SHA256SUMS
-          sha256sum -c SHA256SUMS
-
-      - name: Upload packages and checksums
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: linux-packages
-          path: |
-            build/*.deb
-            build/*.rpm
-            build/SHA256SUMS
-          if-no-files-found: error
-
   build-windows:
     name: Build Windows Client
     runs-on: windows-latest
@@ -195,7 +114,7 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $version = '${{ github.ref_name }}' -replace '^windows-v', ''
           & $iscc "installer\CastMirror.iss" "/DAppVersion=$version"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
@@ -237,53 +156,16 @@ jobs:
             dist/SHA256SUMS-windows.txt
           if-no-files-found: error
 
-  validate-flatpak:
-    name: Validate Flatpak Manifest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Install flatpak-builder
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
-
-      - name: Reject un-pinned source entries
-        run: |
-          python3 - <<'PY'
-          import json, sys
-          path = "flatpak/io.github.vindeckyy.CastMirror.json"
-          manifest = json.load(open(path, encoding="utf-8"))
-          problems = []
-          for module in manifest.get("modules", []):
-              name = module.get("name", "<unnamed>")
-              for source in module.get("sources", []):
-                  kind = source.get("type")
-                  if kind == "dir":
-                      problems.append(f"{name}: 'dir' source is not release-shaped")
-                  elif kind == "git" and not (source.get("commit") or source.get("tag")):
-                      problems.append(f"{name}: git source has no commit/tag pin")
-                  elif kind == "archive" and not source.get("sha256"):
-                      problems.append(f"{name}: archive source has no sha256")
-          if problems:
-              print("\n".join(problems))
-              sys.exit(1)
-          print("Flatpak source pins OK")
-          PY
-
-      - name: flatpak-builder --show-manifest
-        run: flatpak-builder --show-manifest flatpak/io.github.vindeckyy.CastMirror.json
-
   publish:
     name: Publish GitHub Release
-    needs: [build-deb, build-windows]
+    needs: [build-windows]
     runs-on: ubuntu-latest
-    # Approval gate: create a `release` environment in the repository settings
-    # and add required reviewers. Nothing below runs until a human approves.
     environment:
       name: release
       url: https://github.com/vindeckyy/CastMirror/releases
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
@@ -293,20 +175,28 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          sha256sum -c SHA256SUMS
           sha256sum -c SHA256SUMS-windows.txt
           ls -l
+
+      - name: Pick the release notes for this tag
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#windows-v}"
+          notes="docs/release-notes/windows-${version}.md"
+          test -f "$notes" || { echo "missing $notes" >&2; exit 1; }
+          echo "NOTES=$notes" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.2
         with:
+          name: CastMirror ${{ env.VERSION }} for Windows
+          body_path: ${{ env.NOTES }}
           files: |
-            dist/*.deb
-            dist/*.rpm
-            dist/SHA256SUMS
             dist/SHA256SUMS-windows.txt
             dist/CastMirror-Setup-*.exe
             dist/CastMirror-win-x64.zip
           # A release missing any of these is a broken release; do not publish part of it.
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          # The README's "latest release" link is the Windows download.
+          make_latest: true

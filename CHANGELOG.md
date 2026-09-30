@@ -2,11 +2,14 @@
 
 All notable changes to CastMirror. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.0.0 - 2026-09-30
 
-Windows-focused release-readiness pass.
+First stable release. It ships as two separate GitHub releases: `windows-v1.0.0` (installer and zip) and `linux-v1.0.0` (.deb and .rpm). The Windows client is the primary product; the Linux build shares the engine and gets its fixes.
 
 ### Fixed
+- The Media Foundation encoder leaked one output sample per frame when the transform allocated its own samples, about 110 MB a minute at 1080p60. A 10-minute soak now stays within 12 MB of its baseline.
+- Listing windows crashed the process when a window title needed more than 512 bytes in UTF-8.
+- The Linux build broke on the Windows-only window-capture loop and on a Windows-only audio member.
 - Starting a cast and stopping it at the same time could free the session under the connecting thread. `Stop` now cancels an in-flight start safely.
 - A state callback that read stats, or a UI poll during connect, could deadlock or freeze for the whole connection attempt.
 - The per-session AES key and IV mask were written to the session log. They are now redacted in every log sink.
@@ -59,6 +62,8 @@ Windows-focused release-readiness pass.
 - The HTTP/CAF fallback server. It bound every interface without authentication and its session path would terminate the process.
 
 ### Known gaps
+- Windows binaries are not code-signed, so SmartScreen warns on first run.
+- Verified against a simulated receiver and unit tests, not against a physical-device matrix. The rows in `docs/DEVICE_MATRIX.md` predate this release and were not re-measured for it.
 - The async Media Foundation path and the HDR path have unit or simulated coverage only. The Media Foundation path needs a run on NVIDIA, AMD and Intel hardware.
 - Rotated (portrait) monitors are captured without rotation correction.
 - Translations are machine-made and unreviewed by native speakers. Right-to-left languages are not handled.

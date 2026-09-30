@@ -2,6 +2,8 @@
 
 This matrix documents real-hardware validation, empirical performance boundaries, firmware targets, and validated streaming parameters across Google Cast hardware generations.
 
+> **Status for 1.0.0.** The rows in the table below predate the 1.0.0 release and were not re-measured for it. The 1.0.0 release was tested against a simulated receiver, not against a physical-device matrix, so read every row as unverified until it is re-run with `scripts/soak_real_device.sh`. If you test a device, an issue or pull request with the firmware string and the `soak_parse.py` output is welcome.
+
 ## How to read this table
 
 Two different kinds of claim appear below, and they are **not** equally strong:

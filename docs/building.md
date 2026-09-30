@@ -63,14 +63,15 @@ Build the installer from that folder:
 iscc installer\CastMirror.iss /DAppVersion=1.0.0
 ```
 
-The result is `dist\CastMirror-Setup-1.0.0-x64.exe`. Release builds run the same steps in `.github/workflows/release.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
+The result is `dist\CastMirror-Setup-1.0.0-x64.exe`. Release builds run the same steps in `.github/workflows/release-windows.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
 
 ### Cutting a release
 
 1. Set the same version in `CMakeLists.txt` (`project(CastMirror VERSION ...)`) and `app\winui\CastMirrorApp.csproj` (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`).
 2. `scripts\check_version.ps1` confirms they agree.
 3. Move the Unreleased notes in `CHANGELOG.md` under the new version.
-4. Tag `vX.Y.Z` and push. The workflow refuses a tag that doesn't match the version files, and the publish job waits for approval in the `release` environment.
+4. Add `docs/release-notes/windows-X.Y.Z.md` and `docs/release-notes/linux-X.Y.Z.md`. Each becomes the description of its GitHub release.
+5. Windows and Linux release separately, each from its own tag. Push `windows-vX.Y.Z` to run `release-windows.yml` (installer, zip, checksums) and `linux-vX.Y.Z` to run `release-linux.yml` (.deb, .rpm, checksums). Each workflow refuses a tag that doesn't match the version files, and fails if its notes file is missing.
 
 ### Files and folders
 
@@ -98,7 +99,7 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
     libxcomposite-dev libxdamage-dev \
-    libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
+    libva-dev libdrm-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
     libgtk-4-dev libadwaita-1-dev
 ```
 

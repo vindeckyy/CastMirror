@@ -6,12 +6,16 @@
 
 <p align="center">
   Mirror your Windows PC to a Chromecast or Google TV.<br>
-  Your whole screen or one window, with sound, and no Chrome.
+  Your whole screen or one window, with sound, and no Chrome.<br>
+  <a href="https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.0">Download for Windows</a> ·
+  <a href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.0">Download for Linux</a> ·
+  <a href="https://vindeckyy.github.io/CastMirror/">Docs</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/vindeckyy/CastMirror/actions/workflows/ci.yml"><img src="https://github.com/vindeckyy/CastMirror/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2B-0078d4" alt="Windows 10 and later">
+  <img src="https://img.shields.io/badge/also-Linux-8c93a0" alt="Linux packages also available">
   <img src="https://img.shields.io/badge/license-Apache--2.0-8c93a0" alt="Apache-2.0">
 </p>
 
@@ -95,7 +99,14 @@ Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the Cast
 
 ## Linux
 
-The same `castcore` engine builds on Linux with a GTK 4 app and a CLI, but the Windows app is the primary product and Linux gets fixes rather than features. See [docs/building.md](docs/building.md).
+The same `castcore` engine builds on Linux with a GTK 4 app and a CLI. It has its own release, `linux-v1.0.0`, with a `.deb` and an `.rpm`:
+
+```bash
+sudo apt install ./castmirror_1.0.0_x86_64.deb
+castmirror-gui
+```
+
+Capture works on X11 and, through the desktop portal, on Wayland. Video is VAAPI H.264 with an x264 fallback, and sound comes from the PulseAudio or PipeWire default sink. The Windows app is the primary product and Linux gets fixes rather than features; the Linux GUI and Wayland path were built and unit-tested for 1.0.0 but not exercised on a live desktop. Build steps are in [docs/building.md](docs/building.md).
 
 ## Licence
 
