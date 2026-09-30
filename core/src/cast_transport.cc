@@ -597,10 +597,14 @@ void CastTransport::ReceiveLoop() {
     if (parsed) {
       {
         std::lock_guard<std::mutex> slock(stats_mutex_);
-        last_loss_fraction_ = feedback.fraction_lost;
-        UpdateEwmaRtt(feedback.rtt_ms);
-        last_rtt_ms_ = ewma_rtt_ms_;
-        last_jitter_ms_ = ewma_jitter_ms_;
+        if (feedback.has_report_block) {
+          last_loss_fraction_ = feedback.fraction_lost;
+        }
+        if (feedback.has_rtt) {
+          UpdateEwmaRtt(feedback.rtt_ms);
+          last_rtt_ms_ = ewma_rtt_ms_;
+          last_jitter_ms_ = ewma_jitter_ms_;
+        }
         total_nacks_received_ += static_cast<uint32_t>(feedback.nacks.size());
         if (feedback.picture_loss_indicator) {
           total_pli_received_++;

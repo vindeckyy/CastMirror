@@ -141,24 +141,30 @@ void AdaptiveController::StepDownPlayoutDelay() {
 void AdaptiveController::OnFeedback(const RtcpFeedback& feedback) {
   std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   // Phase 2 EWMA smoothing: rtt 0.8/0.2 jitter 0.9/0.1
-  double sample_rtt = feedback.rtt_ms;
-  double sample_jitter = static_cast<double>(feedback.jitter);
-  // If RTCP jitter field is zero, estimate jitter as |sample - ewma|
-  double prev_rtt = ewma_rtt_ms_;
-  if (!ewma_initialized_) {
-    ewma_rtt_ms_ = sample_rtt;
-    ewma_jitter_ms_ = sample_jitter;
-    ewma_initialized_ = true;
-  } else {
-    ewma_rtt_ms_ = kRttKeep * ewma_rtt_ms_ + kRttAlpha * sample_rtt;
-    double rtt_diff = std::abs(sample_rtt - prev_rtt);
-    // Prefer reported jitter if present, else use rtt_diff
-    double jitter_sample = sample_jitter > 0 ? sample_jitter : rtt_diff;
-    ewma_jitter_ms_ = kJitterKeep * ewma_jitter_ms_ + kJitterAlpha * jitter_sample;
+  // Only a Receiver Report block measures RTT and loss; NACK/PLI-only packets
+  // must not feed zeroes into the averages.
+  if (feedback.has_rtt) {
+    double sample_rtt = feedback.rtt_ms;
+    double sample_jitter = static_cast<double>(feedback.jitter);
+    // If RTCP jitter field is zero, estimate jitter as |sample - ewma|
+    double prev_rtt = ewma_rtt_ms_;
+    if (!ewma_initialized_) {
+      ewma_rtt_ms_ = sample_rtt;
+      ewma_jitter_ms_ = sample_jitter;
+      ewma_initialized_ = true;
+    } else {
+      ewma_rtt_ms_ = kRttKeep * ewma_rtt_ms_ + kRttAlpha * sample_rtt;
+      double rtt_diff = std::abs(sample_rtt - prev_rtt);
+      // Prefer reported jitter if present, else use rtt_diff
+      double jitter_sample = sample_jitter > 0 ? sample_jitter : rtt_diff;
+      ewma_jitter_ms_ = kJitterKeep * ewma_jitter_ms_ + kJitterAlpha * jitter_sample;
+    }
+    recent_rtt_ms_.store(ewma_rtt_ms_);
+    recent_jitter_ms_.store(ewma_jitter_ms_);
   }
-  recent_loss_fraction_.store(feedback.fraction_lost);
-  recent_rtt_ms_.store(ewma_rtt_ms_);
-  recent_jitter_ms_.store(ewma_jitter_ms_);
+  if (feedback.has_report_block) {
+    recent_loss_fraction_.store(feedback.fraction_lost);
+  }
   if (!feedback.nacks.empty()) {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     for (const auto& nack : feedback.nacks) {

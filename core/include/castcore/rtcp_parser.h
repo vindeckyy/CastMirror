@@ -26,6 +26,11 @@ struct RtcpFeedback {
   bool has_playout_delay = false;
   std::vector<PacketNack> nacks;
   std::vector<uint32_t> acked_frames;
+  // Loss/jitter/RTT come only from a Receiver Report block. A NACK-only or
+  // PLI-only packet carries none, so consumers must not treat its zeroes as a
+  // measurement (that diluted the RTT average and hid real loss).
+  bool has_report_block = false;
+  bool has_rtt = false;
   double fraction_lost = 0.0;
   uint32_t cumulative_lost = 0;
   uint32_t jitter = 0;

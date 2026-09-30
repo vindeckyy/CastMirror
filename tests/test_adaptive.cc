@@ -18,8 +18,10 @@ TEST(AdaptiveTest, DownshiftsOnPacketLoss) {
 
   // Simulate lossy network: 8% packet loss
   RtcpFeedback fb;
-  fb.fraction_lost = 0.08;
+  fb.fraction_lost = 0.08;  
+  fb.has_report_block = true;
   fb.rtt_ms = 45.0;
+  fb.has_rtt = true;
 
   adaptive.OnFeedback(fb);
   std::this_thread::sleep_for(std::chrono::milliseconds(1100));
@@ -49,8 +51,10 @@ TEST(AdaptiveTest, DownshiftChangesFramerate) {
   adaptive.Initialize(initial, QualityPreset::kAuto);
 
   RtcpFeedback fb;
-  fb.fraction_lost = 0.08;
+  fb.fraction_lost = 0.08;  
+  fb.has_report_block = true;
   fb.rtt_ms = 45.0;
+  fb.has_rtt = true;
 
   adaptive.OnFeedback(fb);
   std::this_thread::sleep_for(std::chrono::milliseconds(1100));
@@ -81,8 +85,10 @@ TEST(AdaptiveTest, SecondDownshiftDropsTo720p) {
   adaptive.Initialize(initial, QualityPreset::kAuto);
 
   RtcpFeedback fb;
-  fb.fraction_lost = 0.08;
+  fb.fraction_lost = 0.08;  
+  fb.has_report_block = true;
   fb.rtt_ms = 45.0;
+  fb.has_rtt = true;
 
   StreamStats updated;
   // Feed loss until we reach rung 5 (720p60)
@@ -110,8 +116,10 @@ TEST(AdaptiveTest, NeverExceedsInitialMax) {
   adaptive.Initialize(initial, QualityPreset::kSmooth);
 
   RtcpFeedback clean_fb;
-  clean_fb.fraction_lost = 0.0;
+  clean_fb.fraction_lost = 0.0;  
+  clean_fb.has_report_block = true;
   clean_fb.rtt_ms = 10.0;
+  clean_fb.has_rtt = true;
 
   StreamStats updated;
   for (int i = 0; i < 20; ++i) {
@@ -137,7 +145,8 @@ TEST(AdaptiveTest, NackBurstTriggersImmediateDownshift) {
 
   // NACKs with actual packet loss should trigger downshift
   RtcpFeedback fb;
-  fb.fraction_lost = 0.05;
+  fb.fraction_lost = 0.05;  
+  fb.has_report_block = true;
   for (uint16_t i = 0; i < 12; ++i) {
     fb.nacks.push_back(PacketNack{10, i});
   }
@@ -177,7 +186,8 @@ TEST(AdaptiveTest, NacksWithZeroLossDoNotDownshift) {
 
   // 12 NACKs with 0% loss — retransmissions are working, no downshift needed
   RtcpFeedback fb;
-  fb.fraction_lost = 0.0;
+  fb.fraction_lost = 0.0;  
+  fb.has_report_block = true;
   for (uint16_t i = 0; i < 12; ++i) {
     fb.nacks.push_back(PacketNack{10, i});
   }
@@ -219,7 +229,8 @@ TEST(AdaptiveTest, DownshiftCooldownPreventsRungCascade) {
   adaptive.Initialize(initial, QualityPreset::kAuto);
 
   RtcpFeedback burst;
-  burst.fraction_lost = 0.05;
+  burst.fraction_lost = 0.05;  
+  burst.has_report_block = true;
   for (uint16_t i = 0; i < 12; ++i) {
     burst.nacks.push_back(PacketNack{10, i});
   }
@@ -274,8 +285,10 @@ TEST(AdaptiveTest, DynamicPlayoutDelayScaling) {
 
   // 1. Step up from 150ms to 200ms with packet loss (> 3%)
   RtcpFeedback loss_fb;
-  loss_fb.fraction_lost = 0.05;
+  loss_fb.fraction_lost = 0.05;  
+  loss_fb.has_report_block = true;
   loss_fb.rtt_ms = 15.0;
+  loss_fb.has_rtt = true;
   adaptive.OnFeedback(loss_fb);
   std::this_thread::sleep_for(std::chrono::milliseconds(15));
 
@@ -309,8 +322,10 @@ TEST(AdaptiveTest, DynamicPlayoutDelayScaling) {
 
   // 5. Clean network: 14 intervals do not step down yet
   RtcpFeedback clean_fb;
-  clean_fb.fraction_lost = 0.0;
+  clean_fb.fraction_lost = 0.0;  
+  clean_fb.has_report_block = true;
   clean_fb.rtt_ms = 10.0;
+  clean_fb.has_rtt = true;
   clean_fb.jitter = 2;
 
   for (int i = 0; i < 14; ++i) {
@@ -384,8 +399,10 @@ TEST(AdaptiveTest, JitterAwareDelayAdaptation) {
   // Sample 1: RTT = 50ms, Jitter = 20ms
   RtcpFeedback fb1;
   fb1.rtt_ms = 50.0;
+  fb1.has_rtt = true;
   fb1.jitter = 20;
-  fb1.fraction_lost = 0.0;
+  fb1.fraction_lost = 0.0;  
+  fb1.has_report_block = true;
   adaptive.OnFeedback(fb1);
   EXPECT_DOUBLE_EQ(adaptive.GetEwmaRttMs(), 50.0);
   EXPECT_DOUBLE_EQ(adaptive.GetEwmaJitterMs(), 20.0);
@@ -395,8 +412,10 @@ TEST(AdaptiveTest, JitterAwareDelayAdaptation) {
   // EWMA_Jitter = 0.9 * 20.0 + 0.1 * 40.0 = 22.0 ms
   RtcpFeedback fb2;
   fb2.rtt_ms = 100.0;
+  fb2.has_rtt = true;
   fb2.jitter = 40;
-  fb2.fraction_lost = 0.0;
+  fb2.fraction_lost = 0.0;  
+  fb2.has_report_block = true;
   adaptive.OnFeedback(fb2);
   EXPECT_NEAR(adaptive.GetEwmaRttMs(), 60.0, 0.001);
   EXPECT_NEAR(adaptive.GetEwmaJitterMs(), 22.0, 0.001);
@@ -406,8 +425,10 @@ TEST(AdaptiveTest, JitterAwareDelayAdaptation) {
   // EWMA_Jitter = 0.9 * 22.0 + 0.1 * 120.0 = 19.8 + 12.0 = 31.8 ms
   RtcpFeedback high_jitter_fb;
   high_jitter_fb.rtt_ms = 20.0;
+  high_jitter_fb.has_rtt = true;
   high_jitter_fb.jitter = 120;
-  high_jitter_fb.fraction_lost = 0.0;
+  high_jitter_fb.fraction_lost = 0.0;  
+  high_jitter_fb.has_report_block = true;
   adaptive.OnFeedback(high_jitter_fb);
   EXPECT_GT(adaptive.GetEwmaJitterMs(), 30.0);
 
@@ -437,8 +458,10 @@ TEST(AdaptiveTest, JitterAwareDelayAdaptation) {
   // 3. Jitter recovery: jitter drops to 2ms, RTT drops to 10ms, loss is 0
   RtcpFeedback clean_fb;
   clean_fb.rtt_ms = 10.0;
+  clean_fb.has_rtt = true;
   clean_fb.jitter = 2;
-  clean_fb.fraction_lost = 0.0;
+  clean_fb.fraction_lost = 0.0;  
+  clean_fb.has_report_block = true;
 
   // Run iterations to decay EWMA Jitter below 8ms and accumulate clean intervals
   for (int i = 0; i < 30; ++i) {
@@ -476,7 +499,8 @@ TEST(AdaptiveTest, UpshiftAfterRecoveryForAllPresets) {
 
   // Force a downshift with severe loss
   RtcpFeedback lossy;
-  lossy.fraction_lost = 0.20;
+  lossy.fraction_lost = 0.20;  
+  lossy.has_report_block = true;
   for (uint16_t i = 0; i < 60; ++i) {
     lossy.nacks.push_back(PacketNack{10, i});
   }
@@ -489,8 +513,10 @@ TEST(AdaptiveTest, UpshiftAfterRecoveryForAllPresets) {
 
   // Feed clean feedback for bitrate ramp-back (4 steps * 8 clean = 32 intervals)
   RtcpFeedback clean;
-  clean.fraction_lost = 0.0;
+  clean.fraction_lost = 0.0;  
+  clean.has_report_block = true;
   clean.rtt_ms = 10.0;
+  clean.has_rtt = true;
   for (int i = 0; i < 36; ++i) {
     adaptive.OnFeedback(clean);
     std::this_thread::sleep_for(std::chrono::milliseconds(60));
@@ -524,8 +550,10 @@ TEST(AdaptiveTest, CustomBitrateHoldsAndRampsBackUp) {
 
   // Confirm bitrate holds at 8000 on clean feedback
   RtcpFeedback clean;
-  clean.fraction_lost = 0.0;
+  clean.fraction_lost = 0.0;  
+  clean.has_report_block = true;
   clean.rtt_ms = 10.0;
+  clean.has_rtt = true;
   clean.jitter = 2;
   for (int i = 0; i < 5; ++i) {
     adaptive.OnFeedback(clean);
@@ -537,7 +565,8 @@ TEST(AdaptiveTest, CustomBitrateHoldsAndRampsBackUp) {
 
   // Force a downshift with severe congestion
   RtcpFeedback severe;
-  severe.fraction_lost = 0.20;
+  severe.fraction_lost = 0.20;  
+  severe.has_report_block = true;
   for (uint16_t i = 0; i < 60; ++i) {
     severe.nacks.push_back(PacketNack{10, i});
   }
@@ -578,13 +607,15 @@ TEST(AdaptiveTest, DelayGradientRttTrendTriggersPreemptiveDownshiftWithoutLoss) 
   // Simulate rising RTT slope for 3+ consecutive evaluation intervals with 0% packet loss
   // (preemptive congestion detection before packet drop)
   RtcpFeedback fb;
-  fb.fraction_lost = 0.0;
+  fb.fraction_lost = 0.0;  
+  fb.has_report_block = true;
   fb.jitter = 5;
 
   double rtt_samples[] = {30.0, 40.0, 55.0, 70.0, 85.0};
   StreamStats updated;
   for (int i = 0; i < 5; ++i) {
     fb.rtt_ms = rtt_samples[i];
+    fb.has_rtt = true;
     adaptive.OnFeedback(fb);
     std::this_thread::sleep_for(std::chrono::milliseconds(15));
     adaptive.CheckAdaptation(updated);
@@ -609,8 +640,10 @@ TEST(AdaptiveTest, RecoveryHysteresisHoldsForEightSeconds) {
 
   // Force downshift with severe loss (> 0.15 triggers immediate emergency downshift)
   RtcpFeedback loss_fb;
-  loss_fb.fraction_lost = 0.20;
+  loss_fb.fraction_lost = 0.20;  
+  loss_fb.has_report_block = true;
   loss_fb.rtt_ms = 15.0;
+  loss_fb.has_rtt = true;
   for (uint16_t i = 0; i < 60; ++i) {
     loss_fb.nacks.push_back(PacketNack{10, i});
   }
@@ -623,8 +656,10 @@ TEST(AdaptiveTest, RecoveryHysteresisHoldsForEightSeconds) {
 
   // Feed clean feedback for 7 intervals (< 8 intervals recovery hysteresis)
   RtcpFeedback clean_fb;
-  clean_fb.fraction_lost = 0.0;
+  clean_fb.fraction_lost = 0.0;  
+  clean_fb.has_report_block = true;
   clean_fb.rtt_ms = 15.0;
+  clean_fb.has_rtt = true;
   clean_fb.jitter = 2;
 
   for (int i = 0; i < 7; ++i) {
@@ -643,3 +678,27 @@ TEST(AdaptiveTest, RecoveryHysteresisHoldsForEightSeconds) {
 }
 
 
+
+// A NACK-only packet has no report block. Its zero RTT must not drag the
+// smoothed RTT down (it used to, hiding real latency from the controller).
+TEST(AdaptiveTest, FeedbackWithoutReportBlockLeavesRttUntouched) {
+  AdaptiveController ctrl;
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 60;
+  initial.bitrate_kbps = 8000;
+  ctrl.Initialize(initial, QualityPreset::kAuto);
+
+  RtcpFeedback rr;
+  rr.has_report_block = true;
+  rr.has_rtt = true;
+  rr.rtt_ms = 80.0;
+  ctrl.OnFeedback(rr);
+  const double before = ctrl.GetEwmaRttMs();
+  EXPECT_DOUBLE_EQ(before, 80.0);
+
+  RtcpFeedback nack_only;  // rtt_ms == 0, no report block
+  nack_only.nacks.push_back({1, 1});
+  for (int i = 0; i < 10; ++i) ctrl.OnFeedback(nack_only);
+  EXPECT_DOUBLE_EQ(ctrl.GetEwmaRttMs(), before);
+}

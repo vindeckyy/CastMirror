@@ -92,6 +92,7 @@ bool ParseInternal(const uint8_t* data, size_t length,
         out_feedback.receiver_ssrc = ReadUint32BE(&block[4]);
         if (count_or_subtype > 0 && block_len >= 32) {
           // Report block: ensure we don't read beyond block_len
+          out_feedback.has_report_block = true;
           out_feedback.fraction_lost = static_cast<double>(block[12]) / 256.0;
           out_feedback.cumulative_lost = (static_cast<uint32_t>(block[13]) << 16) |
                                          (static_cast<uint32_t>(block[14]) << 8) |
@@ -123,6 +124,7 @@ bool ParseInternal(const uint8_t* data, size_t length,
               constexpr double kMaxSaneRttMs = 3000.0;  // clamp bogus values
               if (rtt_ms > kMaxSaneRttMs) rtt_ms = kMaxSaneRttMs;
               out_feedback.rtt_ms = rtt_ms;
+              out_feedback.has_rtt = true;
             }
           }
         }
