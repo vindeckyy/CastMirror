@@ -47,7 +47,34 @@ namespace CastMirror
             try
             {
                 var package = new DataPackage();
-                package.SetText(ViewModel.CopyText());
+                package.SetText(ViewModel.CopyText(LogList.SelectedItems));
+                Clipboard.SetContent(package);
+            }
+            catch (Exception ex)
+            {
+                MainViewModel.LogError(ex);
+            }
+        }
+
+        private void OnCopyDiagnosticsClicked(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string settings = string.Empty;
+                try
+                {
+                    // The settings the engine is using, minus the last TV's id.
+                    var current = SettingsService.Load();
+                    current.LastDeviceId = string.Empty;
+                    settings = System.Text.Json.JsonSerializer.Serialize(
+                        current, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                }
+                catch (Exception ex)
+                {
+                    MainViewModel.LogError(ex);
+                }
+                var package = new DataPackage();
+                package.SetText(DiagnosticsService.Build(settings));
                 Clipboard.SetContent(package);
             }
             catch (Exception ex)

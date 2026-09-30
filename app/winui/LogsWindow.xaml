@@ -31,6 +31,7 @@
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <TextBlock Grid.Column="0" Text="Level" VerticalAlignment="Center" FontSize="13"/>
@@ -42,12 +43,15 @@
                 <ComboBoxItem Content="Error"/>
                 <ComboBoxItem Content="Fatal"/>
             </ComboBox>
-            <TextBox x:Name="FilterBox" Grid.Column="2" PlaceholderText="Filter text..."
+            <TextBox x:Name="FilterBox" Grid.Column="2" PlaceholderText="Filter"
                      AutomationProperties.Name="Filter logs"
                      TextChanged="OnFilterChanged" VerticalAlignment="Center"/>
-            <Button Grid.Column="3" Content="Copy" Click="OnCopyClicked"/>
-            <Button Grid.Column="4" Content="Clear" Click="OnClearClicked"/>
-            <Button Grid.Column="5" Content="Open folder" Click="OnOpenFolderClicked"/>
+            <Button Grid.Column="3" Content="Copy" Click="OnCopyClicked"
+                    ToolTipService.ToolTip="Copy the selected lines, or every visible line if none are selected"/>
+            <Button Grid.Column="4" Content="Copy for bug report" Click="OnCopyDiagnosticsClicked"
+                    ToolTipService.ToolTip="Copies versions, settings and recent logs with network addresses masked"/>
+            <Button Grid.Column="5" Content="Clear" Click="OnClearClicked"/>
+            <Button Grid.Column="6" Content="Open folder" Click="OnOpenFolderClicked"/>
         </Grid>
 
         <ListView x:Name="LogList" Grid.Row="2" Margin="20,0,20,16"

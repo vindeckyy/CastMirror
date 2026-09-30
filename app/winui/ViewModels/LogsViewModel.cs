@@ -48,9 +48,38 @@ namespace CastMirror.ViewModels
             _logCallback = OnLog;
         }
 
+        private static readonly System.Text.RegularExpressions.Regex LogLine = new(
+            @"^(?<ts>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?) \[(?<lvl>[A-Z]+)\s*\] (?<msg>.*)$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Fills the view with the tail of the engine's log file, so opening the
+        /// window shows what just happened rather than an empty list.
+        /// </summary>
+        private void SeedFromDisk()
+        {
+            foreach (string raw in DiagnosticsService.TailOf(DiagnosticsService.EngineLogPath, 300))
+            {
+                var match = LogLine.Match(raw);
+                if (!match.Success) continue;
+                int level = Array.IndexOf(LevelNames, match.Groups["lvl"].Value);
+                _ = DateTime.TryParse(match.Groups["ts"].Value, out DateTime when);
+                var entry = new LogEntry
+                {
+                    Timestamp = when == default ? DateTime.Now : when,
+                    Level = level < 0 ? 1 : level,
+                    LevelName = level < 0 ? match.Groups["lvl"].Value : LevelNames[level],
+                    Message = match.Groups["msg"].Value
+                };
+                _all.Add(entry);
+                if (Matches(entry)) Entries.Add(entry);
+            }
+        }
+
         /// <summary>Registers the native log callback. Safe to call once.</summary>
         public void Attach()
         {
+            SeedFromDisk();
             try
             {
                 CastCoreBridge.castmirror_set_log_callback(_logCallback, IntPtr.Zero);
@@ -156,11 +185,22 @@ namespace CastMirror.ViewModels
             Entries.Clear();
         }
 
-        /// <summary>All currently visible lines, for the clipboard.</summary>
-        public string CopyText()
+        /// <summary>The selected lines when there is a selection, otherwise every visible line.</summary>
+        public string CopyText(IList<object>? selected = null)
         {
             var builder = new StringBuilder();
-            foreach (var entry in Entries) builder.AppendLine(entry.Display);
+            if (selected != null && selected.Count > 0)
+            {
+                // Selection order is the order the user clicked; the log reads top to bottom.
+                var chosen = new List<LogEntry>();
+                foreach (object item in selected) if (item is LogEntry entry) chosen.Add(entry);
+                chosen.Sort((a, b) => Entries.IndexOf(a).CompareTo(Entries.IndexOf(b)));
+                foreach (var entry in chosen) builder.AppendLine(entry.Display);
+            }
+            else
+            {
+                foreach (var entry in Entries) builder.AppendLine(entry.Display);
+            }
             return builder.ToString();
         }
 

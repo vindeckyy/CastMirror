@@ -291,12 +291,15 @@ namespace CastMirror.Services
                     var small = new IntPtr[1];
                     if (ExtractIconExW(exe, 0, large, small, 1) > 0)
                     {
-                        IntPtr handle = large[0] != IntPtr.Zero ? large[0] : small[0];
+                        // The tray slot is 16x16 at 100% scale. The large (32x32)
+                        // icon gets squeezed into it and looks smudged, so prefer
+                        // the small one.
+                        IntPtr handle = small[0] != IntPtr.Zero ? small[0] : large[0];
                         // ExtractIconExW fills both arrays when it is asked for
                         // both, and nothing else owns either handle: Dispose
                         // destroys only the one selected here, so the other
                         // would leak for the lifetime of the process.
-                        IntPtr unused = large[0] != IntPtr.Zero ? small[0] : large[0];
+                        IntPtr unused = small[0] != IntPtr.Zero ? large[0] : small[0];
                         if (unused != IntPtr.Zero) DestroyIcon(unused);
                         if (handle != IntPtr.Zero)
                         {
@@ -402,10 +405,37 @@ namespace CastMirror.Services
 
         private static uint _taskbarCreated = RegisterWindowMessageW("TaskbarCreated");
 
+        // uxtheme exports these two by ordinal only (135 SetPreferredAppMode,
+        // 136 FlushMenuThemes). They make native popup menus follow the system
+        // dark mode; without them the tray menu stays white on a dark taskbar.
+        [DllImport("uxtheme.dll", EntryPoint = "#135")]
+        private static extern int SetPreferredAppMode(int mode);
+
+        [DllImport("uxtheme.dll", EntryPoint = "#136")]
+        private static extern void FlushMenuThemes();
+
+        private static bool _menuThemeApplied;
+
+        private static void FollowSystemMenuTheme()
+        {
+            if (_menuThemeApplied) return;
+            _menuThemeApplied = true;
+            try
+            {
+                SetPreferredAppMode(1 /* AllowDark */);
+                FlushMenuThemes();
+            }
+            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException)
+            {
+                // Older Windows builds lack the ordinals; the menu stays light.
+            }
+        }
+
         private void ShowContextMenu()
         {
             try
             {
+                FollowSystemMenuTheme();
                 IntPtr menu = CreatePopupMenu();
                 if (menu == IntPtr.Zero) return;
                 AppendMenuW(menu, MF_STRING, (IntPtr)CMD_OPEN, "Open CastMirror");

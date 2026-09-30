@@ -301,9 +301,11 @@ namespace CastMirror
             return _tray ??= new TrayIconService(
                 Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(),
                 ShowFromTray,
-                () => ViewModel.ToggleCast(),
+                // Stop only. The menu item can be clicked just as the session ends,
+                // and a toggle would then start a new cast.
+                () => { if (ViewModel.IsSessionActive) ViewModel.ToggleCast(); },
                 ExitFromTray,
-                () => ViewModel.IsStreaming);
+                () => ViewModel.IsSessionActive);
         }
 
         /// <summary>
