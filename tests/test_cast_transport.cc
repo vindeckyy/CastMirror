@@ -573,6 +573,33 @@ int64_t ReceiveSenderReportUnixUs(int fd) {
   return 0;
 }
 
+// CAST feedback (PT 206, FMT 15) with a checkpoint id and no loss fields. The
+// 8-bit checkpoint is expanded by the parser against the last frame id it has
+// seen for the media SSRC.
+std::vector<uint8_t> BuildCastCheckpointPacket(uint32_t receiver_ssrc,
+                                               uint32_t sender_ssrc,
+                                               uint8_t checkpoint_id_8,
+                                               uint16_t playout_delay_ms) {
+  std::vector<uint8_t> pkt(24, 0);
+  pkt[0] = 0x8F;
+  pkt[1] = 206;
+  pkt[2] = 0x00; pkt[3] = 0x05;  // length 5 -> 24 bytes
+  pkt[4] = static_cast<uint8_t>((receiver_ssrc >> 24) & 0xFF);
+  pkt[5] = static_cast<uint8_t>((receiver_ssrc >> 16) & 0xFF);
+  pkt[6] = static_cast<uint8_t>((receiver_ssrc >> 8) & 0xFF);
+  pkt[7] = static_cast<uint8_t>(receiver_ssrc & 0xFF);
+  pkt[8] = static_cast<uint8_t>((sender_ssrc >> 24) & 0xFF);
+  pkt[9] = static_cast<uint8_t>((sender_ssrc >> 16) & 0xFF);
+  pkt[10] = static_cast<uint8_t>((sender_ssrc >> 8) & 0xFF);
+  pkt[11] = static_cast<uint8_t>(sender_ssrc & 0xFF);
+  pkt[12] = 'C'; pkt[13] = 'A'; pkt[14] = 'S'; pkt[15] = 'T';
+  pkt[16] = checkpoint_id_8;
+  pkt[17] = 0;  // no loss fields
+  pkt[18] = static_cast<uint8_t>((playout_delay_ms >> 8) & 0xFF);
+  pkt[19] = static_cast<uint8_t>(playout_delay_ms & 0xFF);
+  return pkt;
+}
+
 }  // namespace
 
 TEST(CastTransportTest, SenderReportNtpReflectsFrameCaptureTime) {
@@ -631,6 +658,58 @@ TEST(CastTransportTest, SenderReportNtpDefaultsToNowWithoutCaptureTime) {
                              (send_start.time_since_epoch() + send_end.time_since_epoch()) / 2)
                              .count();
   EXPECT_NEAR(static_cast<double>(now_us - sr_unix_us), 0.0, 60000.0);
+
+  transport.Stop();
+  close(recv_fd);
+}
+
+TEST(CastTransportTest, TruncatedCheckpointCannotEvictInFlightFrame) {
+  int recv_fd = BindLoopbackReceiver();
+  ASSERT_GE(recv_fd, 0);
+
+  CastTransport transport;
+  ASSERT_TRUE(transport.Start("127.0.0.1", SocketPort(recv_fd)));
+
+  const uint32_t ssrc = 2;
+  for (uint32_t fid = 0; fid < 5; ++fid) {
+    RtpPacket pkt;
+    pkt.frame_id = fid;
+    pkt.packet_id = 0;
+    pkt.max_packet_id = 0;
+    pkt.data.resize(100, 0);
+    pkt.data[1] = 96;  // video payload type
+    pkt.data[8] = static_cast<uint8_t>((ssrc >> 24) & 0xFF);
+    pkt.data[9] = static_cast<uint8_t>((ssrc >> 16) & 0xFF);
+    pkt.data[10] = static_cast<uint8_t>((ssrc >> 8) & 0xFF);
+    pkt.data[11] = static_cast<uint8_t>(ssrc & 0xFF);
+    ASSERT_TRUE(transport.SendPackets({pkt}));
+  }
+  ASSERT_EQ(transport.GetCachedFrameCount(ssrc), 5u);
+
+  // Learn the transport's source address from the receiver side.
+  uint8_t buf[256];
+  struct sockaddr_in sender_addr{};
+  socklen_t sender_len = sizeof(sender_addr);
+  ASSERT_GT(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr), &sender_len), 0);
+
+  // 8-bit checkpoint 24 expands to frame 24, which is 20 frames ahead of the
+  // newest frame we have actually sent (4). The receive loop must not erase
+  // frame 4 — the newest in-flight frame.
+  auto fb = BuildCastCheckpointPacket(10001, ssrc, /*checkpoint_id_8=*/24, 200);
+  ASSERT_EQ(sendto(recv_fd, reinterpret_cast<const char*>(fb.data()), fb.size(), 0,
+                   reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr)),
+            static_cast<ssize_t>(fb.size()));
+
+  // Wait for the receive loop to act on the feedback.
+  for (int i = 0; i < 50 && transport.GetCachedFrameCount(ssrc) == 5u; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  const size_t remaining = transport.GetCachedFrameCount(ssrc);
+  EXPECT_LT(remaining, 5u) << "Feedback was never processed";
+  EXPECT_GE(remaining, 1u)
+      << "A truncated checkpoint ahead of last_sent erased the newest in-flight frame";
 
   transport.Stop();
   close(recv_fd);

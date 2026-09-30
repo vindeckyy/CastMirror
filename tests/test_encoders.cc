@@ -155,6 +155,133 @@ TEST(EncoderTest, VideoEncoderNameIsNonEmpty) {
               name == "mf_h264_hw" || name == "mf_h264_sw");
 }
 
+// The Media Foundation backend reuses one input media buffer and one input
+// sample for the life of a stream, and caches the output sample. Those caches
+// are keyed on the frame size, so this walks a sequence of shapes - including
+// growing, shrinking and an odd (buffer-snapshotted) size - and asserts every
+// frame still encodes. Before the reuse the encoder allocated per frame; a
+// stale buffer that was not re-sized on change produced garbage output or a
+// dropped frame instead of a failure, so this guards the regression directly.
+TEST(EncoderTest, VideoEncoderHandlesSizeChangesAcrossReuse) {
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_NE(encoder, nullptr);
+
+  const struct { int w; int h; } shapes[] = {
+      {320, 240}, {640, 360}, {320, 240}, {1920, 1080}, {640, 360},
+  };
+
+  for (const auto& shape : shapes) {
+    VideoEncoderConfig cfg;
+    cfg.width = shape.w;
+    cfg.height = shape.h;
+    cfg.framerate = 30;
+    cfg.bitrate_kbps = 1000;
+    cfg.codec = VideoCodec::kH264;
+
+    if (encoder->GetConfig().width == 0 || encoder->GetConfig().width != shape.w ||
+        encoder->GetConfig().height != shape.h) {
+      ASSERT_TRUE(encoder->Reconfigure(cfg)) << shape.w << "x" << shape.h;
+    }
+
+    CapturedVideoFrame frame;
+    frame.width = shape.w;
+    frame.height = shape.h;
+    frame.stride = shape.w * 4;
+    frame.data.assign(static_cast<size_t>(frame.stride) * shape.h, 0x40);
+    frame.timestamp = std::chrono::steady_clock::now();
+
+    // A freshly opened encoder can buffer its first frames before emitting,
+    // so encode a few and require that at least one produces a real packet.
+    bool produced = false;
+    for (int i = 0; i < 8 && !produced; ++i) {
+      frame.timestamp += std::chrono::milliseconds(33);
+      EncodedFrame ef;
+      if (encoder->Encode(frame, ef)) {
+        EXPECT_GT(ef.data.size(), 0u) << shape.w << "x" << shape.h;
+        produced = true;
+      }
+    }
+    EXPECT_TRUE(produced) << "no packet produced at " << shape.w << "x" << shape.h;
+  }
+}
+
+// Every frame must leave the encoder carrying its own ID and a timestamp that
+// never goes backwards. The MF backend hands out one picture per DrainOutput
+// call; a path that packed several output samples into a single EncodedFrame
+// would repeat an ID and reuse a timestamp, which the receiver turns into a
+// permanent freeze.
+TEST(EncoderTest, VideoFrameIdsAndTimestampsAreMonotonic) {
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 1000;
+  cfg.codec = VideoCodec::kH264;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  auto t0 = std::chrono::steady_clock::now();
+  bool have_last = false;
+  uint32_t last_id = 0;
+  uint32_t last_ts = 0;
+
+  for (int i = 0; i < 12; ++i) {
+    CapturedVideoFrame frame;
+    frame.width = 320;
+    frame.height = 240;
+    frame.stride = 320 * 4;
+    frame.data.assign(320 * 240 * 4, 0x40);
+    frame.timestamp = t0 + std::chrono::milliseconds(33 * i);
+
+    EncodedFrame ef;
+    if (!encoder->Encode(frame, ef)) continue;
+    ASSERT_FALSE(ef.data.empty());
+    if (have_last) {
+      EXPECT_GT(ef.frame_id, last_id);
+      EXPECT_GT(ef.rtp_timestamp, last_ts);
+    }
+    last_id = ef.frame_id;
+    last_ts = ef.rtp_timestamp;
+    have_last = true;
+  }
+  EXPECT_TRUE(have_last);
+}
+
+// Bitrate is pushed live (no reconfigure), so the path must keep emitting
+// well-formed frames across the change rather than wedging on a stream-type
+// renegotiation.
+TEST(EncoderTest, VideoEncoderSurvivesLiveBitrateChange) {
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 1000;
+  cfg.codec = VideoCodec::kH264;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  CapturedVideoFrame frame;
+  frame.width = 320;
+  frame.height = 240;
+  frame.stride = 320 * 4;
+  frame.data.assign(320 * 240 * 4, 0x40);
+  auto t0 = std::chrono::steady_clock::now();
+
+  encoder->ForceKeyFrame();
+  encoder->SetBitrate(4000);
+  encoder->SetBitrate(1500);
+
+  int produced = 0;
+  for (int i = 0; i < 10; ++i) {
+    frame.timestamp = t0 + std::chrono::milliseconds(33 * i);
+    EncodedFrame ef;
+    if (encoder->Encode(frame, ef) && !ef.data.empty()) ++produced;
+  }
+  EXPECT_GT(produced, 0);
+}
+
 TEST(EncoderTest, VideoRtpTimestampsFollowCaptureClock) {
   VideoEncoderConfig cfg;
   cfg.width = 320;
@@ -383,12 +510,25 @@ TEST(EncoderTest, VP8RtpTimestampsFollowCaptureClock) {
   EXPECT_EQ(ef1.rtp_timestamp - ef0.rtp_timestamp, 9000u);
 }
 
-TEST(EncoderTest, AV1EncoderStubReturnsNullptr) {
-  auto encoder = VideoEncoderFactory::Create(VideoCodec::kAV1);
-  EXPECT_EQ(encoder, nullptr);
+TEST(EncoderTest, UnsupportedCodecsFallBackToH264) {
+  // Cast Streaming mirroring only carries h264 and vp8; the factory must not
+  // hand back a backend that emits a codec the receiver rejects.
+  for (VideoCodec codec : {VideoCodec::kVP9, VideoCodec::kHEVC, VideoCodec::kAV1}) {
+    VideoEncoderConfig cfg;
+    cfg.width = 320;
+    cfg.height = 240;
+    cfg.framerate = 30;
+    cfg.bitrate_kbps = 1000;
+    cfg.codec = codec;
+
+    auto encoder = VideoEncoderFactory::Create(codec);
+    ASSERT_NE(encoder, nullptr);
+    ASSERT_TRUE(encoder->Initialize(cfg));
+    EXPECT_EQ(encoder->GetConfig().codec, VideoCodec::kH264);
+  }
 }
 
-TEST(EncoderTest, VP9VideoEncoderProducesValidFrames) {
+TEST(EncoderTest, VP9RequestFallsBackToH264AndStillEncodes) {
   VideoEncoderConfig cfg;
   cfg.width = 320;
   cfg.height = 240;
@@ -398,50 +538,34 @@ TEST(EncoderTest, VP9VideoEncoderProducesValidFrames) {
 
   auto encoder = VideoEncoderFactory::Create(VideoCodec::kVP9);
   ASSERT_NE(encoder, nullptr);
-  if (encoder->Initialize(cfg)) {
-    CapturedVideoFrame frame;
-    frame.width = 320;
-    frame.height = 240;
-    frame.stride = 320 * 4;
-    frame.data.resize(320 * 240 * 4, 0x55);
-    frame.timestamp = std::chrono::steady_clock::now();
+  ASSERT_TRUE(encoder->Initialize(cfg));
+  EXPECT_EQ(encoder->GetConfig().codec, VideoCodec::kH264);
 
-    EncodedFrame ef;
-    EXPECT_TRUE(encoder->Encode(frame, ef));
-    EXPECT_GT(ef.data.size(), 0u);
-    EXPECT_EQ(ef.dependency, FrameDependency::kKeyFrame);
-    EXPECT_EQ(ef.frame_id, 0u);
-  } else {
-    // If libvpx-vp9 is not built into system ffmpeg, verify clean rejection
-    SUCCEED() << "VP9 encoder not available in system ffmpeg";
-  }
+  CapturedVideoFrame frame;
+  frame.width = 320;
+  frame.height = 240;
+  frame.stride = 320 * 4;
+  frame.data.resize(320 * 240 * 4, 0x55);
+  frame.timestamp = std::chrono::steady_clock::now();
+
+  EncodedFrame ef;
+  EXPECT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_GT(ef.data.size(), 0u);
+  EXPECT_EQ(ef.dependency, FrameDependency::kKeyFrame);
+  EXPECT_EQ(ef.frame_id, 0u);
 }
 
-TEST(EncoderTest, HEVCVideoEncoderHardwareGatedFailsGracefullyWithoutHardware) {
+TEST(EncoderTest, HEVCRequestFallsBackToH264) {
   VideoEncoderConfig cfg;
-  cfg.width = 1920;
-  cfg.height = 1080;
+  cfg.width = 640;
+  cfg.height = 360;
   cfg.framerate = 30;
-  cfg.bitrate_kbps = 8000;
+  cfg.bitrate_kbps = 2000;
   cfg.codec = VideoCodec::kHEVC;
 
   auto encoder = VideoEncoderFactory::Create(VideoCodec::kHEVC);
   ASSERT_NE(encoder, nullptr);
-  // HEVC is strictly HW-only (no software fallback to preserve GPL boundary).
-  // Either VAAPI is available and it initializes, or it returns false cleanly.
-  bool ok = encoder->Initialize(cfg);
-  if (ok) {
-    CapturedVideoFrame frame;
-    frame.width = 1920;
-    frame.height = 1080;
-    frame.stride = 1920 * 4;
-    frame.data.resize(1920 * 1080 * 4, 0x11);
-    frame.timestamp = std::chrono::steady_clock::now();
-
-    EncodedFrame ef;
-    EXPECT_TRUE(encoder->Encode(frame, ef));
-  } else {
-    SUCCEED() << "HEVC rejected gracefully when VAAPI hardware is absent";
-  }
+  ASSERT_TRUE(encoder->Initialize(cfg));
+  EXPECT_EQ(encoder->GetConfig().codec, VideoCodec::kH264);
 }
 

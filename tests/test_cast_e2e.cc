@@ -842,3 +842,103 @@ TEST(CastE2ETest, FrameQueueBackpressureOverrunsTrackedWithoutCrash) {
   server.Stop();
 }
 
+TEST(CastE2ETest, MutedSessionKeepsSendingSilenceWithoutStackOverflow) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-mute-device";
+  dev.name = "Mute Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  ASSERT_EQ(engine.GetState(), SessionState::kStreaming);
+
+  // Let the pipeline settle so the audio keepalive baseline is established.
+  std::this_thread::sleep_for(std::chrono::milliseconds(700));
+
+  engine.SetLiveAudioMuted(true);
+  ASSERT_TRUE(engine.IsLiveAudioMuted());
+  const StreamStats before = engine.GetStats();
+
+  // Audio capture delivers ~100 frames/s, and the adaptation loop injects a
+  // silence keepalive every 200ms once audio is enabled. 2.5s therefore pumps
+  // far more than 20 frames through ProcessAudioFrame while muted. Before the
+  // fix this recursed ProcessAudioFrame <-> InjectSilenceAudioFrame until the
+  // stack overflowed (guaranteed crash).
+  std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+  EXPECT_EQ(engine.GetState(), SessionState::kStreaming)
+      << "Muting must not crash or tear the session down";
+
+  const StreamStats after = engine.GetStats();
+  EXPECT_GT(after.packets_sent, before.packets_sent)
+      << "Silence frames must still be encoded and sent while muted";
+  EXPECT_GT(after.frames_sent, before.frames_sent);
+
+  engine.SetLiveAudioMuted(false);
+  engine.StopCasting();
+  EXPECT_EQ(engine.GetState(), SessionState::kIdle);
+
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+
+TEST(CastE2ETest, FrozenStreamSurvivesStallDetectorWindow) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-freeze-device";
+  dev.name = "Freeze Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  ASSERT_EQ(engine.GetState(), SessionState::kStreaming);
+
+  // Let video actually flow so the stall detector has a live baseline.
+  std::this_thread::sleep_for(std::chrono::milliseconds(700));
+  ASSERT_GT(server.GetVideoPacketsReceived(), 0u);
+
+  engine.SetFreezeStream(true);
+  ASSERT_TRUE(engine.IsStreamFrozen());
+
+  // The adaptation loop's stall detector fires after 5s of no video sends.
+  // Freezing for 6.5s of real wall time proves it no longer forces a reconnect
+  // and that the user-visible frozen state is not clobbered.
+  std::this_thread::sleep_for(std::chrono::milliseconds(6500));
+
+  EXPECT_EQ(engine.GetState(), SessionState::kStreaming)
+      << "Freezing the picture must not force a session reconnect";
+  EXPECT_TRUE(engine.IsStreamFrozen());
+
+  engine.SetFreezeStream(false);
+  engine.StopCasting();
+  EXPECT_EQ(engine.GetState(), SessionState::kIdle);
+
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+

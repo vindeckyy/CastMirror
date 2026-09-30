@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "castcore/config.h"
 #include <filesystem>
+#include <fstream>
 
 using namespace castcore;
 
@@ -102,6 +103,49 @@ TEST(ConfigTest, DefaultsAndSaveLoad) {
   EXPECT_TRUE(cfg.force_software_encode);
   EXPECT_TRUE(cfg.force_x11_capture);
   EXPECT_FALSE(cfg.close_to_tray);
+  std::filesystem::remove(temp_path);
+}
+
+// A hostile or typo'd value in the file must not abort the parse of the keys
+// after it: nlohmann's get<T>() throws on a type mismatch, and the old
+// unchecked gets let one bad entry silently drop every later key (and wrapped
+// negatives into u32 fields). The strict readers reject per key instead.
+TEST(ConfigTest, LoadRejectsBadValueAndKeepsNeighboringKeys) {
+  ConfigGuard guard;
+  std::string temp_path = "/tmp/castmirror_test_hostile_config.json";
+
+  {
+    std::ofstream file(temp_path, std::ios::out | std::ios::trunc);
+    ASSERT_TRUE(file.is_open());
+    // Deliberately hostile: audio_enabled has the wrong JSON type (would have
+    // thrown mid-parse before), max_bitrate_kbps is negative (wrapped to
+    // 4294967295), window_width overflows an int. capture_fps sits between
+    // them and must still load.
+    file << R"({
+      "capture_fps": 45,
+      "audio_enabled": "yes",
+      "max_bitrate_kbps": -1,
+      "window_width": 4294967296,
+      "close_to_tray": false
+    })";
+  }
+
+  auto& store = ConfigStore::Instance();
+  auto& cfg = store.Mutable();
+  cfg.capture_fps = 0;
+  cfg.audio_enabled = true;
+  cfg.max_bitrate_kbps = 8000;
+  cfg.window_width = 920;
+  cfg.close_to_tray = true;
+
+  EXPECT_TRUE(store.Load(temp_path));
+  // Good keys applied, hostile keys kept their previous values.
+  EXPECT_EQ(cfg.capture_fps, 45);
+  EXPECT_FALSE(cfg.close_to_tray);
+  EXPECT_TRUE(cfg.audio_enabled);
+  EXPECT_EQ(cfg.max_bitrate_kbps, 8000u);
+  EXPECT_EQ(cfg.window_width, 920);
+
   std::filesystem::remove(temp_path);
 }
 

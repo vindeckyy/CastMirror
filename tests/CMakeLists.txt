@@ -29,6 +29,10 @@ set(TEST_SOURCES
     test_device_auth.cc
     test_c_api.cc
     test_http_fallback.cc
+    test_device_discovery.cc
+    test_net_platform.cc
+    test_gpu_processor.cc
+    test_audio_capture.cc
 )
 
 if(WIN32)
@@ -38,8 +42,22 @@ endif()
 add_executable(castmirror_tests ${TEST_SOURCES})
 target_link_libraries(castmirror_tests PRIVATE castcore GTest::gtest)
 
+# gtest_discover_tests is the single source of truth for the registered suite:
+# it enumerates one ctest case per TEST/TEST_P macro, which is what gives
+# per-case pass/fail and what `ctest -N` lists. There is deliberately no
+# aggregate `add_test(NAME CastMirrorAllTests COMMAND castmirror_tests)` here -
+# registering the binary *and* its discovered cases makes every case run twice
+# under ctest and reports the aggregate as if it were a test case of its own.
+#
+# No ENVIRONMENT property either: a hardcoded interpreter/runtime path such as
+# C:/msys64/ucrt64/bin must not be baked into every platform's registration.
+# The Windows CI job sets the UCRT64 runtime directory on PATH before invoking
+# ctest instead.
 gtest_discover_tests(castmirror_tests
     DISCOVERY_TIMEOUT 60
-    PROPERTIES ENVIRONMENT "PATH=C:/msys64/ucrt64/bin;$ENV{PATH}"
 )
-add_test(NAME CastMirrorAllTests COMMAND castmirror_tests)
+
+# Optional libFuzzer harnesses for the untrusted-input parsers. OFF by default so
+# the normal build needs nothing beyond a C++20 compiler; see tests/fuzz/.
+option(CASTMIRROR_BUILD_FUZZERS "Build libFuzzer harnesses (requires Clang)" OFF)
+add_subdirectory(fuzz)

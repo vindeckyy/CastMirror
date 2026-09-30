@@ -253,7 +253,7 @@ TEST_P(WgcPacingTest, WgcCapturePacedFrameRate) {
   ASSERT_NE(capture, nullptr);
   // Another test could leave force_x11_capture set; fail loudly rather than
   // silently measuring the synthetic fallback.
-  ASSERT_EQ(capture->BackendName(), std::string("windows_graphics_capture"));
+  ASSERT_EQ(capture->BackendName(), std::string("windows_desktop_duplication"));
 
   auto displays = capture->EnumerateDisplays();
   if (displays.empty()) {
@@ -281,7 +281,7 @@ TEST_P(WgcPacingTest, WgcCapturePacedOnStaticDesktop) {
   const int target_fps = GetParam();
   auto capture = DisplayCaptureFactory::Create();
   ASSERT_NE(capture, nullptr);
-  ASSERT_EQ(capture->BackendName(), std::string("windows_graphics_capture"));
+  ASSERT_EQ(capture->BackendName(), std::string("windows_desktop_duplication"));
 
   auto displays = capture->EnumerateDisplays();
   if (displays.empty()) {

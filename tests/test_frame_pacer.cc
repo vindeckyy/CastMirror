@@ -176,3 +176,102 @@ TEST(FramePacerTest, LongIntervalsArePolledInSlices) {
   EXPECT_EQ(pacer.WaitSliceMs(t0 + ms(150)), 50);
   EXPECT_EQ(pacer.WaitSliceMs(t0 + ms(200)), 0) << "a due tick must not block";
 }
+
+// The capture loop recycles the buffer of a frame the pacer has already emitted
+// instead of allocating and zero-filling a full BGRA frame per capture (8.3 MB
+// at 1080p, entirely overwritten by the row copy straight after).
+TEST(FramePacerTest, SupersededBufferIsHandedBackForReuse) {
+  FramePacer pacer;
+  const auto t0 = T0();
+  pacer.Reset(t0);
+
+  // Nothing has been emitted yet, so there is nothing to recycle and the caller
+  // falls back to its own allocation.
+  EXPECT_TRUE(pacer.TakeSupersededBuffer().empty());
+
+  pacer.Submit(MakeFrame(t0), 0, 0);
+  ASSERT_TRUE(pacer.Tick(t0).emit);
+  EXPECT_TRUE(pacer.TakeSupersededBuffer().empty())
+      << "the frame just emitted is still current, not superseded";
+
+  // Emitting a second frame retires the first, whose pixels become reusable.
+  pacer.Submit(MakeFrame(t0 + ms(40)), 0, 0);
+  ASSERT_TRUE(pacer.Tick(t0 + ms(40)).emit);
+  EXPECT_EQ(pacer.TakeSupersededBuffer().size(), 32u);
+  EXPECT_TRUE(pacer.TakeSupersededBuffer().empty()) << "a buffer is handed out only once";
+}
+
+// The recycled buffer must never be the frame still in flight: handing that one
+// back would make the pacer emit a blank picture.
+TEST(FramePacerTest, RecyclingNeverEmptiesTheFrameThatGetsEmitted) {
+  FramePacer pacer;
+  const auto t0 = T0();
+  pacer.Reset(t0);
+  pacer.Submit(MakeFrame(t0), 0, 0);
+  ASSERT_TRUE(pacer.Tick(t0).emit);
+
+  // Force a spare to exist, then take it before staging the next capture.
+  pacer.Submit(MakeFrame(t0 + ms(20)), 0, 0);
+  ASSERT_TRUE(pacer.Tick(t0 + ms(20)).emit);
+  std::vector<uint8_t> recycled = pacer.TakeSupersededBuffer();
+  ASSERT_EQ(recycled.size(), 32u);
+  recycled.assign(32, 0x7f);  // the producer refills the retired buffer
+
+  pacer.Submit(MakeFrame(t0 + ms(40)), 0, 0);
+  auto decision = pacer.Tick(t0 + ms(40));
+  ASSERT_TRUE(decision.emit);
+  ASSERT_TRUE(decision.fresh);
+  ASSERT_EQ(decision.frame->data.size(), 32u);
+  EXPECT_EQ(decision.frame->data[0], 0x42u)
+      << "the emitted frame is the staged one, never the recycled buffer";
+}
+
+// The steady state the capture loop relies on: two buffers alternate forever and
+// each tick still emits the newest capture.
+TEST(FramePacerTest, RecycledBuffersAlternateWithoutStallingTheStream) {
+  FramePacer pacer;
+  const auto t0 = T0();
+  pacer.Reset(t0);
+  pacer.Submit(MakeFrame(t0), 0, 0);
+  ASSERT_TRUE(pacer.Tick(t0).emit);
+
+  int allocations = 0;
+  uint8_t marker = 0x10;
+  for (int i = 1; i <= 20; ++i) {
+    // The capture loop: take a retired buffer if one exists, else allocate.
+    std::vector<uint8_t> buffer = pacer.TakeSupersededBuffer();
+    if (buffer.empty()) ++allocations;
+    CapturedVideoFrame next = MakeFrame(t0 + ms(20 * i));
+    marker = static_cast<uint8_t>(marker + 1);
+    next.data = std::move(buffer);
+    next.data.assign(32, marker);
+    pacer.Submit(std::move(next), 0, 0);
+
+    auto decision = pacer.Tick(t0 + ms(20 * i));
+    ASSERT_TRUE(decision.emit);
+    ASSERT_EQ(decision.frame->data.size(), 32u);
+    EXPECT_EQ(decision.frame->data[0], marker) << "frame " << i << " must carry its own capture";
+  }
+
+  EXPECT_EQ(allocations, 1) << "after the first capture the spare keeps recycling";
+}
+
+// An idle source re-sends the same frame, so nothing is retired and the spare
+// stays empty: a re-send must not recycle the buffer it is still handing out.
+TEST(FramePacerTest, ResendsDoNotRetireTheFrameTheyReuse) {
+  FramePacer pacer;
+  pacer.SetTargetFps(30);
+  const auto t0 = T0();
+  pacer.Reset(t0);
+  pacer.Submit(MakeFrame(t0), 0, 0);
+  ASSERT_TRUE(pacer.Tick(t0).emit);
+
+  for (int i = 1; i <= 5; ++i) {
+    auto decision = pacer.Tick(t0 + ms(34 * i));
+    ASSERT_TRUE(decision.emit);
+    EXPECT_FALSE(decision.fresh) << "tick " << i << " is a re-send";
+    ASSERT_EQ(decision.frame->data.size(), 32u) << "re-sends keep their pixels";
+    EXPECT_TRUE(pacer.TakeSupersededBuffer().empty())
+        << "the frame being re-sent is not available for recycling";
+  }
+}

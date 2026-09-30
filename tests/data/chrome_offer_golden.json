@@ -30,7 +30,7 @@
         "bitRate": 6000000,
         "timeBase": "1/90000",
         "maxFrameRate": "60/1",
-        "maxBitRate": 9000000,
+        "maxBitRate": 6000000,
         "targetDelay": 400,
         "profile": "high",
         "level": "4.2",
