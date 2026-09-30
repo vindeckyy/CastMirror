@@ -92,7 +92,9 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
   int target_h = std::min(display_height, caps.max_resolution.height);
   int target_fps = std::min(display_refresh_rate > 0 ? display_refresh_rate : 60, caps.max_fps);
   if (capture_fps > 0) {
-    target_fps = capture_fps;
+    // A user-chosen frame rate is honoured only up to what the receiver
+    // decodes; 60 fps to a 30 fps Chromecast just makes it drop frames.
+    target_fps = std::min(capture_fps, caps.max_fps);
   }
 
   switch (preset) {
@@ -115,6 +117,24 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
       stats.current_framerate = capture_fps > 0 ? target_fps : std::min(target_fps, 60);
       stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 5000u);
       stats.target_delay_ms = 200; // Low latency mode
+      break;
+
+    case QualityPreset::kGame:
+      // Lowest latency: keep the picture at 1080p and the rate high, and let
+      // the bitrate be modest so the receiver's buffer stays short.
+      stats.current_resolution = {std::min(target_w, 1920), std::min(target_h, 1080)};
+      stats.current_framerate = capture_fps > 0 ? target_fps : std::min(target_fps, 60);
+      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 8000u);
+      stats.target_delay_ms = 150;
+      break;
+
+    case QualityPreset::kCinema:
+      // Picture quality over latency: a deeper buffer (400 ms) absorbs jitter
+      // and the full bit budget goes to the picture.
+      stats.current_resolution = {std::min(target_w, 1920), std::min(target_h, 1080)};
+      stats.current_framerate = capture_fps > 0 ? target_fps : std::min(target_fps, 30 > caps.max_fps ? caps.max_fps : 30);
+      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 16000u);
+      stats.target_delay_ms = 400;
       break;
 
     case QualityPreset::kAuto:

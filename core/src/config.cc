@@ -114,6 +114,10 @@ SessionOptions BuildSessionOptions(const AppConfig& cfg, const SessionOverrides&
   opts.target_delay_ms = cfg.target_delay_ms;
   if (overrides.target_delay_ms && *overrides.target_delay_ms > 0) {
     opts.target_delay_ms = *overrides.target_delay_ms;
+  } else if (opts.preset == QualityPreset::kGame) {
+    opts.target_delay_ms = 150;  // the preset's whole point is a short buffer
+  } else if (opts.preset == QualityPreset::kCinema) {
+    opts.target_delay_ms = 400;
   }
   opts.capture_fps = cfg.capture_fps;
   if (overrides.capture_fps && *overrides.capture_fps > 0) {
@@ -121,7 +125,10 @@ SessionOptions BuildSessionOptions(const AppConfig& cfg, const SessionOverrides&
   }
   opts.silence_host_speakers = cfg.silence_host_speakers;
   opts.adaptive_enabled = cfg.adaptive_enabled;
-  opts.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
+  // Game keeps the resolution fixed: a mid-game resolution change stalls the
+  // picture for the keyframe that follows it.
+  opts.adaptive_resolution_enabled =
+      opts.preset == QualityPreset::kGame ? false : cfg.adaptive_resolution_enabled;
   opts.verify_device_cert = overrides.verify_device_cert.value_or(cfg.verify_device_cert);
   const uint32_t requested_kbps = overrides.video_bitrate_kbps.value_or(0);
   opts.video_bitrate_kbps =

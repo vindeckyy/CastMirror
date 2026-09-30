@@ -54,11 +54,25 @@ TEST(CapabilityModelTest, PresetRecommendations) {
   EXPECT_GE(stats_auto.bitrate_kbps, 8000u);
 }
 
-TEST(CapabilityModelTest, UserCaptureFpsIsNotClampedTo60) {
+// A frame rate the user picks is honoured up to what the receiver can decode.
+TEST(CapabilityModelTest, UserCaptureFpsIsClampedToDeviceMax) {
   CastDevice dev;
   dev.model_name = "Chromecast Ultra";
+  const auto caps = CapabilityModel::Evaluate(dev);
   auto stats = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kAuto, 1920, 1080, 60, 120);
-  EXPECT_EQ(stats.current_framerate, 120);
+  EXPECT_EQ(stats.current_framerate, caps.max_fps);
+  auto low = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kAuto, 1920, 1080, 60, 24);
+  EXPECT_EQ(low.current_framerate, 24);
+}
+
+TEST(CapabilityModelTest, GameAndCinemaPresetsAreDistinctFromAuto) {
+  CastDevice dev;
+  dev.model_name = "Chromecast Ultra";
+  auto game = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kGame, 1920, 1080, 60, 0);
+  auto cinema = CapabilityModel::GetRecommendedSettings(dev, QualityPreset::kCinema, 1920, 1080, 60, 0);
+  EXPECT_EQ(game.target_delay_ms, 150);
+  EXPECT_EQ(cinema.target_delay_ms, 400);
+  EXPECT_GT(cinema.bitrate_kbps, game.bitrate_kbps);
 }
 
 TEST(CapabilityModelTest, GoogleTvStreamerAndUltraCodec4KGating) {
