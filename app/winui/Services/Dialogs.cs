@@ -40,17 +40,17 @@ namespace CastMirror.Services
         {
             var dialog = new ContentDialog
             {
-                Title = "Scan your network for TVs?",
+                Title = Localizer.T("Scan your network for TVs?"),
                 Content = new TextBlock
                 {
-                    Text = "CastMirror will open a short connection to every address on your local " +
+                    Text = Localizer.T("CastMirror will open a short connection to every address on your local " +
                            "subnet, on port 8009, to find TVs that don't announce themselves.\n\n" +
                            "Leave this off at work, at school and on guest Wi-Fi. Network monitors " +
-                           "can flag it as a port scan.",
+                           "can flag it as a port scan."),
                     TextWrapping = TextWrapping.Wrap
                 },
-                PrimaryButtonText = "Scan",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = Localizer.T("Scan"),
+                CloseButtonText = Localizer.T("Cancel"),
                 DefaultButton = ContentDialogButton.Close
             };
             return await ShowAsync(dialog, root) == ContentDialogResult.Primary;

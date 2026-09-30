@@ -62,6 +62,7 @@ Optional system-wide shortcuts (Settings, Desktop integration, Global shortcuts)
 - Adapts bitrate and resolution to packet loss and round-trip time, and reconnects after a dropped connection, a sleep or a Wi-Fi change. You choose how long it keeps trying.
 - Runs a single instance. Starting it again brings the running window forward.
 - Optional: start hidden in the tray at sign-in, desktop notifications, light or dark theme.
+- Speaks English, Spanish, German and French, following your Windows display language. The translations are unreviewed machine translations, so corrections are welcome. To try one, set `CASTMIRROR_LANG=de` before starting the app.
 
 ## Privacy
 

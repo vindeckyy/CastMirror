@@ -25,6 +25,7 @@ The Windows app is the primary product. Linux builds get fixes, not new features
 - **Dialogs** go through `Services/Dialogs.cs`, which applies the forced theme and prevents two dialogs at once.
 - **Buttons that change colour** need a template-safe style (override the `ButtonBackground*` resources) rather than a code-set `Background`, which hover and pressed states overwrite.
 - **User-facing text** is plain and specific. Say what happened and what to do. No filler, no "seamless", no exclamation marks. Read new strings aloud before you commit them.
+- **Translations.** English is the source text, in the XAML and in `Localizer.T(...)` calls. `app\winui\Strings\translations.tsv` holds one row per string (English, es, de, fr); edit it and run `scripts\build_translations.ps1` to regenerate the JSON files. A missing translation shows the English text. New UI text needs a row in every language, and `tests\winui` fails if a XAML string has none or a row matches nothing. To add a language, add a column and its code to the script. Check longer languages (German) for clipped text; let headings wrap.
 - **Accessibility.** Give controls an accessible name, mark status text that changes as a live region, and check the window with Tab only.
 
 Smoke-test the real app after UI changes. `scripts\smoke_winui.ps1` starts the exe, opens Settings, Logs and About through UI Automation, checks that a second launch wakes the first, and fails if the error log gets a new exception. It needs an interactive desktop, so it is a local check, not a CI job.

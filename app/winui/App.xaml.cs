@@ -10,6 +10,7 @@ namespace CastMirror
         public App()
         {
             this.InitializeComponent();
+            Services.Localizer.Initialize();
             Services.CrashHandler.Install();
             UnhandledException += OnUnhandledException;
             // Faults outside XAML (worker threads, un-awaited tasks) used to leave

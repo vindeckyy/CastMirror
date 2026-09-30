@@ -82,7 +82,7 @@ namespace CastMirror
             var dialog = new ContentDialog
             {
                 Title = $"CastMirror {version}",
-                SecondaryButtonText = "Check for updates",
+                SecondaryButtonText = Localizer.T("Check for updates"),
                 Content = new StackPanel
                 {
                     Spacing = 8,
@@ -90,20 +90,19 @@ namespace CastMirror
                     {
                         new TextBlock
                         {
-                            Text = "Sends your screen and system audio to a Chromecast or Google TV over your local network.",
+                            Text = Localizer.T("Sends your screen and system audio to a Chromecast or Google TV over your local network."),
                             TextWrapping = TextWrapping.Wrap
                         },
                         new TextBlock
                         {
-                            Text = "CastMirror sends nothing to any server and collects no telemetry. " +
-                                   $"Settings and logs are in {LogService.DirectoryPath}.",
+                            Text = Localizer.Format("CastMirror sends nothing to any server and collects no telemetry. Settings and logs are in {0}.", LogService.DirectoryPath),
                             TextWrapping = TextWrapping.Wrap,
                             Opacity = 0.8
                         }
                     }
                 },
-                PrimaryButtonText = "Open folder",
-                CloseButtonText = "Close",
+                PrimaryButtonText = Localizer.T("Open folder"),
+                CloseButtonText = Localizer.T("Close"),
                 DefaultButton = ContentDialogButton.Close
             };
             ContentDialogResult choice = await Dialogs.ShowAsync(dialog, Content.XamlRoot);
@@ -139,29 +138,29 @@ namespace CastMirror
                 UpdateInfo? update = await UpdateService.CheckAsync();
                 if (update == null)
                 {
-                    title = "You're up to date";
-                    body = $"CastMirror {UpdateService.Current.ToString(3)} is the latest release.";
+                    title = Localizer.T("You're up to date");
+                    body = Localizer.Format("CastMirror {0} is the latest release.", UpdateService.Current.ToString(3));
                 }
                 else
                 {
-                    title = $"CastMirror {update.Latest.ToString(3)} is available";
-                    body = "Open the release page to download it.";
+                    title = Localizer.Format("CastMirror {0} is available", update.Latest.ToString(3));
+                    body = Localizer.T("Open the release page to download it.");
                     pageUrl = update.PageUrl;
                 }
             }
             catch (Exception ex)
             {
                 MainViewModel.LogError(ex);
-                title = "Couldn't check for updates";
-                body = "GitHub didn't answer. Check your connection and try again.";
+                title = Localizer.T("Couldn't check for updates");
+                body = Localizer.T("GitHub didn't answer. Check your connection and try again.");
             }
 
             var result = new ContentDialog
             {
                 Title = title,
                 Content = new TextBlock { Text = body, TextWrapping = TextWrapping.Wrap },
-                PrimaryButtonText = pageUrl != null ? "Open release page" : string.Empty,
-                CloseButtonText = "Close",
+                PrimaryButtonText = pageUrl != null ? Localizer.T("Open release page") : string.Empty,
+                CloseButtonText = Localizer.T("Close"),
                 DefaultButton = pageUrl != null ? ContentDialogButton.Primary : ContentDialogButton.Close
             };
             if (await Dialogs.ShowAsync(result, Content.XamlRoot) == ContentDialogResult.Primary && pageUrl != null)
@@ -202,6 +201,7 @@ namespace CastMirror
         public MainWindow(bool startInBackground = false)
         {
             this.InitializeComponent();
+            UiTranslator.Apply(this);
             StartHidden = startInBackground && ViewModel.Settings.EnableTrayOnStartup;
             Title = "CastMirror";
             // 1100x720 is a logical (DIP) size. AppWindow.Resize takes physical
@@ -267,7 +267,7 @@ namespace CastMirror
             };
             var dialog = new ContentDialog
             {
-                Title = "Add a device by IP address",
+                Title = Localizer.T("Add a device by IP address"),
                 Content = new StackPanel
                 {
                     Spacing = 8,
@@ -275,14 +275,14 @@ namespace CastMirror
                     {
                         new TextBlock
                         {
-                            Text = "Type the IPv4 address of a TV or speaker that doesn't appear in the list. You can find it in the device's network settings or your router's client list.",
+                            Text = Localizer.T("Type the IPv4 address of a TV or speaker that doesn't appear in the list. You can find it in the device's network settings or your router's client list."),
                             TextWrapping = TextWrapping.Wrap
                         },
                         input
                     }
                 },
-                PrimaryButtonText = "Add",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = Localizer.T("Add"),
+                CloseButtonText = Localizer.T("Cancel"),
                 DefaultButton = ContentDialogButton.Primary
             };
 
@@ -292,7 +292,7 @@ namespace CastMirror
             string address = input.Text.Trim();
             if (address.Length == 0)
             {
-                ViewModel.ErrorMessage = "Type an IP address to add a device.";
+                ViewModel.ErrorMessage = Localizer.T("Type an IP address to add a device.");
                 return;
             }
             ViewModel.AddDeviceByIp(address);
@@ -431,7 +431,7 @@ namespace CastMirror
                     NotificationService.Notify(
                         ViewModel.Settings.NotifyOnEvents,
                         "CastMirror",
-                        "The tray icon could not be created. Start CastMirror again to bring the window back.",
+                        Localizer.T("The tray icon could not be created. Start CastMirror again to bring the window back."),
                         "tag=tray-unavailable");
                 });
             })
@@ -490,7 +490,7 @@ namespace CastMirror
         {
             if (_tray == null) return;
             _tray.SetTooltip(ViewModel.IsStreaming
-                ? $"CastMirror - casting to {ViewModel.SelectedDevice?.Name ?? "TV"}"
+                ? Localizer.Format("CastMirror - casting to {0}", ViewModel.SelectedDevice?.Name ?? Localizer.T("TV"))
                 : "CastMirror");
         }
 
@@ -557,10 +557,10 @@ namespace CastMirror
         {
             var dialog = new ContentDialog
             {
-                Title = "Stop casting and quit?",
-                Content = $"You're casting to {ViewModel.SelectedDevice?.Name ?? "a TV"}. Quitting ends the cast.",
-                PrimaryButtonText = "Quit",
-                CloseButtonText = "Keep casting",
+                Title = Localizer.T("Stop casting and quit?"),
+                Content = Localizer.Format("You're casting to {0}. Quitting ends the cast.", ViewModel.SelectedDevice?.Name ?? Localizer.T("a TV")),
+                PrimaryButtonText = Localizer.T("Quit"),
+                CloseButtonText = Localizer.T("Keep casting"),
                 DefaultButton = ContentDialogButton.Close
             };
 

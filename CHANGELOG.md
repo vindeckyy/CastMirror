@@ -50,6 +50,7 @@ Windows-focused release-readiness pass.
 - About dialog with an on-request update check.
 - The window shows the engine's advice ("Wi-Fi is dropping packets...") and reconnect progress. C API stats grew to ABI version 3.
 - Optional global shortcuts: Ctrl+Alt+C, Ctrl+Alt+F, Ctrl+Alt+M.
+- Spanish, German and French translations (unreviewed machine translations). The UI follows the Windows display language, and missing strings fall back to English.
 - Licence bundle with the GPL notice and source offer for the libx264 build.
 
 ### Removed
@@ -59,4 +60,4 @@ Windows-focused release-readiness pass.
 - The async Media Foundation path and the HDR path have unit or simulated coverage only. The Media Foundation path needs a run on NVIDIA, AMD and Intel hardware.
 - Rotated (portrait) monitors are captured without rotation correction.
 - Window capture still crops the monitor image, so windows in front of the shared window appear in it.
-- The app is English only.
+- Translations are machine-made and unreviewed by native speakers. Right-to-left languages are not handled.

@@ -1,0 +1,186 @@
+1 minute|1 minuto|1 Minute|1 minute
+10 minutes|10 minutos|10 Minuten|10 minutes
+128 kbps|128 kbps|128 kbit/s|128 kbit/s
+192 kbps|192 kbps|192 kbit/s|192 kbit/s
+2 minutes|2 minutos|2 Minuten|2 minutes
+24 fps|24 fps|24 fps|24 i/s
+25 fps|25 fps|25 fps|25 i/s
+256 kbps|256 kbps|256 kbit/s|256 kbit/s
+30 fps|30 fps|30 fps|30 i/s
+30 seconds|30 segundos|30 Sekunden|30 secondes
+5 minutes|5 minutos|5 Minuten|5 minutes
+50 fps|50 fps|50 fps|50 i/s
+60 fps|60 fps|60 fps|60 i/s
+64 kbps|64 kbps|64 kbit/s|64 kbit/s
+96 kbps|96 kbps|96 kbit/s|96 kbit/s
+About|Acerca de|Info|À propos
+Add by IP|Añadir por IP|Per IP hinzufügen|Ajouter par IP
+Appearance|Apariencia|Darstellung|Apparence
+Audio|Audio|Audio|Audio
+Audio quality|Calidad de audio|Audioqualität|Qualité audio
+Auto|Automático|Automatisch|Auto
+Auto follows your monitor's refresh rate, capped at what the TV can decode. Most Cast devices stop at 30 or 60 fps.|Automático sigue la frecuencia de actualización del monitor, limitada a lo que el televisor puede decodificar. La mayoría de los dispositivos Cast llegan a 30 o 60 fps.|Automatisch folgt der Bildwiederholrate des Monitors, begrenzt auf das, was der Fernseher decodieren kann. Die meisten Cast-Geräte schaffen 30 oder 60 fps.|Auto suit la fréquence de votre écran, plafonnée à ce que le téléviseur peut décoder. La plupart des appareils Cast s'arrêtent à 30 ou 60 i/s.
+Balanced|Equilibrado|Ausgewogen|Équilibré
+Bitrate|Tasa de bits|Bitrate|Débit
+Bitrate CastMirror holds while streaming. Drops only on network congestion and ramps back up quickly when the link recovers.|Tasa de bits que CastMirror mantiene durante la transmisión. Solo baja si la red se congestiona y vuelve a subir rápido cuando la conexión se recupera.|Bitrate, den CastMirror beim Streamen hält. Sinkt nur bei Netzwerküberlastung und steigt schnell wieder, sobald die Verbindung sich erholt.|Débit que CastMirror maintient pendant la diffusion. Il ne baisse qu'en cas de congestion du réseau et remonte vite quand la liaison se rétablit.
+Capture frame rate|Fotogramas por segundo de captura|Aufnahme-Bildrate|Fréquence d'images de capture
+Capture source|Origen de captura|Aufnahmequelle|Source de capture
+Capture Source|Origen de captura|Aufnahmequelle|Source de capture
+Cast devices|Dispositivos Cast|Cast-Geräte|Appareils Cast
+Cast display|Transmitir pantalla|Bildschirm übertragen|Diffuser l'écran
+Cast to TV|Al televisor|Auf Fernseher|Vers la TV
+CastMirror|CastMirror|CastMirror|CastMirror
+CastMirror Logs|Registros de CastMirror|CastMirror-Protokolle|Journaux CastMirror
+CastMirror looks for TVs and speakers on your Wi-Fi. Turn the TV on and put it on the same network as this PC. If nothing shows up, your router may be blocking discovery, and scanning the network will find devices directly.|CastMirror busca televisores y altavoces en tu Wi-Fi. Enciende el televisor y conéctalo a la misma red que este PC. Si no aparece nada, puede que tu router bloquee la detección; analizar la red encuentra los dispositivos directamente.|CastMirror sucht Fernseher und Lautsprecher in deinem WLAN. Schalte den Fernseher ein und verbinde ihn mit demselben Netzwerk wie diesen PC. Wenn nichts erscheint, blockiert dein Router womöglich die Erkennung; ein Netzwerkscan findet Geräte direkt.|CastMirror cherche les téléviseurs et enceintes sur votre Wi-Fi. Allumez le téléviseur et connectez-le au même réseau que ce PC. Si rien n'apparaît, votre routeur bloque peut-être la détection ; analyser le réseau trouve les appareils directement.
+CastMirror Settings|Ajustes de CastMirror|CastMirror-Einstellungen|Paramètres CastMirror
+Cinema|Cine|Kino|Cinéma
+Clear|Borrar|Leeren|Effacer
+Closing window hides to tray|Al cerrar la ventana se oculta en la bandeja|Fenster schließen blendet in den Infobereich aus|Fermer la fenêtre la masque dans la zone de notification
+Color scheme|Combinación de colores|Farbschema|Thème de couleurs
+Computer sound|Sonido del equipo|Computerton|Son de l'ordinateur
+Connects to port 8009 on every address in your local subnet. Use it when your router blocks mDNS and TVs don't show up.|Se conecta al puerto 8009 de cada dirección de tu subred local. Úsalo cuando tu router bloquee mDNS y los televisores no aparezcan.|Verbindet sich mit Port 8009 jeder Adresse in deinem lokalen Subnetz. Nutze das, wenn dein Router mDNS blockiert und Fernseher nicht erscheinen.|Se connecte au port 8009 de chaque adresse de votre sous-réseau local. À utiliser quand votre routeur bloque mDNS et que les téléviseurs n'apparaissent pas.
+Copies versions, settings and recent logs with network addresses masked|Copia versiones, ajustes y registros recientes con las direcciones de red ocultas|Kopiert Versionen, Einstellungen und aktuelle Protokolle mit maskierten Netzwerkadressen|Copie les versions, les paramètres et les journaux récents avec les adresses réseau masquées
+Copy|Copiar|Kopieren|Copier
+Copy for bug report|Copiar para informe de error|Für Fehlerbericht kopieren|Copier pour un rapport de bogue
+Copy the selected lines, or every visible line if none are selected|Copia las líneas seleccionadas, o todas las visibles si no hay ninguna seleccionada|Kopiert die markierten Zeilen oder alle sichtbaren, wenn keine markiert sind|Copie les lignes sélectionnées, ou toutes les lignes visibles si aucune n'est sélectionnée
+Dark|Oscuro|Dunkel|Sombre
+Debug|Depuración|Debug|Débogage
+Desktop integration|Integración con el escritorio|Desktop-Integration|Intégration au bureau
+Desktop notifications|Notificaciones de escritorio|Desktop-Benachrichtigungen|Notifications du bureau
+Device discovery|Detección de dispositivos|Geräteerkennung|Détection des appareils
+Diagnostic log|Registro de diagnóstico|Diagnoseprotokoll|Journal de diagnostic
+Diagnostics|Diagnóstico|Diagnose|Diagnostic
+Dismiss|Descartar|Schließen|Ignorer
+Draws frame rate, bitrate and round-trip time into the streamed picture.|Dibuja los fotogramas por segundo, la tasa de bits y el tiempo de ida y vuelta en la imagen transmitida.|Blendet Bildrate, Bitrate und Laufzeit ins übertragene Bild ein.|Affiche la fréquence d'images, le débit et le temps aller-retour dans l'image diffusée.
+Draws the pointer into the mirrored picture. Applies to the next cast.|Dibuja el puntero en la imagen duplicada. Se aplica en la próxima transmisión.|Zeichnet den Mauszeiger ins gespiegelte Bild. Gilt für die nächste Übertragung.|Dessine le pointeur dans l'image diffusée. S'applique à la prochaine diffusion.
+Encodes on the CPU instead of the GPU. Try it if the picture glitches or the GPU encoder fails. Applies to the next cast.|Codifica con la CPU en lugar de la GPU. Pruébalo si la imagen tiene fallos o el codificador de la GPU falla. Se aplica en la próxima transmisión.|Codiert auf der CPU statt auf der GPU. Probiere es, wenn das Bild Störungen zeigt oder der GPU-Encoder ausfällt. Gilt für die nächste Übertragung.|Encode sur le processeur au lieu du GPU. À essayer si l'image saute ou si l'encodeur GPU échoue. S'applique à la prochaine diffusion.
+Error|Error|Fehler|Erreur
+Fatal|Fatal|Schwerwiegend|Fatal
+Filter|Filtro|Filter|Filtre
+Filter logs|Filtrar registros|Protokolle filtern|Filtrer les journaux
+Force software encode|Forzar codificación por software|Software-Codierung erzwingen|Forcer l'encodage logiciel
+Freeze|Congelar|Einfrieren|Figer
+Game (low latency)|Juegos (baja latencia)|Spiele (niedrige Latenz)|Jeu (faible latence)
+Global shortcuts|Atajos globales|Globale Tastenkürzel|Raccourcis globaux
+High|Alta|Hoch|Élevée
+How long CastMirror keeps trying after the connection drops, for example when the PC wakes from sleep or Wi-Fi changes. After that the cast ends. Applies to the next cast.|Cuánto tiempo sigue intentándolo CastMirror tras perder la conexión, por ejemplo al reactivar el PC o al cambiar de Wi-Fi. Después la transmisión termina. Se aplica en la próxima transmisión.|Wie lange CastMirror es nach einem Verbindungsabbruch weiter versucht, zum Beispiel wenn der PC aus dem Standby aufwacht oder das WLAN wechselt. Danach endet die Übertragung. Gilt für die nächste Übertragung.|Durée pendant laquelle CastMirror réessaie après une coupure, par exemple quand le PC sort de veille ou que le Wi-Fi change. Ensuite la diffusion s'arrête. S'applique à la prochaine diffusion.
+How long the TV holds each frame before showing it. 200 ms keeps the pointer responsive. 400 ms rides out Wi-Fi retransmits. Game and Cinema presets set their own delay.|Cuánto retiene el televisor cada fotograma antes de mostrarlo. 200 ms mantiene el puntero ágil. 400 ms absorbe las retransmisiones del Wi-Fi. Los ajustes Juegos y Cine definen su propio retardo.|Wie lange der Fernseher jedes Bild zurückhält, bevor er es zeigt. 200 ms hält den Mauszeiger reaktionsschnell. 400 ms fängt WLAN-Wiederholungen ab. Die Voreinstellungen Spiele und Kino legen ihre eigene Verzögerung fest.|Durée pendant laquelle le téléviseur retient chaque image avant de l'afficher. 200 ms garde le pointeur réactif. 400 ms absorbe les retransmissions Wi-Fi. Les préréglages Jeu et Cinéma fixent leur propre délai.
+Info|Info|Info|Info
+Keep reconnecting for|Seguir reconectando durante|Erneut verbinden für|Réessayer pendant
+Keeps an icon in the notification area so you can reopen the window or stop a cast. Closing the window with the tray on hides it there.|Mantiene un icono en el área de notificaciones para reabrir la ventana o detener la transmisión. Si cierras la ventana con la bandeja activada, se oculta allí.|Behält ein Symbol im Infobereich, um das Fenster wieder zu öffnen oder eine Übertragung zu stoppen. Schließt du das Fenster bei aktivem Infobereich-Symbol, wird es dort ausgeblendet.|Garde une icône dans la zone de notification pour rouvrir la fenêtre ou arrêter une diffusion. Fermer la fenêtre avec cette icône active la masque à cet endroit.
+Keeps resolution and frame rate fixed. Turn it off and CastMirror lowers the resolution when Wi-Fi gets congested.|Mantiene fijas la resolución y los fotogramas por segundo. Si lo desactivas, CastMirror baja la resolución cuando el Wi-Fi se congestiona.|Hält Auflösung und Bildrate fest. Schaltest du es aus, senkt CastMirror die Auflösung, wenn das WLAN überlastet ist.|Garde la résolution et la fréquence d'images fixes. Désactivé, CastMirror baisse la résolution quand le Wi-Fi est congestionné.
+Latency & buffering|Latencia y búfer|Latenz und Puffer|Latence et mémoire tampon
+Latency HUD overlay|Superposición de latencia|Latenz-Einblendung|Incrustation de latence
+Level|Nivel|Stufe|Niveau
+Light|Claro|Hell|Clair
+LIVE|EN VIVO|LIVE|EN DIRECT
+Logs|Registros|Protokolle|Journaux
+Look for devices again (F5)|Buscar dispositivos de nuevo (F5)|Erneut nach Geräten suchen (F5)|Rechercher à nouveau les appareils (F5)
+Mute TV audio|Silenciar audio del televisor|TV-Ton stummschalten|Couper le son du téléviseur
+Not now|Ahora no|Jetzt nicht|Pas maintenant
+Off|No|Aus|Non
+On|Sí|Ein|Oui
+Open folder|Abrir carpeta|Ordner öffnen|Ouvrir le dossier
+Open logs folder|Abrir carpeta de registros|Protokollordner öffnen|Ouvrir le dossier des journaux
+Open settings (Ctrl+,)|Abrir ajustes (Ctrl+,)|Einstellungen öffnen (Strg+,)|Ouvrir les paramètres (Ctrl+,)
+Open the log viewer (Ctrl+L)|Abrir el visor de registros (Ctrl+L)|Protokollansicht öffnen (Strg+L)|Ouvrir l'afficheur de journaux (Ctrl+L)
+Opus bitrate. 192 kbps is recommended; 64 kbps is best for weak Wi-Fi.|Tasa de bits de Opus. Se recomiendan 192 kbps; 64 kbps es lo mejor con Wi-Fi débil.|Opus-Bitrate. 192 kbit/s werden empfohlen; 64 kbit/s ist bei schwachem WLAN am besten.|Débit Opus. 192 kbit/s est recommandé ; 64 kbit/s convient mieux à un Wi-Fi faible.
+Picture & encoding|Imagen y codificación|Bild und Codierung|Image et encodage
+Quality preset|Ajuste de calidad|Qualitätsvoreinstellung|Préréglage de qualité
+Quality Preset|Ajuste de calidad|Qualitätsvoreinstellung|Préréglage de qualité
+Refresh|Actualizar|Aktualisieren|Actualiser
+Remove this device|Quitar este dispositivo|Dieses Gerät entfernen|Supprimer cet appareil
+Rescan|Buscar de nuevo|Erneut suchen|Réanalyser
+Run self-test|Ejecutar autodiagnóstico|Selbsttest ausführen|Lancer l'autotest
+Scan my network for TVs|Analizar mi red en busca de televisores|Mein Netzwerk nach Fernsehern durchsuchen|Analyser mon réseau à la recherche de téléviseurs
+Scan the network for TVs|Analizar la red en busca de televisores|Netzwerk nach Fernsehern durchsuchen|Analyser le réseau à la recherche de téléviseurs
+Searching for Cast devices|Buscando dispositivos Cast|Suche nach Cast-Geräten|Recherche d'appareils Cast
+Sends whatever your PC is playing to the TV. It follows the default speakers, so switching to headphones moves the audio with you.|Envía al televisor lo que reproduce tu PC. Sigue los altavoces predeterminados, así que al cambiar a auriculares el audio te acompaña.|Sendet alles, was dein PC abspielt, an den Fernseher. Es folgt den Standardlautsprechern, beim Wechsel auf Kopfhörer wandert der Ton also mit.|Envoie au téléviseur tout ce que lit votre PC. Le son suit les haut-parleurs par défaut : si vous passez au casque, il vous suit.
+Settings|Ajustes|Einstellungen|Paramètres
+Show a system tray icon|Mostrar un icono en la bandeja del sistema|Symbol im Infobereich anzeigen|Afficher une icône dans la zone de notification
+Show the mouse pointer|Mostrar el puntero del ratón|Mauszeiger anzeigen|Afficher le pointeur de la souris
+Shows a notification when casting starts or stops, when the connection drops, and when a cast fails.|Muestra una notificación cuando la transmisión empieza o se detiene, cuando se pierde la conexión y cuando falla.|Zeigt eine Benachrichtigung, wenn eine Übertragung startet oder endet, die Verbindung abbricht oder eine Übertragung fehlschlägt.|Affiche une notification quand une diffusion démarre ou s'arrête, quand la connexion tombe et quand une diffusion échoue.
+Smooth|Fluido|Flüssig|Fluide
+Start casting (Ctrl+Enter)|Iniciar transmisión (Ctrl+Intro)|Übertragung starten (Strg+Eingabe)|Démarrer la diffusion (Ctrl+Entrée)
+Start when I sign in|Iniciar al iniciar sesión|Beim Anmelden starten|Démarrer à l'ouverture de session
+Starts CastMirror hidden in the tray, so your TV is ready to cast to. Needs the tray icon; without it the window opens.|Inicia CastMirror oculto en la bandeja, para que tu televisor esté listo. Necesita el icono de la bandeja; sin él se abre la ventana.|Startet CastMirror ausgeblendet im Infobereich, damit dein Fernseher bereit ist. Braucht das Infobereich-Symbol; ohne öffnet sich das Fenster.|Démarre CastMirror masqué dans la zone de notification, pour que votre téléviseur soit prêt. Nécessite l'icône ; sans elle, la fenêtre s'ouvre.
+Steady frame rate|Fotogramas constantes|Konstante Bildrate|Fréquence d'images constante
+Stop casting|Detener transmisión|Übertragung stoppen|Arrêter la diffusion
+Stop casting (Ctrl+Enter)|Detener transmisión (Ctrl+Intro)|Übertragung stoppen (Strg+Eingabe)|Arrêter la diffusion (Ctrl+Entrée)
+System audio|Audio del sistema|Systemaudio|Audio du système
+System default|Predeterminado del sistema|Systemstandard|Par défaut du système
+Target delay|Retardo objetivo|Zielverzögerung|Délai cible
+The close button hides the window instead of quitting, so a cast keeps running. Quit from the tray icon.|El botón de cerrar oculta la ventana en lugar de salir, así la transmisión sigue. Sal desde el icono de la bandeja.|Die Schaltfläche zum Schließen blendet das Fenster aus, statt zu beenden, damit eine Übertragung weiterläuft. Beenden über das Infobereich-Symbol.|Le bouton de fermeture masque la fenêtre au lieu de quitter, la diffusion continue donc. Quittez depuis l'icône de la zone de notification.
+Video bitrate cap|Límite de tasa de bits de vídeo|Bitrate-Obergrenze für Video|Plafond de débit vidéo
+Warning|Advertencia|Warnung|Avertissement
+Welcome to CastMirror|Te damos la bienvenida a CastMirror|Willkommen bei CastMirror|Bienvenue dans CastMirror
+Work from any app, even when the window is hidden. Ctrl+Alt+C starts or stops the cast, Ctrl+Alt+F freezes the picture, Ctrl+Alt+M mutes the TV.|Funcionan desde cualquier aplicación, incluso con la ventana oculta. Ctrl+Alt+C inicia o detiene la transmisión, Ctrl+Alt+F congela la imagen, Ctrl+Alt+M silencia el televisor.|Funktionieren in jeder App, auch bei ausgeblendetem Fenster. Strg+Alt+C startet oder stoppt die Übertragung, Strg+Alt+F friert das Bild ein, Strg+Alt+M schaltet den Fernseher stumm.|Fonctionnent depuis n'importe quelle application, même fenêtre masquée. Ctrl+Alt+C démarre ou arrête la diffusion, Ctrl+Alt+F fige l'image, Ctrl+Alt+M coupe le son du téléviseur.
+Working|Trabajando|Wird ausgeführt|En cours
+Select a Cast device first.|Selecciona primero un dispositivo Cast.|Wähle zuerst ein Cast-Gerät aus.|Sélectionnez d'abord un appareil Cast.
+Select a display or window to mirror.|Selecciona una pantalla o ventana para duplicar.|Wähle einen Bildschirm oder ein Fenster zum Spiegeln aus.|Sélectionnez un écran ou une fenêtre à diffuser.
+Connecting to {0}...|Conectando con {0}...|Verbinde mit {0}...|Connexion à {0}...
+Failed to start casting.|No se pudo iniciar la transmisión.|Die Übertragung konnte nicht gestartet werden.|Impossible de démarrer la diffusion.
+Could not start casting.|No se pudo iniciar la transmisión.|Übertragung konnte nicht gestartet werden.|Impossible de démarrer la diffusion.
+Stopping...|Deteniendo...|Wird gestoppt...|Arrêt en cours...
+Sources can't be refreshed while casting.|Las fuentes no se pueden actualizar durante la transmisión.|Quellen lassen sich während der Übertragung nicht aktualisieren.|Impossible d'actualiser les sources pendant la diffusion.
+The cast session failed.|La sesión de transmisión falló.|Die Übertragungssitzung ist fehlgeschlagen.|La session de diffusion a échoué.
+Connection failed. Check the TV and try again.|Falló la conexión. Revisa el televisor e inténtalo de nuevo.|Verbindung fehlgeschlagen. Prüfe den Fernseher und versuche es erneut.|Échec de la connexion. Vérifiez le téléviseur et réessayez.
+Casting failed|Falló la transmisión|Übertragung fehlgeschlagen|Échec de la diffusion
+Streaming to {0}.|Transmitiendo a {0}.|Übertragung auf {0}.|Diffusion vers {0}.
+the TV|el televisor|den Fernseher|le téléviseur
+a TV|un televisor|einen Fernseher|un téléviseur
+TV|televisor|Fernseher|téléviseur
+Casting started|Transmisión iniciada|Übertragung gestartet|Diffusion démarrée
+Ready when you are.|Listo cuando quieras.|Bereit, wenn du es bist.|Prêt quand vous l'êtes.
+Casting stopped|Transmisión detenida|Übertragung gestoppt|Diffusion arrêtée
+The Cast session has ended.|La sesión de Cast ha terminado.|Die Cast-Sitzung ist beendet.|La session Cast est terminée.
+Connection lost|Conexión perdida|Verbindung verloren|Connexion perdue
+Reconnecting to {0}.|Reconectando con {0}.|Verbinde erneut mit {0}.|Reconnexion à {0}.
+Make sure your TV or speaker is powered on and on the same Wi-Fi network.|Comprueba que tu televisor o altavoz esté encendido y en la misma red Wi-Fi.|Stelle sicher, dass dein Fernseher oder Lautsprecher eingeschaltet und im selben WLAN ist.|Vérifiez que votre téléviseur ou enceinte est allumé et sur le même réseau Wi-Fi.
+Scanning your Wi-Fi network for Cast devices.|Buscando dispositivos Cast en tu red Wi-Fi.|Dein WLAN wird nach Cast-Geräten durchsucht.|Recherche d'appareils Cast sur votre réseau Wi-Fi.
+Choose a TV, then press Cast display.|Elige un televisor y pulsa Transmitir pantalla.|Wähle einen Fernseher und drücke dann Bildschirm übertragen.|Choisissez un téléviseur, puis appuyez sur Diffuser l'écran.
+Casting|Transmitiendo|Übertragung läuft|Diffusion en cours
+Connecting...|Conectando...|Verbinde...|Connexion...
+No Cast devices found|No se encontraron dispositivos Cast|Keine Cast-Geräte gefunden|Aucun appareil Cast trouvé
+Looking for Cast devices...|Buscando dispositivos Cast...|Suche nach Cast-Geräten...|Recherche d'appareils Cast...
+Ready to cast|Listo para transmitir|Bereit zur Übertragung|Prêt à diffuser
+"{0}" is not a valid IPv4 address (e.g. 192.168.1.50).|«{0}» no es una dirección IPv4 válida (por ejemplo, 192.168.1.50).|„{0}“ ist keine gültige IPv4-Adresse (z. B. 192.168.1.50).|« {0} » n'est pas une adresse IPv4 valide (par exemple 192.168.1.50).
+Added {0}.|Se añadió {0}.|{0} hinzugefügt.|{0} ajouté.
+Something went wrong inside CastMirror. Your cast keeps running. If it happens again, open Logs and copy the log into a bug report.|Algo falló dentro de CastMirror. Tu transmisión sigue en marcha. Si vuelve a ocurrir, abre Registros y copia el registro en un informe de error.|In CastMirror ist etwas schiefgelaufen. Deine Übertragung läuft weiter. Falls es erneut passiert, öffne Protokolle und kopiere das Protokoll in einen Fehlerbericht.|Un problème est survenu dans CastMirror. Votre diffusion continue. Si cela se reproduit, ouvrez Journaux et copiez le journal dans un rapport de bogue.
+CastMirror closed unexpectedly last time. A crash file was saved in {0}. It contains a copy of the program's memory, so attach it to a bug report only if you're comfortable sharing that.|CastMirror se cerró inesperadamente la última vez. Se guardó un archivo de fallo en {0}. Contiene una copia de la memoria del programa, así que adjúntalo a un informe de error solo si te sientes cómodo compartiéndolo.|CastMirror wurde beim letzten Mal unerwartet beendet. Eine Absturzdatei wurde in {0} gespeichert. Sie enthält eine Kopie des Programmspeichers; hänge sie nur an einen Fehlerbericht an, wenn du das teilen möchtest.|CastMirror s'est fermé de façon inattendue la dernière fois. Un fichier de plantage a été enregistré dans {0}. Il contient une copie de la mémoire du programme ; ne le joignez à un rapport de bogue que si vous acceptez de le partager.
+Connection lost. Retrying for {0} s.|Conexión perdida. Reintentando durante {0} s.|Verbindung verloren. Neuer Versuch seit {0} s.|Connexion perdue. Nouvelle tentative depuis {0} s.
+Wi-Fi is dropping packets. Adaptive is lowering quality so the picture stays smooth.|El Wi-Fi está perdiendo paquetes. El modo adaptativo baja la calidad para que la imagen siga fluida.|Das WLAN verliert Pakete. Die Automatik senkt die Qualität, damit das Bild flüssig bleibt.|Le Wi-Fi perd des paquets. Le mode adaptatif baisse la qualité pour garder une image fluide.
+The TV is answering slowly. Try 5 GHz Wi-Fi or move closer to the router.|El televisor responde despacio. Prueba con Wi-Fi de 5 GHz o acércate al router.|Der Fernseher antwortet langsam. Versuche es mit 5-GHz-WLAN oder gehe näher an den Router.|Le téléviseur répond lentement. Essayez le Wi-Fi 5 GHz ou rapprochez-vous du routeur.
+Using software encode (libx264). The PC CPU is doing the work.|Usando codificación por software (libx264). Trabaja la CPU del PC.|Software-Codierung (libx264) aktiv. Die CPU des PCs übernimmt die Arbeit.|Encodage logiciel (libx264) en cours. Le processeur du PC fait le travail.
+Scan your network for TVs?|¿Analizar tu red en busca de televisores?|Netzwerk nach Fernsehern durchsuchen?|Analyser votre réseau à la recherche de téléviseurs ?
+CastMirror will open a short connection to every address on your local subnet, on port 8009, to find TVs that don't announce themselves.\n\nLeave this off at work, at school and on guest Wi-Fi. Network monitors can flag it as a port scan.|CastMirror abrirá una conexión breve con cada dirección de tu subred local, en el puerto 8009, para encontrar televisores que no se anuncian.\n\nDéjalo desactivado en el trabajo, en el colegio y en redes Wi-Fi de invitados. Los monitores de red pueden marcarlo como un análisis de puertos.|CastMirror öffnet kurz eine Verbindung zu jeder Adresse in deinem lokalen Subnetz auf Port 8009, um Fernseher zu finden, die sich nicht melden.\n\nLass das bei der Arbeit, in der Schule und in Gast-WLANs ausgeschaltet. Netzwerkwächter können es als Portscan melden.|CastMirror ouvrira une brève connexion vers chaque adresse de votre sous-réseau local, sur le port 8009, pour trouver les téléviseurs qui ne se signalent pas.\n\nLaissez cette option désactivée au travail, à l'école et sur les Wi-Fi invités. Les outils de surveillance réseau peuvent la signaler comme un balayage de ports.
+Scan|Analizar|Durchsuchen|Analyser
+Cancel|Cancelar|Abbrechen|Annuler
+Add a device by IP address|Añadir un dispositivo por dirección IP|Gerät per IP-Adresse hinzufügen|Ajouter un appareil par adresse IP
+Type the IPv4 address of a TV or speaker that doesn't appear in the list. You can find it in the device's network settings or your router's client list.|Escribe la dirección IPv4 de un televisor o altavoz que no aparece en la lista. La encontrarás en los ajustes de red del dispositivo o en la lista de clientes de tu router.|Gib die IPv4-Adresse eines Fernsehers oder Lautsprechers ein, der nicht in der Liste erscheint. Du findest sie in den Netzwerkeinstellungen des Geräts oder in der Clientliste deines Routers.|Saisissez l'adresse IPv4 d'un téléviseur ou d'une enceinte absent de la liste. Vous la trouverez dans les paramètres réseau de l'appareil ou dans la liste des clients de votre routeur.
+Add|Añadir|Hinzufügen|Ajouter
+Type an IP address to add a device.|Escribe una dirección IP para añadir un dispositivo.|Gib eine IP-Adresse ein, um ein Gerät hinzuzufügen.|Saisissez une adresse IP pour ajouter un appareil.
+The tray icon could not be created. Start CastMirror again to bring the window back.|No se pudo crear el icono de la bandeja. Inicia CastMirror de nuevo para recuperar la ventana.|Das Infobereich-Symbol konnte nicht erstellt werden. Starte CastMirror erneut, um das Fenster zurückzuholen.|L'icône de la zone de notification n'a pas pu être créée. Relancez CastMirror pour retrouver la fenêtre.
+CastMirror - casting to {0}|CastMirror - transmitiendo a {0}|CastMirror - Übertragung auf {0}|CastMirror - diffusion vers {0}
+Stop casting and quit?|¿Detener la transmisión y salir?|Übertragung stoppen und beenden?|Arrêter la diffusion et quitter ?
+You're casting to {0}. Quitting ends the cast.|Estás transmitiendo a {0}. Al salir termina la transmisión.|Du überträgst auf {0}. Beim Beenden endet die Übertragung.|Vous diffusez vers {0}. Quitter met fin à la diffusion.
+Quit|Salir|Beenden|Quitter
+Keep casting|Seguir transmitiendo|Weiter übertragen|Continuer la diffusion
+Sends your screen and system audio to a Chromecast or Google TV over your local network.|Envía tu pantalla y el audio del sistema a un Chromecast o Google TV por tu red local.|Sendet deinen Bildschirm und das Systemaudio über dein lokales Netzwerk an einen Chromecast oder Google TV.|Envoie votre écran et l'audio du système à un Chromecast ou Google TV via votre réseau local.
+CastMirror sends nothing to any server and collects no telemetry. Settings and logs are in {0}.|CastMirror no envía nada a ningún servidor ni recopila telemetría. Los ajustes y registros están en {0}.|CastMirror sendet nichts an Server und sammelt keine Telemetrie. Einstellungen und Protokolle liegen in {0}.|CastMirror n'envoie rien à un serveur et ne collecte aucune télémétrie. Les paramètres et journaux se trouvent dans {0}.
+Check for updates|Buscar actualizaciones|Nach Updates suchen|Rechercher des mises à jour
+Close|Cerrar|Schließen|Fermer
+You're up to date|Estás al día|Du bist auf dem neuesten Stand|Vous êtes à jour
+CastMirror {0} is the latest release.|CastMirror {0} es la última versión.|CastMirror {0} ist die neueste Version.|CastMirror {0} est la dernière version.
+CastMirror {0} is available|CastMirror {0} está disponible|CastMirror {0} ist verfügbar|CastMirror {0} est disponible
+Open the release page to download it.|Abre la página de la versión para descargarla.|Öffne die Release-Seite, um sie herunterzuladen.|Ouvrez la page de la version pour la télécharger.
+Couldn't check for updates|No se pudo buscar actualizaciones|Updates konnten nicht geprüft werden|Impossible de rechercher les mises à jour
+GitHub didn't answer. Check your connection and try again.|GitHub no respondió. Revisa tu conexión e inténtalo de nuevo.|GitHub hat nicht geantwortet. Prüfe deine Verbindung und versuche es erneut.|GitHub n'a pas répondu. Vérifiez votre connexion et réessayez.
+Open release page|Abrir la página de la versión|Release-Seite öffnen|Ouvrir la page de la version
+Windows would not register CastMirror for notifications, so this is unavailable.|Windows no registró CastMirror para notificaciones, así que no está disponible.|Windows hat CastMirror nicht für Benachrichtigungen registriert, daher ist das nicht verfügbar.|Windows n'a pas enregistré CastMirror pour les notifications ; cette option est donc indisponible.
+Ready|Listo|Bereit|Prêt
+Manual|Manual|Manuell|Manuel
+(Primary)|(principal)|(primär)|(principal)
+Display {0}|Pantalla {0}|Bildschirm {0}|Écran {0}
+Window {0}|Ventana {0}|Fenster {0}|Fenêtre {0}
+Window|Ventana|Fenster|Fenêtre

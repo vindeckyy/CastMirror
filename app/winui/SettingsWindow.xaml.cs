@@ -40,6 +40,7 @@ namespace CastMirror
             _desktopIntegrationChanged = desktopIntegrationChanged;
             _applyHotkeys = applyHotkeys;
             InitializeComponent();
+            UiTranslator.Apply(this);
 
             // Logical (DIP) size, converted for the monitor this window opens
             // on. This window is tall, so the work-area clamp is what keeps it
@@ -133,8 +134,8 @@ namespace CastMirror
                 NotifySwitch.IsOn = settings.NotifyOnEvents && NotificationService.IsSupported;
                 NotifySwitch.IsEnabled = NotificationService.IsSupported;
                 NotifyHelpText.Text = NotificationService.IsSupported
-                    ? "Shows a notification when casting starts or stops, when the connection drops, and when a cast fails."
-                    : "Windows would not register CastMirror for notifications, so this is unavailable.";
+                    ? Localizer.T("Shows a notification when casting starts or stops, when the connection drops, and when a cast fails.")
+                    : Localizer.T("Windows would not register CastMirror for notifications, so this is unavailable.");
 
                 string uiTheme = (settings.UiTheme ?? string.Empty).Trim();
                 int themeIndex = uiTheme switch

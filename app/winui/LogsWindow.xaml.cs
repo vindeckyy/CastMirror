@@ -21,6 +21,7 @@ namespace CastMirror
         public LogsWindow()
         {
             InitializeComponent();
+            UiTranslator.Apply(this);
             // Logical (DIP) size, converted for the monitor this window opens on.
             WindowScaler.ResizeToDips(AppWindow, 900, 600);
 

@@ -45,6 +45,11 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.756" />
   </ItemGroup>
 
+  <!-- Translation tables: JSON objects mapping English UI text to a language. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Strings\*.json" LogicalName="Strings.%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="..\..\build\core\castcore.dll" Condition="Exists('..\..\build\core\castcore.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

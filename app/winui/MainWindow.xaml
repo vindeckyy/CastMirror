@@ -78,7 +78,9 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <!-- Wraps instead of being cut off: translations are often longer than the English. -->
+                        <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   TextWrapping="Wrap" Margin="0,0,8,0"/>
                         <Button Grid.Column="1" Content="Rescan" Click="OnRescanClicked" Padding="10,4" FontSize="12" Margin="0,0,8,0"
                                 ToolTipService.ToolTip="Look for devices again (F5)"/>
                         <Button Grid.Column="2" Content="Add by IP" Click="OnAddByIpClicked" Padding="10,4" FontSize="12"/>

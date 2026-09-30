@@ -225,10 +225,10 @@ namespace CastMirror.ViewModels
         {
             get
             {
-                if (IsSessionActive) return IsStreaming ? "Casting" : "Connecting...";
-                if (NoDevicesFound) return "No Cast devices found";
-                if (Devices.Count == 0) return "Looking for Cast devices...";
-                return "Ready to cast";
+                if (IsSessionActive) return Localizer.T(IsStreaming ? "Casting" : "Connecting...");
+                if (NoDevicesFound) return Localizer.T("No Cast devices found");
+                if (Devices.Count == 0) return Localizer.T("Looking for Cast devices...");
+                return Localizer.T("Ready to cast");
             }
         }
 
@@ -278,7 +278,7 @@ namespace CastMirror.ViewModels
         }
 
         private const string ScanningMessage = "Scanning your Wi-Fi network for Cast devices.";
-        private string _statusMessage = ScanningMessage;
+        private string _statusMessage = Localizer.T(ScanningMessage);
         public string StatusMessage
         {
             get => _statusMessage;
@@ -526,18 +526,18 @@ namespace CastMirror.ViewModels
             SourceItem? source = SelectedSource;
             if (device == null)
             {
-                ErrorMessage = "Select a Cast device first.";
+                ErrorMessage = Localizer.T("Select a Cast device first.");
                 return;
             }
             if (source == null)
             {
-                ErrorMessage = "Select a display or window to mirror.";
+                ErrorMessage = Localizer.T("Select a display or window to mirror.");
                 return;
             }
 
             CastPending = true;
             ErrorMessage = string.Empty;
-            StatusMessage = $"Connecting to {device.Name}...";
+            StatusMessage = Localizer.Format("Connecting to {0}...", device.Name);
 
             bool ok = false;
             string error = string.Empty;
@@ -551,7 +551,7 @@ namespace CastMirror.ViewModels
                     // selected preset's bitrate from the saved configuration.
                     bool started = CastCoreBridge.castmirror_start_cast_ex(
                         NativeText.EncodeZ(device.Id), source.Kind, source.Id, 0, 0, preset, audio);
-                    string message = started ? string.Empty : (ReadLastError() ?? "Failed to start casting.");
+                    string message = started ? string.Empty : (ReadLastError() ?? Localizer.T("Failed to start casting."));
                     return (started, message);
                 });
                 ok = result.started;
@@ -570,14 +570,14 @@ namespace CastMirror.ViewModels
             if (!ok)
             {
                 ErrorMessage = error;
-                StatusMessage = "Could not start casting.";
+                StatusMessage = Localizer.T("Could not start casting.");
             }
         }
 
         private async Task StopCastAsync()
         {
             CastPending = true;
-            StatusMessage = "Stopping...";
+            StatusMessage = Localizer.T("Stopping...");
             try
             {
                 await Task.Run(() => CastCoreBridge.castmirror_stop_cast());
@@ -599,7 +599,7 @@ namespace CastMirror.ViewModels
 
             if (IsSessionActive)
             {
-                StatusMessage = "Sources can't be refreshed while casting.";
+                StatusMessage = Localizer.T("Sources can't be refreshed while casting.");
                 return;
             }
 
@@ -611,8 +611,8 @@ namespace CastMirror.ViewModels
                 for (int i = 0; i < displayCount; ++i)
                 {
                     if (!CastCoreBridge.castmirror_get_display_info(i, out var display)) continue;
-                    string name = string.IsNullOrWhiteSpace(display.Name) ? $"Display {display.Id}" : display.Name;
-                    if (display.IsPrimary) name += " (Primary)";
+                    string name = string.IsNullOrWhiteSpace(display.Name) ? Localizer.Format("Display {0}", display.Id) : display.Name;
+                    if (display.IsPrimary) name += " " + Localizer.T("(Primary)");
                     sources.Add(new SourceItem
                     {
                         Kind = (int)CastMirrorSourceKind.Monitor,
@@ -632,8 +632,8 @@ namespace CastMirror.ViewModels
                         {
                             Kind = (int)CastMirrorSourceKind.Window,
                             Id = window.Id,
-                            Name = string.IsNullOrWhiteSpace(window.Title) ? $"Window {window.Id}" : window.Title,
-                            Detail = string.IsNullOrWhiteSpace(window.AppClass) ? "Window" : window.AppClass
+                            Name = string.IsNullOrWhiteSpace(window.Title) ? Localizer.Format("Window {0}", window.Id) : window.Title,
+                            Detail = string.IsNullOrWhiteSpace(window.AppClass) ? Localizer.T("Window") : window.AppClass
                         });
                     }
                 }
@@ -740,33 +740,33 @@ namespace CastMirror.ViewModels
 
             if (state == CastMirrorState.Reconnecting && previous != CastMirrorState.Reconnecting)
             {
-                NotificationService.Notify(Settings.NotifyOnEvents, "Connection lost",
-                    $"Reconnecting to {SelectedDevice?.Name ?? "the TV"}.");
+                NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Connection lost"),
+                    Localizer.Format("Reconnecting to {0}.", SelectedDevice?.Name ?? Localizer.T("the TV")));
             }
 
             if (state == CastMirrorState.Failed)
             {
-                ErrorMessage = ReadLastError() ?? "The cast session failed.";
-                StatusMessage = "Connection failed. Check the TV and try again.";
-                NotificationService.Notify(Settings.NotifyOnEvents, "Casting failed", ErrorMessage, "cast-failed");
+                ErrorMessage = ReadLastError() ?? Localizer.T("The cast session failed.");
+                StatusMessage = Localizer.T("Connection failed. Check the TV and try again.");
+                NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Casting failed"), ErrorMessage, "cast-failed");
             }
             else if (state == CastMirrorState.Streaming)
             {
                 if (!string.IsNullOrEmpty(message)) StatusMessage = message;
-                else StatusMessage = $"Streaming to {SelectedDevice?.Name ?? "the TV"}.";
+                else StatusMessage = Localizer.Format("Streaming to {0}.", SelectedDevice?.Name ?? Localizer.T("the TV"));
                 if (!wasStreaming)
                 {
-                    NotificationService.Notify(Settings.NotifyOnEvents, "Casting started", StatusMessage);
+                    NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Casting started"), StatusMessage);
                 }
             }
             else if (state == CastMirrorState.Idle)
             {
                 ResetStats();
-                if (!HasError) StatusMessage = "Ready when you are.";
+                if (!HasError) StatusMessage = Localizer.T("Ready when you are.");
                 if (wasActive)
                 {
-                    NotificationService.Notify(Settings.NotifyOnEvents, "Casting stopped",
-                        "The Cast session has ended.");
+                    NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Casting stopped"),
+                        Localizer.T("The Cast session has ended."));
                 }
             }
             else if (!string.IsNullOrEmpty(message))
@@ -808,7 +808,7 @@ namespace CastMirror.ViewModels
                         ModelName = device.ModelName,
                         IpAddress = device.IpAddress,
                         Port = device.Port,
-                        StatusText = "Ready"
+                        StatusText = Localizer.T("Ready")
                     });
                 }
             }
@@ -876,9 +876,9 @@ namespace CastMirror.ViewModels
             }
 
             // The "scanning" line is stale once a TV has turned up.
-            if (Devices.Count > 0 && !IsSessionActive && StatusMessage == ScanningMessage)
+            if (Devices.Count > 0 && !IsSessionActive && StatusMessage == Localizer.T(ScanningMessage))
             {
-                StatusMessage = "Choose a TV, then press Cast display.";
+                StatusMessage = Localizer.T("Choose a TV, then press Cast display.");
             }
 
             if (changed)
@@ -895,7 +895,7 @@ namespace CastMirror.ViewModels
             if (Devices.Count == 0 && !IsSessionActive)
             {
                 NoDevicesFound = true;
-                StatusMessage = "Make sure your TV or speaker is powered on and on the same Wi-Fi network.";
+                StatusMessage = Localizer.T("Make sure your TV or speaker is powered on and on the same Wi-Fi network.");
             }
         }
 
@@ -929,8 +929,8 @@ namespace CastMirror.ViewModels
                 : encoder;
 
             HealthHint = stats.RecoveryAttempt > 0
-                ? $"Connection lost. Retrying for {stats.RecoveryElapsedSeconds} s."
-                : stats.HealthHint;
+                ? Localizer.Format("Connection lost. Retrying for {0} s.", stats.RecoveryElapsedSeconds)
+                : Localizer.T(stats.HealthHint);
 
             PushHistory(_fpsHistory, stats.CurrentFps);
             PushHistory(_bitrateHistory, stats.BitrateKbps / 1000.0);
@@ -1147,16 +1147,16 @@ namespace CastMirror.ViewModels
         /// <summary>Shown when an unhandled fault was swallowed to keep the session alive.</summary>
         public void ReportUnexpectedError()
         {
-            ErrorMessage = "Something went wrong inside CastMirror. Your cast keeps running. " +
-                           "If it happens again, open Logs and copy the log into a bug report.";
+            ErrorMessage = Localizer.T("Something went wrong inside CastMirror. Your cast keeps running. " +
+                           "If it happens again, open Logs and copy the log into a bug report.");
         }
 
         /// <summary>Tells the user the last run ended in a crash and where the crash file is.</summary>
         public void ReportPreviousCrash(string dumpPath)
         {
-            ErrorMessage = "CastMirror closed unexpectedly last time. A crash file was saved in " +
-                           $"{System.IO.Path.GetDirectoryName(dumpPath)}. It contains a copy of the program's " +
-                           "memory, so attach it to a bug report only if you're comfortable sharing that.";
+            ErrorMessage = Localizer.Format("CastMirror closed unexpectedly last time. A crash file was saved in {0}. " +
+                           "It contains a copy of the program's memory, so attach it to a bug report only if you're comfortable sharing that.",
+                           System.IO.Path.GetDirectoryName(dumpPath));
         }
 
         /// <summary>Removes a device the user added by address.</summary>
@@ -1249,7 +1249,7 @@ namespace CastMirror.ViewModels
             {
                 NoDevicesFound = false;
                 CastCoreBridge.castmirror_rescan();
-                StatusMessage = ScanningMessage;
+                StatusMessage = Localizer.T(ScanningMessage);
                 _discoveryTimer?.Stop();
                 _discoveryTimer?.Start();
             }
@@ -1270,7 +1270,7 @@ namespace CastMirror.ViewModels
             if (!System.Net.IPAddress.TryParse(address, out var parsed) ||
                 parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             {
-                ErrorMessage = $"\"{address}\" is not a valid IPv4 address (e.g. 192.168.1.50).";
+                ErrorMessage = Localizer.Format("\"{0}\" is not a valid IPv4 address (e.g. 192.168.1.50).", address);
                 return false;
             }
             address = parsed.ToString();
@@ -1284,7 +1284,7 @@ namespace CastMirror.ViewModels
                     Name = $"Cast Device ({address})",
                     ModelName = "Chromecast",
                     IpAddress = address,
-                    StatusText = "Manual"
+                    StatusText = Localizer.T("Manual")
                 };
                 Devices.Add(existing);
                 _manualDevices.Add(existing);
@@ -1295,7 +1295,7 @@ namespace CastMirror.ViewModels
             }
 
             SelectedDevice = existing;
-            StatusMessage = $"Added {address}.";
+            StatusMessage = Localizer.Format("Added {0}.", address);
             return true;
         }
 
