@@ -18,6 +18,14 @@ namespace CastMirror.Services
 
         public static string Current => _theme;
 
+        /// <summary>The theme as an element value, for content that lives outside a registered root (dialogs).</summary>
+        public static ElementTheme RequestedTheme => _theme switch
+        {
+            "light" => ElementTheme.Light,
+            "dark" => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+
         /// <summary>Registers a window root so it tracks later theme changes.</summary>
         public static void Register(FrameworkElement? root)
         {

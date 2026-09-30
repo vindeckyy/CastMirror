@@ -18,8 +18,10 @@ namespace CastMirror.Services
     public static class SingleInstance
     {
         private const string MutexName = @"Local\CastMirror.SingleInstance";
+        private const string ActivateEventName = @"Local\CastMirror.Activate";
 
         private static Mutex? _mutex;
+        private static EventWaitHandle? _activateEvent;
         private static bool _isPrimary;
 
         /// <summary>
@@ -39,6 +41,9 @@ namespace CastMirror.Services
                 if (createdNew)
                 {
                     _isPrimary = true;
+                    // Created here, before any window exists, so a second launch
+                    // that races startup still has something to signal.
+                    _activateEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName);
                     return true;
                 }
                 _mutex.Dispose();
@@ -53,6 +58,54 @@ namespace CastMirror.Services
                 _isPrimary = true;
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Asks the running instance to bring its window forward. A second launch
+        /// calls this and exits, so double-clicking the shortcut while CastMirror
+        /// sits in the tray opens the window instead of doing nothing.
+        /// </summary>
+        public static void SignalRunningInstance()
+        {
+            try
+            {
+                using EventWaitHandle running = EventWaitHandle.OpenExisting(ActivateEventName);
+                running.Set();
+            }
+            catch (Exception ex)
+            {
+                LogService.Log($"[single-instance] could not wake the running instance: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Calls <paramref name="onActivate"/> (on a worker thread) each time a
+        /// second launch asks this instance to show itself.
+        /// </summary>
+        public static void ListenForActivation(Action onActivate)
+        {
+            EventWaitHandle? signal = _activateEvent;
+            if (signal == null) return;
+            var listener = new Thread(() =>
+            {
+                while (true)
+                {
+                    try
+                    {
+                        signal.WaitOne();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return;
+                    }
+                    onActivate();
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "CastMirrorActivation"
+            };
+            listener.Start();
         }
 
         /// <summary>True when this process owns the single-instance slot.</summary>
@@ -77,6 +130,8 @@ namespace CastMirror.Services
             {
                 _mutex?.Dispose();
                 _mutex = null;
+                _activateEvent?.Dispose();
+                _activateEvent = null;
             }
         }
     }

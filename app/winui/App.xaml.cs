@@ -11,6 +11,15 @@ namespace CastMirror
         {
             this.InitializeComponent();
             UnhandledException += OnUnhandledException;
+            // Faults outside XAML (worker threads, un-awaited tasks) used to leave
+            // no trace at all.
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+                Services.LogService.Log($"[fatal] {e.ExceptionObject}");
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                Services.LogService.Log($"[unobserved task] {e.Exception}");
+                e.SetObserved();
+            };
             // A close-to-tray window keeps the process alive, so the OS will not
             // always run ProcessExit. The mutex is a named kernel object and is
             // released by the kernel when the process dies regardless, but
@@ -21,20 +30,25 @@ namespace CastMirror
 
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
-            // Register before any window exists: unpackaged apps need this to
-            // deliver toasts, and the settings window asks IsSupported.
-            Services.NotificationService.Initialize();
-
             // One instance per session. The native engine holds its config,
             // discovery listeners, and cast session in process-wide state, so a
-            // second copy would compete for the same LAN. The already-running
-            // window is reachable from its tray icon, so this launch just ends.
+            // second copy would compete for the same LAN. This launch asks the
+            // running instance to show its window and ends.
+            //
+            // This check comes first: the notification platform below registers
+            // a process-wide COM activator, which a launch that is about to exit
+            // must not take from the running instance.
             if (!Services.SingleInstance.TryAcquire())
             {
-                Services.LogService.Log("[single-instance] another instance is already running; exiting");
+                Services.LogService.Log("[single-instance] another instance is already running; waking it");
+                Services.SingleInstance.SignalRunningInstance();
                 Exit();
                 return;
             }
+
+            // Register before any window exists: unpackaged apps need this to
+            // deliver toasts, and the settings window asks IsSupported.
+            Services.NotificationService.Initialize();
 
             _window = new MainWindow();
             _window.Activate();
@@ -47,8 +61,13 @@ namespace CastMirror
             // file without bound inside an exception loop.
             Services.LogService.Log($"[unhandled] {e.Message}{Environment.NewLine}{e.Exception}");
             // Keep the app alive; most XAML binding/layout faults are
-            // recoverable and a hard crash loses the user's session.
+            // recoverable and a hard crash loses the user's session. The user
+            // is told something went wrong, so a swallowed fault is never silent.
             e.Handled = true;
+            if ((Current as App)?._window is MainWindow main)
+            {
+                main.DispatcherQueue.TryEnqueue(main.ViewModel.ReportUnexpectedError);
+            }
         }
     }
 }

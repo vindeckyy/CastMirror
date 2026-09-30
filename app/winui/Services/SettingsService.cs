@@ -81,6 +81,18 @@ namespace CastMirror.Services
         [JsonPropertyName("verify_device_cert")] public bool VerifyDeviceCert { get; set; } = true;
         [JsonPropertyName("first_run_complete")] public bool FirstRunComplete { get; set; }
         [JsonPropertyName("ui_theme")] public string UiTheme { get; set; } = string.Empty;
+        [JsonPropertyName("show_cursor")] public bool ShowCursor { get; set; } = true;
+
+        // Window size in DIPs. The engine's own default (920x700) doubles as
+        // "never saved", so the client falls back to its 1100x720 layout then.
+        [JsonPropertyName("window_width")] public int WindowWidth { get; set; } = 920;
+        [JsonPropertyName("window_height")] public int WindowHeight { get; set; } = 700;
+
+        // Recorded by the engine when a cast starts; the client only reads them,
+        // to preselect the same TV and source on the next launch.
+        [JsonPropertyName("last_device_id")] public string LastDeviceId { get; set; } = string.Empty;
+        [JsonPropertyName("last_source_kind")] public string LastSourceKind { get; set; } = "monitor";
+        [JsonPropertyName("last_source_id")] public int LastSourceId { get; set; }
 
         /// <summary>Bitrate cap currently in force for the selected preset.</summary>
         public uint BitrateCapKbps()

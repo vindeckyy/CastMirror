@@ -8,7 +8,12 @@
     mc:Ignorable="d"
     Title="CastMirror">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <!-- Disabled while the welcome card is showing, so Tab and screen readers
+             stay on the card. -->
+        <ContentControl x:Name="MainContent" IsTabStop="False"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+        <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -21,23 +26,26 @@
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <FontIcon Glyph="&#xE7F4;" FontSize="20" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
                     <TextBlock Text="CastMirror" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <Border Background="{ThemeResource SystemFillColorSuccessBackgroundBrush}" CornerRadius="4" Padding="6,2" Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
+                    <!-- Solid green with white text reads in both themes; the themed
+                         "success background" brush is a pale tint in Light. -->
+                    <Border Background="#FF0F7B0F" CornerRadius="4" Padding="6,2" Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
                         <TextBlock Text="LIVE" FontSize="11" FontWeight="Bold" Foreground="White"/>
                     </Border>
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                    <Button Content="Logs" Click="OnOpenLogsClicked"/>
-                    <Button Content="Settings" Click="OnOpenSettingsClicked"/>
+                    <Button Content="Logs" Click="OnOpenLogsClicked" ToolTipService.ToolTip="Open the log viewer (Ctrl+L)"/>
+                    <Button Content="Settings" Click="OnOpenSettingsClicked" ToolTipService.ToolTip="Open settings (Ctrl+,)"/>
+                    <Button Content="About" Click="OnAboutClicked"/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Main Content Area -->
-        <Grid Grid.Row="1" Margin="24">
+        <Grid Grid.Row="1" Margin="24,24,12,24">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*"/>
-                <ColumnDefinition Width="1*"/>
+                <ColumnDefinition Width="1*" MinWidth="300"/>
             </Grid.ColumnDefinitions>
 
             <!-- Left: Session Status Stage -->
@@ -47,158 +55,199 @@
                         <FontIcon Glyph="&#xE7F4;" FontSize="48" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
                         <TextBlock Text="{x:Bind ViewModel.PreviewTitle, Mode=OneWay}"
                                    FontSize="20" FontWeight="SemiBold" Foreground="White"
-                                   HorizontalAlignment="Center" TextAlignment="Center"/>
+                                   HorizontalAlignment="Center" TextAlignment="Center"
+                                   AutomationProperties.LiveSetting="Polite"/>
                         <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Foreground="#FFC8C8CE"
                                    TextAlignment="Center" TextWrapping="Wrap"/>
                         <ProgressRing IsActive="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}"
                                       Visibility="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}"
-                                      Width="32" Height="32"/>
+                                      Width="32" Height="32"
+                                      AutomationProperties.Name="Searching for Cast devices"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Right: Device Selector & Quality Controls -->
-            <StackPanel Grid.Column="1" Spacing="16">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Content="Rescan" Click="OnRescanClicked" Padding="10,4" FontSize="12" Margin="0,0,8,0"/>
-                    <Button Grid.Column="2" Content="Add by IP" Click="OnAddByIpClicked" Padding="10,4" FontSize="12"/>
-                </Grid>
+            <!-- Right: Device Selector & Quality Controls. Scrolls so the Cast
+                 button stays reachable at small window sizes and high display scale. -->
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="16" Margin="0,0,12,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="Rescan" Click="OnRescanClicked" Padding="10,4" FontSize="12" Margin="0,0,8,0"
+                                ToolTipService.ToolTip="Look for devices again (F5)"/>
+                        <Button Grid.Column="2" Content="Add by IP" Click="OnAddByIpClicked" Padding="10,4" FontSize="12"/>
+                    </Grid>
 
-                <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
-                        CornerRadius="4" Padding="10,8"
-                        Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}">
+                    <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
+                            CornerRadius="4" Padding="10,8"
+                            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                                       TextWrapping="Wrap"
+                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"
+                                       AutomationProperties.LiveSetting="Assertive"/>
+                            <Button Grid.Column="1"
+                                    Click="OnDismissErrorClicked"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Padding="6,2"
+                                    Margin="8,0,0,0"
+                                    AutomationProperties.Name="Dismiss"
+                                    ToolTipService.ToolTip="Dismiss">
+                                <FontIcon Glyph="&#xE711;" FontSize="12"
+                                          Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <ListView ItemsSource="{x:Bind ViewModel.Devices, Mode=OneWay}"
+                              SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}"
+                              MaxHeight="220"
+                              AutomationProperties.Name="Cast devices">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Padding="8,6">
+                                    <Grid.ContextFlyout>
+                                        <MenuFlyout Opening="OnDeviceFlyoutOpening">
+                                            <MenuFlyoutItem Text="Remove this device" Click="OnRemoveDeviceClicked"/>
+                                        </MenuFlyout>
+                                    </Grid.ContextFlyout>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE7F4;" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
+                                        <TextBlock Text="{Binding ModelName}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock Text="{Binding AddressText}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12" Foreground="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <!-- Capture Source Picker -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
-                                   TextWrapping="Wrap"
-                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                   FontSize="12"
-                                   VerticalAlignment="Center"/>
-                        <Button Grid.Column="1"
-                                Click="OnDismissErrorClicked"
-                                Background="Transparent"
-                                BorderThickness="0"
-                                Padding="6,2"
-                                Margin="8,0,0,0"
-                                AutomationProperties.Name="Dismiss"
-                                ToolTipService.ToolTip="Dismiss">
-                            <FontIcon Glyph="&#xE711;" FontSize="12"
-                                      Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
-                        </Button>
+                        <TextBlock Text="Capture Source" FontSize="14" FontWeight="Medium" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="Refresh" Click="OnRefreshSourcesClicked" Padding="10,4" FontSize="12"/>
                     </Grid>
-                </Border>
+                    <ComboBox ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
+                              SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=TwoWay}"
+                              DisplayMemberPath="Name"
+                              AutomationProperties.Name="Capture source"
+                              HorizontalAlignment="Stretch"/>
 
-                <ListView ItemsSource="{x:Bind ViewModel.Devices, Mode=OneWay}" SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}" MaxHeight="220">
-                    <ListView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Padding="8,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <FontIcon Glyph="&#xE7F4;" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                                <StackPanel Grid.Column="1">
-                                    <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
-                                    <TextBlock Text="{Binding ModelName}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                    <TextBlock Text="{Binding AddressText}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12" Foreground="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+                    <!-- Quality Preset Selector -->
+                    <TextBlock Text="Quality Preset" FontSize="14" FontWeight="Medium"/>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                              AutomationProperties.Name="Quality preset">
+                        <ComboBoxItem Content="Auto"/>
+                        <ComboBoxItem Content="High"/>
+                        <ComboBoxItem Content="Balanced"/>
+                        <ComboBoxItem Content="Smooth"/>
+                        <ComboBoxItem Content="Game (low latency)"/>
+                        <ComboBoxItem Content="Cinema"/>
+                    </ComboBox>
 
-                <!-- Capture Source Picker -->
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Capture Source" FontSize="14" FontWeight="Medium" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Content="Refresh" Click="OnRefreshSourcesClicked" Padding="10,4" FontSize="12"/>
-                </Grid>
-                <ComboBox ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
-                          SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=TwoWay}"
-                          DisplayMemberPath="Name"
-                          AutomationProperties.Name="Capture source"
-                          HorizontalAlignment="Stretch"/>
+                    <!-- Inline bitrate slider: bound to the same stored cap as the
+                         Settings slider, so the two surfaces stay synchronized. -->
+                    <StackPanel Spacing="2">
+                        <TextBlock x:Name="BitrateLabel" Text="Bitrate" FontSize="14" FontWeight="Medium"/>
+                        <Slider Minimum="1000" Maximum="25000" StepFrequency="500" SnapsTo="StepValues"
+                                Value="{x:Bind ViewModel.BitrateCapKbps, Mode=TwoWay}"
+                                AutomationProperties.LabeledBy="{x:Bind BitrateLabel}"/>
+                        <TextBlock Text="{x:Bind ViewModel.BitrateCapText, Mode=OneWay}" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
 
-                <!-- Quality Preset Selector -->
-                <TextBlock Text="Quality Preset" FontSize="14" FontWeight="Medium"/>
-                <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch"
-                          AutomationProperties.Name="Quality preset">
-                    <ComboBoxItem Content="Auto"/>
-                    <ComboBoxItem Content="High"/>
-                    <ComboBoxItem Content="Balanced"/>
-                    <ComboBoxItem Content="Smooth"/>
-                    <ComboBoxItem Content="Game (Low Latency)"/>
-                    <ComboBoxItem Content="Cinema"/>
-                </ComboBox>
+                    <!-- Audio Toggle -->
+                    <ToggleSwitch Header="System audio" IsOn="{x:Bind ViewModel.AudioEnabled, Mode=TwoWay}"/>
 
-                <!-- Inline bitrate slider: bound to the same stored cap as the
-                     Settings slider, so the two surfaces stay synchronized. -->
-                <StackPanel Spacing="2">
-                    <TextBlock x:Name="BitrateLabel" Text="Bitrate" FontSize="14" FontWeight="Medium"/>
-                    <Slider Minimum="1000" Maximum="25000" StepFrequency="500" SnapsTo="StepValues"
-                            Value="{x:Bind ViewModel.BitrateCapKbps, Mode=TwoWay}"
-                            AutomationProperties.LabeledBy="{x:Bind BitrateLabel}"/>
-                    <TextBlock Text="{x:Bind ViewModel.BitrateCapText, Mode=OneWay}" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <!-- Live session controls -->
+                    <StackPanel Orientation="Horizontal" Spacing="20"
+                                Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
+                        <ToggleSwitch Header="Freeze" IsOn="{x:Bind ViewModel.FreezeStream, Mode=TwoWay}"/>
+                        <ToggleSwitch Header="Mute TV audio" IsOn="{x:Bind ViewModel.MuteTvAudio, Mode=TwoWay}"/>
+                    </StackPanel>
+
+                    <!-- Primary action. Two buttons instead of one that recolors itself:
+                         a code-set Background is overridden by the control's hover and
+                         pressed states, so the Stop button lost its red on mouse-over. -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Content="Cast display"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Visibility="{x:Bind ViewModel.ShowCastButton, Mode=OneWay}"
+                                IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
+                                FontSize="16"
+                                FontWeight="SemiBold"
+                                Padding="0,12"
+                                HorizontalAlignment="Stretch"
+                                ToolTipService.ToolTip="Start casting (Ctrl+Enter)"
+                                Click="OnActionButtonClicked"/>
+                        <Button Content="Stop casting"
+                                Visibility="{x:Bind ViewModel.ShowStopButton, Mode=OneWay}"
+                                IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
+                                FontSize="16"
+                                FontWeight="SemiBold"
+                                Padding="0,12"
+                                HorizontalAlignment="Stretch"
+                                ToolTipService.ToolTip="Stop casting (Ctrl+Enter)"
+                                Click="OnActionButtonClicked">
+                            <Button.Resources>
+                                <SolidColorBrush x:Key="ButtonBackground" Color="#FFC42B1C"/>
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FFA82316"/>
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#FF8E1D12"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrush" Color="#FFC42B1C"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#FFA82316"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#FF8E1D12"/>
+                                <SolidColorBrush x:Key="ButtonForeground" Color="White"/>
+                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
+                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
+                            </Button.Resources>
+                        </Button>
+                        <ProgressRing Grid.Column="1"
+                                      IsActive="{x:Bind ViewModel.CastPending, Mode=OneWay}"
+                                      Visibility="{x:Bind ViewModel.CastPending, Mode=OneWay}"
+                                      Width="24" Height="24"
+                                      Margin="10,0,0,0"
+                                      AutomationProperties.Name="Working"/>
+                    </Grid>
+
+                    <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               AutomationProperties.LiveSetting="Polite"/>
                 </StackPanel>
-
-                <!-- Audio Toggle -->
-                <ToggleSwitch Header="System Audio" IsOn="{x:Bind ViewModel.AudioEnabled, Mode=TwoWay}"/>
-
-                <!-- Live session controls -->
-                <StackPanel Orientation="Horizontal" Spacing="20"
-                            Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
-                    <ToggleSwitch Header="Freeze" IsOn="{x:Bind ViewModel.FreezeStream, Mode=TwoWay}"/>
-                    <ToggleSwitch Header="Mute TV audio" IsOn="{x:Bind ViewModel.MuteTvAudio, Mode=TwoWay}"/>
-                </StackPanel>
-
-                <!-- Primary Action Button -->
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Button Content="{x:Bind ViewModel.ActionButtonText, Mode=OneWay}"
-                            IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
-                            Background="{x:Bind ViewModel.ActionButtonBrush, Mode=OneWay}"
-                            Foreground="White"
-                            FontSize="16"
-                            FontWeight="SemiBold"
-                            Padding="0,12"
-                            HorizontalAlignment="Stretch"
-                            Click="OnActionButtonClicked"/>
-                    <ProgressRing Grid.Column="1"
-                                  IsActive="{x:Bind ViewModel.CastPending, Mode=OneWay}"
-                                  Visibility="{x:Bind ViewModel.CastPending, Mode=OneWay}"
-                                  Width="24" Height="24"
-                                  Margin="10,0,0,0"/>
-                </Grid>
-
-                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                           FontSize="12"
-                           TextWrapping="Wrap"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <!-- Stats Drawer / Footer -->
         <Border Grid.Row="2" Padding="24,8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
-            <Grid>
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Auto">
                 <StackPanel Orientation="Horizontal" Spacing="24">
                     <StackPanel Spacing="2">
                         <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.FpsSeries, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw"/>
@@ -218,19 +267,21 @@
                     </StackPanel>
                     <TextBlock Text="{x:Bind ViewModel.StatsQualityText, Mode=OneWay}" FontSize="12" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
-            </Grid>
+            </ScrollViewer>
         </Border>
+        </Grid>
+        </ContentControl>
 
         <!-- First-run card: shown until the user has seen the discovery explainer -->
-        <Grid Grid.RowSpan="3" Background="#B3000000" Visibility="{x:Bind ViewModel.ShowFirstRun, Mode=OneWay}">
+        <Grid x:Name="FirstRunOverlay" Background="#B3000000" Visibility="{x:Bind ViewModel.ShowFirstRun, Mode=OneWay}">
             <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="24"
                     MaxWidth="460" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <StackPanel Spacing="12">
                     <FontIcon Glyph="&#xE7F4;" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
                     <TextBlock Text="Welcome to CastMirror" FontSize="20" FontWeight="SemiBold"/>
                     <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               Text="CastMirror finds Cast devices over mDNS on your local network. Make sure your TV or speaker is powered on and on the same Wi-Fi network. If your network blocks mDNS, CastMirror can also probe your subnet directly on port 8009."/>
-                    <Button Content="Scan my LAN for TVs" Click="OnFirstRunScanClicked" HorizontalAlignment="Stretch"/>
+                               Text="CastMirror looks for TVs and speakers on your Wi-Fi. Turn the TV on and put it on the same network as this PC. If nothing shows up, your router may be blocking discovery, and scanning the network will find devices directly."/>
+                    <Button x:Name="FirstRunScanButton" Content="Scan my network for TVs" Click="OnFirstRunScanClicked" HorizontalAlignment="Stretch"/>
                     <Button Content="Not now" Click="OnFirstRunDismissClicked" HorizontalAlignment="Stretch"
                             Background="Transparent" BorderThickness="0"/>
                 </StackPanel>

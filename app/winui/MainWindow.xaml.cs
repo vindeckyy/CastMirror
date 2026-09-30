@@ -1,9 +1,12 @@
 using System;
 using System.IO;
 using System.Threading;
+using System.ComponentModel;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
 using CastMirror.Services;
 using CastMirror.ViewModels;
 namespace CastMirror
@@ -17,6 +20,112 @@ namespace CastMirror
         private TrayIconService? _tray;
         private bool _exiting;
 
+        // Below this the two-column layout has nowhere to go.
+        private const int MinWidthDip = 760;
+        private const int MinHeightDip = 560;
+
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(MainViewModel.ShowFirstRun)) UpdateFirstRunFocusTrap();
+        }
+
+        /// <summary>
+        /// While the welcome card is up the controls behind it are disabled, so Tab
+        /// and screen readers stay on the card, and focus starts on its first button.
+        /// </summary>
+        private void UpdateFirstRunFocusTrap()
+        {
+            bool showing = ViewModel.ShowFirstRun;
+            MainContent.IsEnabled = !showing;
+            if (showing)
+            {
+                DispatcherQueue.TryEnqueue(() => FirstRunScanButton.Focus(FocusState.Programmatic));
+            }
+        }
+
+        private void AddKeyboardShortcuts()
+        {
+            void Add(VirtualKey key, VirtualKeyModifiers modifiers, Action action)
+            {
+                var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
+                accelerator.Invoked += (_, args) =>
+                {
+                    args.Handled = true;
+                    if (!ViewModel.ShowFirstRun) action();
+                };
+                RootGrid.KeyboardAccelerators.Add(accelerator);
+            }
+
+            Add(VirtualKey.Enter, VirtualKeyModifiers.Control, () => ViewModel.ToggleCast());
+            Add(VirtualKey.F5, VirtualKeyModifiers.None, () => ViewModel.RescanDevices());
+            Add((VirtualKey)188 /* comma */, VirtualKeyModifiers.Control, () => OnOpenSettingsClicked(this, new RoutedEventArgs()));
+            Add(VirtualKey.L, VirtualKeyModifiers.Control, () => OnOpenLogsClicked(this, new RoutedEventArgs()));
+        }
+
+        private async void OnAboutClicked(object sender, RoutedEventArgs e)
+        {
+            string version = System.Reflection.Assembly.GetExecutingAssembly()
+                .GetName().Version?.ToString(3) ?? "1.0.0";
+            var dialog = new ContentDialog
+            {
+                Title = $"CastMirror {version}",
+                Content = new StackPanel
+                {
+                    Spacing = 8,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "Sends your screen and system audio to a Chromecast or Google TV over your local network.",
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new TextBlock
+                        {
+                            Text = "CastMirror sends nothing to any server and collects no telemetry. " +
+                                   $"Settings and logs are in {LogService.DirectoryPath}.",
+                            TextWrapping = TextWrapping.Wrap,
+                            Opacity = 0.8
+                        }
+                    }
+                },
+                PrimaryButtonText = "Open folder",
+                CloseButtonText = "Close",
+                DefaultButton = ContentDialogButton.Close
+            };
+            if (await Dialogs.ShowAsync(dialog, Content.XamlRoot) == ContentDialogResult.Primary)
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(LogService.DirectoryPath);
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo("explorer.exe", LogService.DirectoryPath)
+                        { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    MainViewModel.LogError(ex);
+                }
+            }
+        }
+
+        private void OnDeviceFlyoutOpening(object? sender, object e)
+        {
+            // Only devices typed in by address can be removed; discovered ones come
+            // back on the next scan.
+            if (sender is not MenuFlyout flyout) return;
+            var item = flyout.Items.Count > 0 ? flyout.Items[0] as MenuFlyoutItem : null;
+            var device = (flyout.Target as FrameworkElement)?.DataContext as DeviceItem;
+            if (item != null) item.IsEnabled = device != null && ViewModel.IsManualDevice(device);
+        }
+
+        private void OnRemoveDeviceClicked(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is DeviceItem device)
+            {
+                ViewModel.RemoveManualDevice(device);
+            }
+        }
+
         public MainWindow()
         {
             this.InitializeComponent();
@@ -26,14 +135,28 @@ namespace CastMirror
             // shrinks as the display scale rises - 550x360 DIPs at 200%, with
             // the cast panel scrolled and unusable. WindowScaler converts to
             // the monitor's scale and clamps to its work area.
-            WindowScaler.ResizeToDips(AppWindow, 1100, 720);
+            // The engine's default size (920x700) means "never saved" here.
+            CastMirrorSettings saved = ViewModel.Settings;
+            bool hasSavedSize = saved.WindowWidth >= MinWidthDip && saved.WindowHeight >= MinHeightDip &&
+                                !(saved.WindowWidth == 920 && saved.WindowHeight == 700);
+            WindowScaler.ResizeToDips(AppWindow,
+                hasSavedSize ? saved.WindowWidth : 1100,
+                hasSavedSize ? saved.WindowHeight : 720);
+            WindowScaler.EnforceMinimumSize(AppWindow, MinWidthDip, MinHeightDip);
 
             ThemeService.Register(Content as FrameworkElement);
             ThemeService.Apply(ViewModel.Settings.UiTheme);
 
             ViewModel.StateChanged += OnSessionStateChanged;
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             NotificationService.Activated += OnNotificationActivated;
             SyncTrayIcon();
+            AddKeyboardShortcuts();
+            UpdateFirstRunFocusTrap();
+
+            // A second launch asks this instance to show itself instead of doing
+            // nothing, which matters most when the window is hidden in the tray.
+            SingleInstance.ListenForActivation(() => DispatcherQueue.TryEnqueue(RestoreWindow));
 
             AppWindow.Closing += OnWindowClosing;
             Closed += OnWindowClosed;
@@ -63,7 +186,7 @@ namespace CastMirror
             };
             var dialog = new ContentDialog
             {
-                Title = "Add by IP",
+                Title = "Add a device by IP address",
                 Content = new StackPanel
                 {
                     Spacing = 8,
@@ -71,7 +194,7 @@ namespace CastMirror
                     {
                         new TextBlock
                         {
-                            Text = "Enter the IP address of a Cast device that mDNS discovery cannot see.",
+                            Text = "Type the IPv4 address of a TV or speaker that doesn't appear in the list. You can find it in the device's network settings or your router's client list.",
                             TextWrapping = TextWrapping.Wrap
                         },
                         input
@@ -79,17 +202,16 @@ namespace CastMirror
                 },
                 PrimaryButtonText = "Add",
                 CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = Content.XamlRoot
+                DefaultButton = ContentDialogButton.Primary
             };
 
-            ContentDialogResult result = await dialog.ShowAsync();
+            ContentDialogResult result = await Dialogs.ShowAsync(dialog, Content.XamlRoot);
             if (result != ContentDialogResult.Primary) return;
 
             string address = input.Text.Trim();
             if (address.Length == 0)
             {
-                ViewModel.ErrorMessage = "Enter an IP address to add a device.";
+                ViewModel.ErrorMessage = "Type an IP address to add a device.";
                 return;
             }
             ViewModel.AddDeviceByIp(address);
@@ -122,9 +244,14 @@ namespace CastMirror
             _logsWindow.Activate();
         }
 
-        private void OnFirstRunScanClicked(object sender, RoutedEventArgs e)
+        private async void OnFirstRunScanClicked(object sender, RoutedEventArgs e)
         {
-            ViewModel.CompleteFirstRun(enableSubnetScan: true);
+            // The scan needs the same consent as in Settings: it probes every
+            // address on the subnet, which some networks treat as an attack.
+            if (await Dialogs.ConfirmSubnetScanAsync(Content.XamlRoot))
+            {
+                ViewModel.CompleteFirstRun(enableSubnetScan: true);
+            }
         }
 
         private void OnFirstRunDismissClicked(object sender, RoutedEventArgs e)
@@ -221,7 +348,7 @@ namespace CastMirror
                     NotificationService.Notify(
                         ViewModel.Settings.NotifyOnEvents,
                         "CastMirror",
-                        "Still running in the background; the tray icon could not be created, so relaunch CastMirror to reopen the window.",
+                        "The tray icon could not be created. Start CastMirror again to bring the window back.",
                         "tag=tray-unavailable");
                 });
             })
@@ -243,12 +370,18 @@ namespace CastMirror
         /// </summary>
         private void ExitFromTray()
         {
-            // The user asked to quit, so the close handler must not turn this
-            // back into a hide. Without this, CloseToTray (on by default) makes
-            // OnWindowClosing cancel the very close this method asked for: the
-            // window re-hides and the app is unquittable from the tray.
-            _exiting = true;
             RestoreWindow();
+            if (ViewModel.IsSessionActive)
+            {
+                // Quitting drops the cast, so ask first, exactly as the close
+                // button does. Setting _exiting before this used to skip the check.
+                ConfirmExitAndCloseAsync();
+                return;
+            }
+            // The user asked to quit, so the close handler must not turn this
+            // back into a hide (CloseToTray would otherwise cancel this close and
+            // leave the app unquittable from the tray).
+            _exiting = true;
             Close();
         }
 
@@ -278,8 +411,30 @@ namespace CastMirror
                 : "CastMirror");
         }
 
+        /// <summary>Remembers the window size (in DIPs) unless it is minimised or maximised.</summary>
+        private void SaveWindowSize()
+        {
+            try
+            {
+                if (AppWindow.Presenter is OverlappedPresenter presenter &&
+                    presenter.State != OverlappedPresenterState.Restored)
+                {
+                    return;
+                }
+                double scale = WindowScaler.ScaleOf(AppWindow);
+                ViewModel.SaveWindowSize(
+                    (int)Math.Round(AppWindow.Size.Width / scale),
+                    (int)Math.Round(AppWindow.Size.Height / scale));
+            }
+            catch (Exception ex)
+            {
+                MainViewModel.LogError(ex);
+            }
+        }
+
         private void OnWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
         {
+            SaveWindowSize();
             if (_exiting) return;
             if (ViewModel.Settings.CloseToTray)
             {
@@ -319,15 +474,14 @@ namespace CastMirror
         {
             var dialog = new ContentDialog
             {
-                Title = "Casting in progress",
-                Content = "A cast session is still running. Quit CastMirror and stop casting?",
+                Title = "Stop casting and quit?",
+                Content = $"You're casting to {ViewModel.SelectedDevice?.Name ?? "a TV"}. Quitting ends the cast.",
                 PrimaryButtonText = "Quit",
                 CloseButtonText = "Keep casting",
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot
+                DefaultButton = ContentDialogButton.Close
             };
 
-            ContentDialogResult result = await dialog.ShowAsync();
+            ContentDialogResult result = await Dialogs.ShowAsync(dialog, Content.XamlRoot);
             if (result != ContentDialogResult.Primary) return;
             _exiting = true;
             Close();

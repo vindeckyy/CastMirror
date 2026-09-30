@@ -29,6 +29,63 @@ namespace CastMirror.Services
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
 
+        private delegate IntPtr SubclassProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam,
+                                             UIntPtr id, UIntPtr data);
+
+        [DllImport("comctl32.dll")]
+        private static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, UIntPtr data);
+
+        [DllImport("comctl32.dll")]
+        private static extern IntPtr DefSubclassProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Point { public int X; public int Y; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MinMaxInfo
+        {
+            public Point Reserved;
+            public Point MaxSize;
+            public Point MaxPosition;
+            public Point MinTrackSize;
+            public Point MaxTrackSize;
+        }
+
+        private const uint WmGetMinMaxInfo = 0x0024;
+
+        // The subclass delegates must outlive the windows that use them.
+        private static readonly System.Collections.Generic.List<SubclassProc> Subclasses = new();
+
+        /// <summary>
+        /// Stops the user from dragging the window below a usable size. The size is
+        /// logical (DIPs) and is re-scaled every time, so it stays right when the
+        /// window moves to a monitor with a different scale.
+        /// </summary>
+        public static void EnforceMinimumSize(AppWindow? window, int minWidthDip, int minHeightDip)
+        {
+            IntPtr hwnd = HandleOf(window);
+            if (hwnd == IntPtr.Zero) return;
+            SubclassProc proc = (h, msg, wParam, lParam, id, data) =>
+            {
+                if (msg == WmGetMinMaxInfo)
+                {
+                    double scale = ScaleOf(window);
+                    var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+                    info.MinTrackSize.X = (int)Math.Round(minWidthDip * scale);
+                    info.MinTrackSize.Y = (int)Math.Round(minHeightDip * scale);
+                    Marshal.StructureToPtr(info, lParam, false);
+                    return IntPtr.Zero;
+                }
+                return DefSubclassProc(h, msg, wParam, lParam);
+            };
+            Subclasses.Add(proc);
+            if (!SetWindowSubclass(hwnd, proc, UIntPtr.Zero, UIntPtr.Zero))
+            {
+                Subclasses.Remove(proc);
+                LogService.Log("[dpi] could not install the minimum-size hook");
+            }
+        }
+
         /// <summary>
         /// The HWND for a window, or <see cref="IntPtr.Zero"/> when it cannot be
         /// resolved. Requires Windows 10 1607+; the project targets 19041+.

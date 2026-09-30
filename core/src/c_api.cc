@@ -140,6 +140,12 @@ nlohmann::json BuildConfigJson() {
   j["verify_device_cert"] = cfg.verify_device_cert;
   j["first_run_complete"] = cfg.first_run_complete;
   j["ui_theme"] = cfg.ui_theme;
+  j["window_width"] = cfg.window_width;
+  j["window_height"] = cfg.window_height;
+  // Read-only for clients: the engine records these when a cast starts.
+  j["last_device_id"] = cfg.last_device_id;
+  j["last_source_kind"] = cfg.last_source_kind;
+  j["last_source_id"] = cfg.last_source_id;
   return j;
 }
 
@@ -230,6 +236,8 @@ void MergeConfigJson(const nlohmann::json& j, castcore::AppConfig& cfg) {
   get_bool("verify_device_cert", &cfg.verify_device_cert);
   get_bool("first_run_complete", &cfg.first_run_complete);
   get_str("ui_theme", &cfg.ui_theme);
+  get_int("window_width", &cfg.window_width);
+  get_int("window_height", &cfg.window_height);
 }
 
 // Explicit arguments win, everything else comes from ConfigStore so persisted

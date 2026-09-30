@@ -105,12 +105,12 @@ namespace CastMirror
                     AudioQualityCombo.SelectedIndex = audioIndex;
                 }
 
-                SilenceSwitch.IsOn = settings.SilenceHostSpeakers;
 
                 DelaySlider.Value = Clamp(settings.TargetDelayMs, DelaySlider.Minimum, DelaySlider.Maximum);
                 UpdateDelayLabel();
 
                 LatencyHudSwitch.IsOn = settings.LatencyHudEnabled;
+                CursorSwitch.IsOn = settings.ShowCursor;
                 SubnetScanSwitch.IsOn = settings.SubnetScanEnabled;
                 TraySwitch.IsOn = settings.EnableTrayOnStartup;
                 CloseToTraySwitch.IsOn = settings.CloseToTray;
@@ -118,8 +118,8 @@ namespace CastMirror
                 NotifySwitch.IsOn = settings.NotifyOnEvents && NotificationService.IsSupported;
                 NotifySwitch.IsEnabled = NotificationService.IsSupported;
                 NotifyHelpText.Text = NotificationService.IsSupported
-                    ? "Shows desktop notifications when casting starts, disconnects, or reconnects."
-                    : "Not supported in this build: the notification platform could not be registered.";
+                    ? "Shows a notification when casting starts or stops, when the connection drops, and when a cast fails."
+                    : "Windows would not register CastMirror for notifications, so this is unavailable.";
 
                 string uiTheme = (settings.UiTheme ?? string.Empty).Trim();
                 int themeIndex = uiTheme switch
@@ -250,6 +250,13 @@ namespace CastMirror
             ClearError();
         }
 
+        private void OnCursorToggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading) return;
+            _viewModel.ApplyShowCursor(CursorSwitch.IsOn);
+            ClearError();
+        }
+
         private void OnLatencyHudToggled(object sender, RoutedEventArgs e)
         {
             if (_loading) return;
@@ -267,24 +274,7 @@ namespace CastMirror
                 return;
             }
 
-            var dialog = new ContentDialog
-            {
-                Title = "Scan LAN for silent TVs",
-                Content = new TextBlock
-                {
-                    Text = "This sends a short TCP connection probe to every IP address on your local " +
-                           "subnet on port 8009.\n\nLeave this off on corporate, school, or guest Wi-Fi " +
-                           "networks.\n\nDo you want to enable subnet scanning?",
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = "Enable",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot
-            };
-
-            ContentDialogResult result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
+            if (await Dialogs.ConfirmSubnetScanAsync(Content.XamlRoot))
             {
                 _viewModel.ApplySubnetScan(true);
                 ClearError();
@@ -358,10 +348,9 @@ namespace CastMirror
             {
                 Title = "Self-test",
                 Content = new TextBlock { Text = SelfTestText.Text, TextWrapping = TextWrapping.Wrap },
-                CloseButtonText = "Close",
-                XamlRoot = Content.XamlRoot
+                CloseButtonText = "Close"
             };
-            await dialog.ShowAsync();
+            await Dialogs.ShowAsync(dialog, Content.XamlRoot);
         }
 
         private static string DescribeSelfTest(string json)

@@ -99,7 +99,14 @@ namespace CastMirror.ViewModels
 
         // Nominal per-preset bitrates live in CastMirrorSettings.EffectiveBitrateCapKbps
         // (0 stored = preset default); the UI pushes the stored cap, not a table.
-        private static readonly int[] PresetDelayMs = { 200, 200, 200, 200, 150, 400 };
+        // Game and Cinema define their own buffer depth; every other preset uses
+        // the delay the user chose in Settings instead of overwriting it.
+        private int PresetDelayMs(int presetIndex) => presetIndex switch
+        {
+            (int)CastMirrorQualityPreset.Game => 150,
+            (int)CastMirrorQualityPreset.Cinema => 400,
+            _ => Settings.TargetDelayMs
+        };
 
         private readonly DispatcherQueue? _dispatcher;
         private readonly DispatcherQueueTimer? _statsTimer;
@@ -111,6 +118,11 @@ namespace CastMirror.ViewModels
         // is gated on this so a default-valued DTO can never overwrite the
         // user's saved configuration (see SettingsService.Load remarks).
         private bool _settingsLoaded;
+
+        // The TV and source used last time, applied once when they show up.
+        private string _pendingLastDeviceId = string.Empty;
+        private string _pendingLastSourceKind = string.Empty;
+        private int _pendingLastSourceId;
 
         // Devices added by address (not from mDNS); kept across refreshes.
         private readonly List<DeviceItem> _manualDevices = new();
@@ -165,8 +177,8 @@ namespace CastMirror.ViewModels
                 if (_isSessionActive == value) return;
                 _isSessionActive = value;
                 OnPropertyChanged();
-                OnPropertyChanged(nameof(ActionButtonText));
-                OnPropertyChanged(nameof(ActionButtonBrush));
+                OnPropertyChanged(nameof(ShowCastButton));
+                OnPropertyChanged(nameof(ShowStopButton));
                 OnPropertyChanged(nameof(IsSearchingVisible));
                 OnPropertyChanged(nameof(CanToggleCast));
                 OnPropertyChanged(nameof(PreviewTitle));
@@ -205,12 +217,9 @@ namespace CastMirror.ViewModels
         public bool IsSearchingVisible => Devices.Count == 0 && !IsSessionActive && !NoDevicesFound;
         public bool CanToggleCast => !CastPending && (IsSessionActive || (SelectedDevice != null && SelectedSource != null));
 
-        public string ActionButtonText => IsSessionActive ? "Stop Casting" : "Cast Display";
-
-        public Microsoft.UI.Xaml.Media.Brush ActionButtonBrush =>
-            IsSessionActive
-                ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 53, 69))
-                : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 13, 110, 253));
+        /// <summary>The Cast button and the Stop button swap places; each has its own template-safe style.</summary>
+        public bool ShowCastButton => !IsSessionActive;
+        public bool ShowStopButton => IsSessionActive;
 
         public string PreviewTitle
         {
@@ -254,16 +263,16 @@ namespace CastMirror.ViewModels
                 if (_audioEnabled == value) return;
                 _audioEnabled = value;
                 OnPropertyChanged();
-                if (_nativeAvailable && IsSessionActive)
+                if (IsSessionActive)
                 {
-                    try
-                    {
-                        CastCoreBridge.castmirror_set_muted(!value);
-                    }
-                    catch (Exception ex)
-                    {
-                        LogError(ex);
-                    }
+                    // Mid-cast the switch is the same control as "Mute TV audio":
+                    // the engine has one mute flag, so the two must not fight.
+                    MuteTvAudio = !value;
+                }
+                else
+                {
+                    Settings.AudioEnabled = value;
+                    PersistSettings();
                 }
             }
         }
@@ -407,14 +416,12 @@ namespace CastMirror.ViewModels
                 OnPropertyChanged();
                 if (_nativeAvailable)
                 {
-                    try
-                    {
-                        CastCoreBridge.castmirror_set_muted(value);
-                    }
-                    catch (Exception ex)
-                    {
-                        LogError(ex);
-                    }
+                    TryNative(() => CastCoreBridge.castmirror_set_muted(value));
+                }
+                if (IsSessionActive && _audioEnabled == value)
+                {
+                    _audioEnabled = !value;
+                    OnPropertyChanged(nameof(AudioEnabled));
                 }
             }
         }
@@ -620,6 +627,14 @@ namespace CastMirror.ViewModels
 
                 int previousKind = SelectedSource?.Kind ?? -1;
                 int previousId = SelectedSource?.Id ?? -1;
+                if (previousKind < 0 && _pendingLastSourceKind.Length > 0)
+                {
+                    previousKind = string.Equals(_pendingLastSourceKind, "window", StringComparison.OrdinalIgnoreCase)
+                        ? (int)CastMirrorSourceKind.Window
+                        : (int)CastMirrorSourceKind.Monitor;
+                    previousId = _pendingLastSourceId;
+                }
+                _pendingLastSourceKind = string.Empty;
                 Sources.Clear();
                 foreach (var source in sources) Sources.Add(source);
                 SelectedSource = Sources.FirstOrDefault(s => s.Kind == previousKind && s.Id == previousId)
@@ -639,6 +654,8 @@ namespace CastMirror.ViewModels
 
         public void Shutdown()
         {
+            _bitrateCommitTimer?.Stop();
+            CommitBitrate();
             _disposed = true;
             try
             {
@@ -666,10 +683,35 @@ namespace CastMirror.ViewModels
             RunOnUiThread(() => ApplyState(state, text));
         }
 
+        private CastMirrorState _lastState = CastMirrorState.Idle;
+
+        // Freeze and mute belong to one session. A new one must not start with
+        // the switches showing On while the engine has them off.
+        private void ResetLiveToggles()
+        {
+            if (_freezeStream)
+            {
+                _freezeStream = false;
+                OnPropertyChanged(nameof(FreezeStream));
+            }
+            if (_muteTvAudio)
+            {
+                _muteTvAudio = false;
+                OnPropertyChanged(nameof(MuteTvAudio));
+            }
+            if (_audioEnabled != Settings.AudioEnabled)
+            {
+                _audioEnabled = Settings.AudioEnabled;
+                OnPropertyChanged(nameof(AudioEnabled));
+            }
+        }
+
         private void ApplyState(CastMirrorState state, string message)
         {
             bool wasStreaming = IsStreaming;
             bool wasActive = IsSessionActive;
+            CastMirrorState previous = _lastState;
+            _lastState = state;
 
             IsStreaming = state == CastMirrorState.Streaming;
             IsSessionActive = state is CastMirrorState.Connecting
@@ -677,6 +719,17 @@ namespace CastMirror.ViewModels
                                    or CastMirrorState.Streaming
                                    or CastMirrorState.Reconnecting
                                    or CastMirrorState.Stopping;
+
+            if (!IsSessionActive)
+            {
+                ResetLiveToggles();
+            }
+
+            if (state == CastMirrorState.Reconnecting && previous != CastMirrorState.Reconnecting)
+            {
+                NotificationService.Notify(Settings.NotifyOnEvents, "Connection lost",
+                    $"Reconnecting to {SelectedDevice?.Name ?? "the TV"}.");
+            }
 
             if (state == CastMirrorState.Failed)
             {
@@ -754,7 +807,11 @@ namespace CastMirror.ViewModels
             //
             // Addresses the user typed in are not mDNS results, so carry them
             // over; drop the manual entry once the engine reports that address.
-            _manualDevices.RemoveAll(manual => incoming.Any(d => d.Id == manual.Id));
+            // Match on the address as well as the id: a manual entry's id is the
+            // typed IP, while mDNS reports the device's UUID for the same TV.
+            string? selectedAddress = SelectedDevice?.IpAddress;
+            _manualDevices.RemoveAll(manual =>
+                incoming.Any(d => d.Id == manual.Id || d.IpAddress == manual.IpAddress));
             incoming.AddRange(_manualDevices);
 
             bool changed = false;
@@ -787,11 +844,22 @@ namespace CastMirror.ViewModels
             // Only touch the selection when the user's device disappeared.
             if (SelectedDevice != null && !Devices.Contains(SelectedDevice))
             {
-                SelectedDevice = Devices.FirstOrDefault();
+                SelectedDevice = Devices.FirstOrDefault(d => d.IpAddress == selectedAddress)
+                                 ?? Devices.FirstOrDefault();
             }
             else if (SelectedDevice == null && Devices.Count > 0)
             {
                 SelectedDevice = Devices[0];
+            }
+
+            if (_pendingLastDeviceId.Length > 0)
+            {
+                DeviceItem? last = Devices.FirstOrDefault(d => d.Id == _pendingLastDeviceId);
+                if (last != null)
+                {
+                    SelectedDevice = last;
+                    _pendingLastDeviceId = string.Empty;
+                }
             }
 
             if (changed)
@@ -882,13 +950,13 @@ namespace CastMirror.ViewModels
         private void ApplyPresetLive(int presetIndex)
         {
             if (!_nativeAvailable || !IsSessionActive) return;
-            if (presetIndex < 0 || presetIndex >= PresetDelayMs.Length) return;
+            if (presetIndex < 0 || presetIndex > (int)CastMirrorQualityPreset.Cinema) return;
             try
             {
                 // The user's stored per-preset cap (0 = nominal default) wins
                 // over the hardcoded table the engine only used at start.
                 CastCoreBridge.castmirror_set_bitrate(Settings.EffectiveBitrateCapKbps());
-                CastCoreBridge.castmirror_set_playout_delay(PresetDelayMs[presetIndex]);
+                CastCoreBridge.castmirror_set_playout_delay(PresetDelayMs(presetIndex));
                 // Game locks the resolution live (low latency beats detail);
                 // every other preset restores the user's steady-frame-rate choice.
                 bool allowResolutionChange = presetIndex != (int)CastMirrorQualityPreset.Game && !SteadyFrameRate;
@@ -936,14 +1004,44 @@ namespace CastMirror.ViewModels
             PersistSettings();
         }
 
+        // A slider drag fires a value change per step. The label follows at once;
+        // the file write and the encoder retune wait until the drag settles.
+        private DispatcherQueueTimer? _bitrateCommitTimer;
+        private uint _pendingBitrateKbps;
+        private bool _bitrateCommitPending;
+
         public void ApplyBitrateCap(uint kbps)
         {
             Settings.SetBitrateCapKbps(kbps);
-            PersistSettings();
             OnPropertyChanged(nameof(BitrateCapKbps));
             OnPropertyChanged(nameof(BitrateCapText));
+            _pendingBitrateKbps = kbps;
+            _bitrateCommitPending = true;
+
+            if (_dispatcher == null)
+            {
+                CommitBitrate();
+                return;
+            }
+            if (_bitrateCommitTimer == null)
+            {
+                _bitrateCommitTimer = _dispatcher.CreateTimer();
+                _bitrateCommitTimer.Interval = TimeSpan.FromMilliseconds(250);
+                _bitrateCommitTimer.IsRepeating = false;
+                _bitrateCommitTimer.Tick += (_, _) => CommitBitrate();
+            }
+            _bitrateCommitTimer.Stop();
+            _bitrateCommitTimer.Start();
+        }
+
+        private void CommitBitrate()
+        {
+            if (!_bitrateCommitPending) return;
+            _bitrateCommitPending = false;
+            PersistSettings();
             if (_nativeAvailable && IsSessionActive)
             {
+                uint kbps = _pendingBitrateKbps;
                 TryNative(() => CastCoreBridge.castmirror_set_bitrate(kbps));
             }
         }
@@ -991,6 +1089,44 @@ namespace CastMirror.ViewModels
                 TryNative(() => CastCoreBridge.castmirror_set_playout_delay(delayMs));
             }
         }
+
+        public void ApplyShowCursor(bool enabled)
+        {
+            Settings.ShowCursor = enabled;
+            PersistSettings();
+        }
+
+        /// <summary>Remembers the window size (in DIPs) for the next launch.</summary>
+        public void SaveWindowSize(int widthDip, int heightDip)
+        {
+            if (widthDip < 200 || heightDip < 200) return;
+            Settings.WindowWidth = widthDip;
+            Settings.WindowHeight = heightDip;
+            PersistSettings();
+        }
+
+        /// <summary>Shown when an unhandled fault was swallowed to keep the session alive.</summary>
+        public void ReportUnexpectedError()
+        {
+            ErrorMessage = "Something went wrong inside CastMirror. Your cast keeps running. " +
+                           "If it happens again, open Logs and copy the log into a bug report.";
+        }
+
+        /// <summary>Removes a device the user added by address.</summary>
+        public void RemoveManualDevice(DeviceItem device)
+        {
+            if (!_manualDevices.Remove(device)) return;
+            Devices.Remove(device);
+            if (ReferenceEquals(SelectedDevice, device))
+            {
+                SelectedDevice = Devices.FirstOrDefault();
+            }
+            OnPropertyChanged(nameof(HasDevices));
+            OnPropertyChanged(nameof(IsSearchingVisible));
+            OnPropertyChanged(nameof(PreviewTitle));
+        }
+
+        public bool IsManualDevice(DeviceItem device) => _manualDevices.Contains(device);
 
         public void ApplyLatencyHud(bool enabled)
         {
@@ -1174,6 +1310,9 @@ namespace CastMirror.ViewModels
 
             PresetIndex = PresetIndexOf(Settings.QualityPreset);
             AudioEnabled = Settings.AudioEnabled;
+            _pendingLastDeviceId = Settings.LastDeviceId ?? string.Empty;
+            _pendingLastSourceKind = Settings.LastSourceKind ?? string.Empty;
+            _pendingLastSourceId = Settings.LastSourceId;
         }
 
         private static int PresetIndexOf(string preset)
