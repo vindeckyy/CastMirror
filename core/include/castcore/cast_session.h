@@ -174,6 +174,7 @@ class CastSession {
   std::chrono::steady_clock::time_point last_session_log_{};
   std::chrono::steady_clock::time_point last_video_stall_warn_{};
   std::chrono::steady_clock::time_point last_audio_stall_warn_{};
+  std::chrono::steady_clock::time_point last_audio_restart_{};
   std::chrono::steady_clock::time_point video_stall_started_{};
   bool video_stalling_ = false;
 };

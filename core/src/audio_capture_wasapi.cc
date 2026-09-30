@@ -32,6 +32,41 @@ const GUID kSubformatIeeeFloat = {
 // silence from the clock and emits nothing while the last buffer's stamp is
 // still ahead of "now" (the normal case right after a real capture).
 constexpr DWORD kIdleWakeMs = 10;
+
+// Flags the capture loop when the default playback device changes. Runs on an
+// MMDevice thread, so it only sets an atomic.
+class DefaultDeviceNotifier : public IMMNotificationClient {
+ public:
+  explicit DefaultDeviceNotifier(std::atomic<bool>* flag) : flag_(flag) {}
+
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG n = --refs_;
+    if (n == 0) delete this;
+    return n;
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
+    if (iid == __uuidof(IUnknown) || iid == __uuidof(IMMNotificationClient)) {
+      *out = static_cast<IMMNotificationClient*>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR) override {
+    if (flow == eRender && role == eConsole) flag_->store(true);
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
+
+ private:
+  std::atomic<bool>* flag_;
+  std::atomic<ULONG> refs_{1};
+};
 }  // namespace
 #endif
 
@@ -104,13 +139,18 @@ bool WasapiAudioCapture::IsCapturing() const {
 
 #if defined(_WIN32)
 bool WasapiAudioCapture::InitOnThread() {
-  Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
-  HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                IID_PPV_ARGS(&enumerator));
-  if (FAILED(hr)) {
-    LOG_ERROR << "WASAPI: MMDeviceEnumerator failed: hr=0x" << std::hex << hr << std::dec;
-    return false;
+  HRESULT hr = S_OK;
+  if (!enumerator_) {
+    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                          IID_PPV_ARGS(&enumerator_));
+    if (FAILED(hr)) {
+      LOG_ERROR << "WASAPI: MMDeviceEnumerator failed: hr=0x" << std::hex << hr << std::dec;
+      return false;
+    }
+    notifier_.Attach(new DefaultDeviceNotifier(&device_changed_));
+    enumerator_->RegisterEndpointNotificationCallback(notifier_.Get());
   }
+  Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator = enumerator_;
 
   Microsoft::WRL::ComPtr<IMMDevice> device;
   hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
@@ -142,14 +182,24 @@ bool WasapiAudioCapture::InitOnThread() {
     auto* ext = reinterpret_cast<WAVEFORMATEXTENSIBLE*>(mix);
     src_is_float_ = IsEqualGUID(ext->SubFormat, kSubformatIeeeFloat);
   }
-  if (!src_is_float_ && mix->wBitsPerSample != 16) {
-    LOG_WARN << "WASAPI: unexpected mix format tag=" << mix->wFormatTag
-             << " bits=" << mix->wBitsPerSample << " — treating as s16";
+  if (src_is_float_ && mix->wBitsPerSample == 32) {
+    src_format_ = SrcFormat::kFloat32;
+  } else if (!src_is_float_ && mix->wBitsPerSample == 16) {
+    src_format_ = SrcFormat::kInt16;
+  } else if (!src_is_float_ && mix->wBitsPerSample == 24) {
+    src_format_ = SrcFormat::kInt24;
+  } else if (!src_is_float_ && mix->wBitsPerSample == 32) {
+    src_format_ = SrcFormat::kInt32;
+  } else {
+    // Reading these as 16-bit would produce loud noise; refuse instead.
+    LOG_ERROR << "WASAPI: unsupported mix format tag=" << mix->wFormatTag
+              << " bits=" << mix->wBitsPerSample;
+    CoTaskMemFree(mix);
+    return false;
   }
   LOG_INFO << "WASAPI loopback format: src " << src_rate_ << "Hz/" << src_channels_
-           << "ch/" << (src_is_float_ ? "float32" : "s16") << " -> out "
-           << output_rate_ << "Hz/" << output_channels_ << "ch (src_is_float="
-           << (src_is_float_ ? 1 : 0) << ")";
+           << "ch/" << mix->wBitsPerSample << (src_is_float_ ? "-bit float" : "-bit int")
+           << " -> out " << output_rate_ << "Hz/" << output_channels_ << "ch s16";
 
   capture_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   if (!capture_event_) {
@@ -284,6 +334,25 @@ void WasapiAudioCapture::LogLevelWindow(std::chrono::steady_clock::time_point no
   last_level_log_ = now;
 }
 
+float WasapiAudioCapture::ReadSample(const BYTE* data, size_t index) const {
+  switch (src_format_) {
+    case SrcFormat::kFloat32:
+      return reinterpret_cast<const float*>(data)[index];
+    case SrcFormat::kInt16:
+      return reinterpret_cast<const int16_t*>(data)[index] / 32768.0f;
+    case SrcFormat::kInt24: {
+      const BYTE* b = data + index * 3;
+      const int32_t v = static_cast<int32_t>((static_cast<uint32_t>(b[0]) << 8) |
+                                             (static_cast<uint32_t>(b[1]) << 16) |
+                                             (static_cast<uint32_t>(b[2]) << 24)) >> 8;
+      return static_cast<float>(v) / 8388608.0f;
+    }
+    case SrcFormat::kInt32:
+      return static_cast<float>(reinterpret_cast<const int32_t*>(data)[index] / 2147483648.0);
+  }
+  return 0.0f;
+}
+
 void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool silent,
                                         std::chrono::steady_clock::time_point buffer_ts) {
   if (frames == 0) return;
@@ -307,21 +376,38 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
           std::chrono::steady_clock::now() - buffer_ts)
           .count();
 
-  auto sample_at = [&](UINT32 frame, int ch) -> float {
-    if (src_is_float_) {
-      return reinterpret_cast<const float*>(data)[static_cast<size_t>(frame) * src_channels_ + ch];
+  // Fold one source frame down to stereo. Mono is duplicated; 5.1/7.1 use the
+  // usual ITU-style fold-down (centre and surrounds at -3 dB, LFE dropped) with
+  // headroom so a loud film mix does not clip. Channel order is the standard
+  // WAVEFORMATEXTENSIBLE one: FL FR FC LFE BL BR SL SR.
+  auto lr_at = [&](UINT32 frame, float& l, float& r) {
+    const size_t base = static_cast<size_t>(frame) * src_channels_;
+    auto s = [&](int ch) { return ReadSample(data, base + static_cast<size_t>(ch)); };
+    constexpr float kMinus3dB = 0.7071f;
+    constexpr float kHeadroom = 0.75f;
+    switch (src_channels_) {
+      case 1: l = r = s(0); return;
+      case 2: l = s(0); r = s(1); return;
+      case 4:  // quad: FL FR BL BR
+        l = (s(0) + kMinus3dB * s(2)) * kHeadroom;
+        r = (s(1) + kMinus3dB * s(3)) * kHeadroom;
+        return;
+      default:
+        l = s(0);
+        r = s(1);
+        if (src_channels_ >= 3) { const float c = kMinus3dB * s(2); l += c; r += c; }
+        if (src_channels_ >= 6) { l += kMinus3dB * s(4); r += kMinus3dB * s(5); }
+        if (src_channels_ >= 8) { l += kMinus3dB * s(6); r += kMinus3dB * s(7); }
+        l *= kHeadroom;
+        r *= kHeadroom;
+        return;
     }
-    return reinterpret_cast<const int16_t*>(data)[static_cast<size_t>(frame) * src_channels_ + ch] / 32768.0f;
   };
 
-  // Downmix to stereo (or mono->stereo duplicate). For >2ch sources take the
-  // front L/R pair — the engine only carries stereo.
-  const int ch_l = 0;
-  const int ch_r = src_channels_ > 1 ? 1 : 0;
-
   if (src_rate_ == output_rate_ && src_channels_ == output_channels_ &&
-      output_channels_ == 2) {
-    if (!src_is_float_) {
+      output_channels_ == 2 &&
+      (src_format_ == SrcFormat::kInt16 || src_format_ == SrcFormat::kFloat32)) {
+    if (src_format_ == SrcFormat::kInt16) {
       // Fast path: device already mixes 48k s16 stereo.
       const int16_t* s16 = reinterpret_cast<const int16_t*>(data);
       const size_t count = static_cast<size_t>(frames) * 2;
@@ -364,8 +450,11 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
   while (pos + 1.0 < frame_count) {
     const UINT32 i0 = static_cast<UINT32>(pos);
     const double frac = pos - static_cast<double>(i0);
-    float l = static_cast<float>(sample_at(i0, ch_l) * (1.0 - frac) + sample_at(i0 + 1, ch_l) * frac);
-    float r = static_cast<float>(sample_at(i0, ch_r) * (1.0 - frac) + sample_at(i0 + 1, ch_r) * frac);
+    float l0, r0, l1, r1;
+    lr_at(i0, l0, r0);
+    lr_at(i0 + 1, l1, r1);
+    float l = static_cast<float>(l0 * (1.0 - frac) + l1 * frac);
+    float r = static_cast<float>(r0 * (1.0 - frac) + r1 * frac);
     l = std::max(-1.0f, std::min(1.0f, l));
     r = std::max(-1.0f, std::min(1.0f, r));
     peak = std::max(peak, std::max(std::abs(l), std::abs(r)));
@@ -383,7 +472,7 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
   FlushPending();
 }
 
-void WasapiAudioCapture::CleanupOnThread() {
+void WasapiAudioCapture::ReleaseStreamOnThread() {
   if (audio_client_) {
     audio_client_->Stop();
   }
@@ -393,8 +482,35 @@ void WasapiAudioCapture::CleanupOnThread() {
     CloseHandle(capture_event_);
     capture_event_ = nullptr;
   }
+}
+
+void WasapiAudioCapture::CleanupOnThread() {
+  ReleaseStreamOnThread();
+  if (enumerator_) {
+    if (notifier_) enumerator_->UnregisterEndpointNotificationCallback(notifier_.Get());
+    notifier_.Reset();
+    enumerator_.Reset();
+  }
   pending_.clear();
   resample_pos_ = 0.0;
+}
+
+bool WasapiAudioCapture::RestartOnThread() {
+  // A new endpoint can take a moment to appear (USB DAC, Bluetooth), so retry
+  // for a few seconds before giving up.
+  for (int attempt = 0; attempt < 20 && running_; ++attempt) {
+    ReleaseStreamOnThread();
+    if (InitOnThread()) {
+      const HRESULT hr = audio_client_->Start();
+      if (SUCCEEDED(hr)) {
+        resample_pos_ = 0.0;
+        LOG_INFO << "WASAPI: capture moved to the new default playback device";
+        return true;
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
+  return false;
 }
 #endif
 
@@ -432,6 +548,13 @@ void WasapiAudioCapture::CaptureThreadMain() {
     init_done_ = true;
 
     while (started && running_) {
+      if (device_changed_.exchange(false)) {
+        LOG_INFO << "WASAPI: default playback device changed";
+        if (!RestartOnThread()) {
+          LOG_ERROR << "WASAPI: could not reopen loopback capture after a device change";
+          break;
+        }
+      }
       DWORD wait = WaitForSingleObject(capture_event_, kIdleWakeMs);
       if (wait == WAIT_TIMEOUT) {
         // Endpoint idle: WASAPI delivers no packets, so emit exactly the
@@ -473,7 +596,14 @@ void WasapiAudioCapture::CaptureThreadMain() {
       if (wait != WAIT_OBJECT_0) break;
 
       UINT32 packet_length = 0;
-      if (FAILED(capture_client_->GetNextPacketSize(&packet_length))) break;
+      {
+        const HRESULT size_hr = capture_client_->GetNextPacketSize(&packet_length);
+        if (size_hr == AUDCLNT_E_DEVICE_INVALIDATED) {
+          device_changed_ = true;  // the endpoint went away; re-open on the next turn
+          continue;
+        }
+        if (FAILED(size_hr)) break;
+      }
       while (packet_length > 0) {
         BYTE* data = nullptr;
         UINT32 num_frames = 0;

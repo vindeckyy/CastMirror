@@ -48,6 +48,14 @@ class WasapiAudioCapture : public IAudioCapture {
   // onto the steady_clock timeline.
   void ConvertAndEmit(const BYTE* data, UINT32 frames, bool silent,
                       std::chrono::steady_clock::time_point buffer_ts);
+  // One source sample as a float in [-1, 1], for any supported device format.
+  float ReadSample(const BYTE* data, size_t index) const;
+  // Re-opens the loopback stream on the current default endpoint after the
+  // default device changed or the old one was invalidated (headphones plugged
+  // in, HDMI sink switched). Keeps the callback and timeline; returns false if
+  // no endpoint could be opened within the retry budget.
+  bool RestartOnThread();
+  void ReleaseStreamOnThread();
   void EmitSilenceFrames(int samples, std::chrono::steady_clock::time_point ts);
   void FlushPending();
   // Samples per channel in one emitted frame (10 ms at output_rate_) and that
@@ -83,7 +91,14 @@ class WasapiAudioCapture : public IAudioCapture {
   HANDLE capture_event_ = nullptr;
 
   // Device mix format (owned by the worker thread).
+  enum class SrcFormat { kFloat32, kInt16, kInt24, kInt32 };
+  SrcFormat src_format_ = SrcFormat::kFloat32;
   bool src_is_float_ = false;
+  // Set by the endpoint notification client (any thread) when the default
+  // render device changes; the capture loop then re-opens the stream.
+  std::atomic<bool> device_changed_{false};
+  Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator_;
+  Microsoft::WRL::ComPtr<IMMNotificationClient> notifier_;
   int src_rate_ = 48000;
   int src_channels_ = 2;
   int output_rate_ = 48000;

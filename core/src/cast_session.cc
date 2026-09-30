@@ -935,6 +935,22 @@ void CastSession::AdaptationLoop() {
         }
         InjectSilenceAudioFrame();
       }
+
+      // The capture thread ends when its endpoint disappears and cannot be
+      // reopened (device removed, driver reset). Keep trying to bring audio
+      // back instead of leaving the TV on silence for the rest of the session.
+      const auto retry_now = std::chrono::steady_clock::now();
+      if (retry_now - last_audio_restart_ >= std::chrono::seconds(3)) {
+        std::lock_guard<std::mutex> audio_lock(audio_mutex_);
+        if (audio_capture_ && !audio_capture_->IsCapturing() && is_streaming_.load()) {
+          last_audio_restart_ = retry_now;
+          if (audio_capture_->Start(48000, 2)) {
+            LOG_INFO << "Audio capture restarted";
+          } else {
+            LOG_WARN << "Audio capture is down; retrying in 3 s";
+          }
+        }
+      }
     }
 
     MaybeLogSessionStats();

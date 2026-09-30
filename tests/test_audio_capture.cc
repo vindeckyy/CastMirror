@@ -197,3 +197,28 @@ TEST(ThreadUtilTest, JoinOrDetachDetachesWhenCalledFromTheWorkerItself) {
   ASSERT_TRUE(returned.load()) << "JoinOrDetach did not return when invoked from the worker";
   EXPECT_FALSE(worker.joinable()) << "the worker must have detached itself";
 }
+
+#if defined(_WIN32)
+// Smoke test for the real loopback backend. Machines without a playback
+// endpoint (CI runners) cannot open it, so a failed Start() skips.
+TEST(AudioCaptureTest, WasapiLoopbackStartsDeliversTenMsFramesAndStops) {
+  auto capture = AudioCaptureFactory::Create();
+  ASSERT_NE(capture, nullptr);
+  std::atomic<int> frames{0};
+  std::atomic<bool> bad_shape{false};
+  capture->SetAudioCallback([&](const CapturedAudioFrame& f) {
+    if (f.sample_rate != 48000 || f.channels != 2 || f.samples_per_channel != 480 ||
+        f.pcm_data.size() != 480u * 2u * sizeof(int16_t)) {
+      bad_shape = true;
+    }
+    ++frames;
+  });
+  if (!capture->Start(48000, 2)) GTEST_SKIP() << "no loopback endpoint on this machine";
+  EXPECT_TRUE(capture->IsCapturing());
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  capture->Stop();
+  EXPECT_FALSE(capture->IsCapturing());
+  EXPECT_GT(frames.load(), 20) << "an idle endpoint must still produce silence frames";
+  EXPECT_FALSE(bad_shape.load());
+}
+#endif
