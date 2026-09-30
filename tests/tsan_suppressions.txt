@@ -1,0 +1,3 @@
+# ThreadSanitizer suppressions for the CI TSan job (ci.yml, TSAN_OPTIONS=suppressions=...).
+# Empty on purpose: every report is a finding. Add a line here only with a comment naming the
+# race, why it is benign, and the issue that tracks removing the suppression.

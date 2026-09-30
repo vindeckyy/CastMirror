@@ -18,6 +18,11 @@ echo "Scanning GUI sources in: ${GUI_SRC_DIR}"
 WARNINGS=0
 CHECKED=0
 
+# clang-format wraps long calls across lines, so match on the sources with all
+# whitespace runs collapsed to one space instead of on single lines.
+GUI_FLAT="$(cat "${GUI_SRC_DIR}"/*.cc | tr -s "[:space:]" " ")"
+GUI_APP_FLAT="$(tr -s "[:space:]" " " < "${GUI_SRC_DIR}/gui_app.cc")"
+
 # 1. Audit icon-only button instantiations
 echo ""
 echo "[1/3] Auditing icon-only button tooltips & accessible properties..."
@@ -38,7 +43,7 @@ ICON_BUTTONS=(
 for btn in "${ICON_BUTTONS[@]}"; do
   CHECKED=$((CHECKED + 1))
   # Check tooltip
-  if ! grep -q "gtk_widget_set_tooltip_text(${btn}" "${GUI_SRC_DIR}"/*.cc; then
+  if ! grep -Eq "gtk_widget_set_tooltip_text\( ?${btn}" <<<"${GUI_FLAT}"; then
     echo "  [FAIL] ${btn} is missing gtk_widget_set_tooltip_text"
     WARNINGS=$((WARNINGS + 1))
   else
@@ -46,8 +51,7 @@ for btn in "${ICON_BUTTONS[@]}"; do
   fi
 
   # Check accessible property / label
-  if ! grep -q "${btn}.*GTK_ACCESSIBLE" "${GUI_SRC_DIR}"/*.cc && \
-     ! grep -q "GTK_ACCESSIBLE(${btn})" "${GUI_SRC_DIR}"/*.cc; then
+  if ! grep -Eq "GTK_ACCESSIBLE\( ?${btn} ?\)" <<<"${GUI_FLAT}"; then
     echo "  [FAIL] ${btn} is missing gtk_accessible_update_property label"
     WARNINGS=$((WARNINGS + 1))
   else
@@ -58,7 +62,7 @@ done
 # 2. Check for unlabeled custom buttons
 echo ""
 echo "[2/3] Checking primary action buttons..."
-if grep -q "cast_button_.*GTK_ACCESSIBLE" "${GUI_SRC_DIR}"/gui_app.cc || grep -q "GTK_ACCESSIBLE(cast_button_)" "${GUI_SRC_DIR}"/gui_app.cc; then
+if grep -Eq "GTK_ACCESSIBLE\( ?cast_button_ ?\)" <<<"${GUI_APP_FLAT}"; then
   echo "  [PASS] cast_button_ has accessible property configured"
 else
   echo "  [FAIL] cast_button_ is missing accessible property"

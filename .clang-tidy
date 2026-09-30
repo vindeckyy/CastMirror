@@ -27,9 +27,6 @@ WarningsAsErrors: ''
 # protobuf, nlohmann, ...) never match, so they are silent without an exclude list.
 HeaderFilterRegex: '.*/(core|app|tools|tests)/.*\.(h|hpp|hh|hxx)$'
 
-# Vendored / third-party trees that do live under the repo root.
-ExcludeHeaderFilterRegex: '.*(third_party|_deps|node_modules|/vcpkg/|/msys64/|/mingw64/|/usr/include/|/usr/local/include/|/opt/homebrew/|/Library/Developer/|/Applications/Xcode).*'
-
 CheckOptions:
   # Raw allocations that are released by hand are the point of the check; keep
   # arrays in scope rather than silently skipping them.

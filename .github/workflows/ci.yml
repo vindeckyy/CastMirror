@@ -133,6 +133,11 @@ jobs:
             -DCASTMIRROR_BUILD_GUI=OFF -DCASTMIRROR_ENABLE_TRAY=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
+      # clang-tidy needs the generated protobuf header on disk, and CMake only writes it when
+      # the target is built.
+      - name: Generate protobuf sources
+        run: ninja -C build-tidy core/cast_channel.pb.h core/cast_channel.pb.cc
+
       # Reported, not enforced: the point on the first run is to publish the
       # backlog rather than block every PR on pre-existing findings.
       - name: clang-tidy
