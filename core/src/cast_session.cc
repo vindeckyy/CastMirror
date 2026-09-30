@@ -11,6 +11,10 @@
 #include <cstring>
 #include <vector>
 
+#if defined(_WIN32)
+#include <objbase.h>
+#endif
+
 namespace castcore {
 
 namespace {
@@ -557,6 +561,16 @@ void CastSession::QueueCapturedVideoFrame(CapturedVideoFrame frame) {
 }
 
 void CastSession::VideoEncodeLoop() {
+#if defined(_WIN32)
+  // Media Foundation transforms and COM-based capture objects are created and
+  // used on this thread; it must be in the multithreaded apartment explicitly
+  // rather than relying on whatever the process happened to initialise.
+  const HRESULT com_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  struct ComScope {
+    bool owned;
+    ~ComScope() { if (owned) CoUninitialize(); }
+  } com_scope{SUCCEEDED(com_hr)};
+#endif
   while (is_streaming_.load() && !stop_requested_.load()) {
     CapturedVideoFrame frame;
     {

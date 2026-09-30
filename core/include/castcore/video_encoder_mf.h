@@ -72,6 +72,15 @@ class MediaFoundationVideoEncoder : public IVideoEncoder {
   // Copies one MFT output sample's bytes and clean-point flag into
   // out_encoded_frame. Does not take ownership of sample.
   bool CopyOutputSample(IMFSample* sample, EncodedFrame& out_encoded_frame);
+  // Asynchronous MFTs (every GPU vendor's hardware encoder) reject
+  // ProcessInput/ProcessOutput until unlocked, then drive the caller through
+  // METransformNeedInput/HaveOutput events. PumpEvents() folds pending events
+  // into need_input_/have_output_, waiting up to wait_ms for the first one.
+  void EnableAsyncMode();
+  void PumpEvents(int wait_ms);
+  // Copies the codec's SPS/PPS from the negotiated output type, so key frames
+  // can be made self-describing when the MFT leaves them out of the bitstream.
+  void CaptureSequenceHeader();
 #endif
 
   VideoEncoderConfig config_;
@@ -111,6 +120,12 @@ class MediaFoundationVideoEncoder : public IVideoEncoder {
   MFT_OUTPUT_STREAM_INFO output_info_{};
   bool have_output_info_ = false;
   bool output_provides_samples_ = false;
+
+  bool async_mft_ = false;
+  Microsoft::WRL::ComPtr<IMFMediaEventGenerator> event_gen_;
+  int need_input_ = 0;
+  int have_output_ = 0;
+  std::vector<uint8_t> sequence_header_;  // Annex-B SPS+PPS, may be empty
 #endif
 };
 

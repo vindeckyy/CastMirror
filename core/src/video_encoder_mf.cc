@@ -5,8 +5,11 @@
 #include <codecapi.h>
 #include <mferror.h>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <mutex>
+#include <thread>
+#include <vector>
 #endif
 
 namespace castcore {
@@ -36,6 +39,10 @@ void MediaFoundationVideoEncoder::Cleanup() {
   output_buffer_size_ = 0;
   have_output_info_ = false;
   output_provides_samples_ = false;
+  async_mft_ = false;
+  event_gen_.Reset();
+  need_input_ = have_output_ = 0;
+  sequence_header_.clear();
 #endif
 }
 
@@ -76,10 +83,76 @@ bool MediaFoundationVideoEncoder::SetInputType() {
   return false;
 }
 
+void MediaFoundationVideoEncoder::EnableAsyncMode() {
+  async_mft_ = false;
+  event_gen_.Reset();
+  need_input_ = have_output_ = 0;
+  Microsoft::WRL::ComPtr<IMFAttributes> attrs;
+  if (FAILED(mft_->GetAttributes(&attrs)) || !attrs) return;
+  UINT32 is_async = 0;
+  if (FAILED(attrs->GetUINT32(MF_TRANSFORM_ASYNC, &is_async)) || !is_async) return;
+  // Without this, the first ProcessInput fails with
+  // MF_E_TRANSFORM_ASYNC_MFT_NOT_SUPPORTED and the stream never produces video.
+  attrs->SetUINT32(MF_TRANSFORM_ASYNC_UNLOCK, TRUE);
+  attrs->SetUINT32(MF_LOW_LATENCY, TRUE);
+  if (SUCCEEDED(mft_.As(&event_gen_)) && event_gen_) {
+    async_mft_ = true;
+  }
+}
+
+void MediaFoundationVideoEncoder::PumpEvents(int wait_ms) {
+  if (!event_gen_) return;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
+  for (;;) {
+    Microsoft::WRL::ComPtr<IMFMediaEvent> ev;
+    HRESULT hr = event_gen_->GetEvent(MF_EVENT_FLAG_NO_WAIT, &ev);
+    if (SUCCEEDED(hr) && ev) {
+      MediaEventType type = MEUnknown;
+      ev->GetType(&type);
+      if (type == METransformNeedInput) ++need_input_;
+      else if (type == METransformHaveOutput) ++have_output_;
+      continue;  // keep draining whatever is queued
+    }
+    if (hr != MF_E_NO_EVENTS_AVAILABLE) return;  // generator shut down or failed
+    if (wait_ms <= 0 || need_input_ > 0 || have_output_ > 0 ||
+        std::chrono::steady_clock::now() >= deadline) {
+      return;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+}
+
+void MediaFoundationVideoEncoder::CaptureSequenceHeader() {
+  sequence_header_.clear();
+  Microsoft::WRL::ComPtr<IMFMediaType> mt;
+  if (FAILED(mft_->GetOutputCurrentType(output_stream_id_, &mt)) || !mt) return;
+  UINT32 size = 0;
+  if (FAILED(mt->GetBlobSize(MF_MT_MPEG_SEQUENCE_HEADER, &size)) || size == 0) return;
+  std::vector<uint8_t> blob(size);
+  if (SUCCEEDED(mt->GetBlob(MF_MT_MPEG_SEQUENCE_HEADER, blob.data(), size, nullptr))) {
+    sequence_header_ = std::move(blob);
+  }
+}
+
+namespace {
+// True when the Annex-B buffer carries an SPS (NAL type 7) in its first bytes.
+bool HasSpsNal(const uint8_t* d, size_t n) {
+  const size_t limit = std::min<size_t>(n, 256);
+  for (size_t i = 0; i + 3 < limit; ++i) {
+    if (d[i] == 0 && d[i + 1] == 0 && (d[i + 2] == 1 || (d[i + 2] == 0 && d[i + 3] == 1))) {
+      const size_t nal = i + (d[i + 2] == 1 ? 3 : 4);
+      if (nal < n && (d[nal] & 0x1F) == 7) return true;
+    }
+  }
+  return false;
+}
+}  // namespace
+
 bool MediaFoundationVideoEncoder::ConfigureMft(IMFActivate* activate) {
   mft_.Reset();
   codec_api_.Reset();
   if (FAILED(activate->ActivateObject(IID_PPV_ARGS(&mft_))) || !mft_) return false;
+  EnableAsyncMode();
 
   // Some MFTs use non-zero stream identifiers.
   mft_->GetStreamIDs(1, &input_stream_id_, 1, &output_stream_id_);
@@ -107,6 +180,18 @@ bool MediaFoundationVideoEncoder::ConfigureMft(IMFActivate* activate) {
     v.ulVal = eAVEncCommonRateControlMode_CBR;
     codec_api_->SetValue(&CODECAPI_AVEncCommonRateControlMode, &v);
 
+    // No B-frames: the frame-dependency model (each frame references the
+    // previous one) and the low-latency budget both assume in-order output.
+    VariantInit(&v);
+    v.vt = VT_UI4;
+    v.ulVal = 0;
+    codec_api_->SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &v);
+
+    VariantInit(&v);
+    v.vt = VT_BOOL;
+    v.boolVal = VARIANT_TRUE;
+    codec_api_->SetValue(&CODECAPI_AVEncCommonLowLatency, &v);
+
     if (config_.gop_size > 0) {
       VariantInit(&v);
       v.vt = VT_UI4;
@@ -117,6 +202,7 @@ bool MediaFoundationVideoEncoder::ConfigureMft(IMFActivate* activate) {
 
   mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
   mft_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+  CaptureSequenceHeader();
   return true;
 }
 #endif
@@ -396,6 +482,13 @@ bool MediaFoundationVideoEncoder::CopyOutputSample(IMFSample* sample,
   UINT32 clean = 0;
   if (SUCCEEDED(sample->GetUINT32(MFSampleExtension_CleanPoint, &clean)) && clean) {
     out_encoded_frame.dependency = FrameDependency::kKeyFrame;
+    // A receiver that joins or recovers on this key frame needs SPS/PPS in the
+    // bitstream. Some MFTs only publish them in the media type, so add them.
+    if (!sequence_header_.empty() &&
+        !HasSpsNal(out_encoded_frame.data.data(), out_encoded_frame.data.size())) {
+      out_encoded_frame.data.insert(out_encoded_frame.data.begin(),
+                                    sequence_header_.begin(), sequence_header_.end());
+    }
   }
   return true;
 }
@@ -421,24 +514,28 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
   // The MFT copies the input sample during ProcessInput, so one buffer and one
   // sample serve every frame: the conversion writes straight into the locked
   // media buffer and there is no per-frame allocation or intermediate copy.
+  // Frame ids are assigned only to frames that actually come out of the
+  // encoder. Advancing the counter on a miss left a hole the next dependent
+  // frame pointed at, so the receiver stalled until the next key frame. After
+  // any miss the following frame is a key frame instead.
   if (!EnsureInputBuffer()) {
-    ++next_frame_id_;
+    force_keyframe_ = true;
     return false;
   }
   BYTE* dst = nullptr;
   if (FAILED(input_buffer_->Lock(&dst, nullptr, nullptr)) || dst == nullptr) {
-    ++next_frame_id_;
+    force_keyframe_ = true;
     return false;
   }
   const bool converted = ConvertInput(frame, dst);
   input_buffer_->Unlock();
   if (!converted) {
-    ++next_frame_id_;
+    force_keyframe_ = true;
     return false;
   }
   const DWORD buf_len = static_cast<DWORD>(InputBufferSize());
   if (FAILED(input_buffer_->SetCurrentLength(buf_len))) {
-    ++next_frame_id_;
+    force_keyframe_ = true;
     return false;
   }
 
@@ -454,6 +551,16 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
     codec_api_->SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &v);
   }
 
+  if (async_mft_) {
+    // The MFT announces readiness for input; submitting earlier is an error.
+    PumpEvents(50);
+    if (need_input_ <= 0) {
+      LOG_WARN << "Async MFT did not request input within 50 ms";
+      force_keyframe_ = true;
+      return false;
+    }
+    --need_input_;
+  }
   HRESULT hr = mft_->ProcessInput(input_stream_id_, input_sample_.Get(), 0);
   if (want_key && codec_api_) {
     VARIANT v;
@@ -471,15 +578,22 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
   if (FAILED(hr)) {
     LOG_WARN << "MFT ProcessInput failed: hr=0x" << std::hex << hr << std::dec;
     force_keyframe_ = true;
-    ++next_frame_id_;
     return false;
   }
 
   out_encoded_frame.dependency = FrameDependency::kDependent;
   out_encoded_frame.data.clear();
+  if (async_mft_) {
+    PumpEvents(50);
+    if (have_output_ <= 0) {
+      force_keyframe_ = true;  // input was consumed; make the next frame self-contained
+      return false;
+    }
+    --have_output_;
+  }
   if (!DrainOutput(out_encoded_frame)) {
-    // The MFT buffered the input (latency warmup); no packet this call.
-    ++next_frame_id_;
+    // The MFT buffered the input (latency warmup); no packet this call, and no
+    // frame id is spent on it.
     return false;
   }
   ++next_frame_id_;

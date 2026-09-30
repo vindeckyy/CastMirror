@@ -685,10 +685,13 @@ class FFmpegVideoEncoder : public IVideoEncoder {
 class WindowsVideoEncoder : public IVideoEncoder {
  public:
   bool Initialize(const VideoEncoderConfig& config) override {
+    config_ = config;
+    mf_failures_ = 0;
     if (config.codec == VideoCodec::kH264 && !SoftwareEncodeForced()) {
       auto mf = std::make_unique<MediaFoundationVideoEncoder>();
       if (mf->Initialize(config)) {
         active_ = std::move(mf);
+        using_mf_ = true;
         return true;
       }
       LOG_INFO << "Media Foundation H.264 unavailable; using FFmpeg encoder";
@@ -696,11 +699,14 @@ class WindowsVideoEncoder : public IVideoEncoder {
     auto ff = std::make_unique<FFmpegVideoEncoder>();
     if (!ff->Initialize(config)) return false;
     active_ = std::move(ff);
+    using_mf_ = false;
     return true;
   }
 
   bool Reconfigure(const VideoEncoderConfig& config) override {
     if (!active_) return Initialize(config);
+    config_ = config;
+    mf_failures_ = 0;
     if (active_->Reconfigure(config)) return true;
     // Backend can't reopen at the new config (e.g. MF MFT vanished) — retry
     // the full MF->FFmpeg selection before giving up.
@@ -708,12 +714,37 @@ class WindowsVideoEncoder : public IVideoEncoder {
   }
 
   bool Encode(const CapturedVideoFrame& frame, EncodedFrame& out) override {
-    return active_ && active_->Encode(frame, out);
+    if (!active_) return false;
+    const bool ok = active_->Encode(frame, out);
+    if (!using_mf_) return ok;
+    if (ok) {
+      mf_failures_ = 0;
+      mf_produced_ = true;
+      return true;
+    }
+    // A hardware MFT that opened but never yields a frame (driver quirk, a
+    // transform that stays locked) would otherwise leave the TV on a black
+    // screen with no error. Give it a generous warm-up, then move to libx264.
+    const int limit = mf_produced_ ? kMfFailuresAfterSuccess : kMfFailuresBeforeFirstFrame;
+    if (++mf_failures_ >= limit) {
+      LOG_WARN << "Media Foundation encoder produced no output for " << mf_failures_
+               << " consecutive frames; switching to the software encoder";
+      auto ff = std::make_unique<FFmpegVideoEncoder>();
+      if (ff->Initialize(config_)) {
+        ff->SetClockOrigin(clock_origin_);
+        ff->ForceKeyFrame();
+        active_ = std::move(ff);
+        using_mf_ = false;
+      }
+      mf_failures_ = 0;
+    }
+    return false;
   }
   void ForceKeyFrame() override { if (active_) active_->ForceKeyFrame(); }
   void SetBitrate(uint32_t kbps) override { if (active_) active_->SetBitrate(kbps); }
   void SetFramerate(int fps) override { if (active_) active_->SetFramerate(fps); }
   void SetClockOrigin(std::chrono::steady_clock::time_point o) override {
+    clock_origin_ = o;
     if (active_) active_->SetClockOrigin(o);
   }
   std::string EncoderName() const override {
@@ -724,8 +755,16 @@ class WindowsVideoEncoder : public IVideoEncoder {
   }
 
  private:
+  static constexpr int kMfFailuresBeforeFirstFrame = 90;   // ~1.5 s at 60 fps
+  static constexpr int kMfFailuresAfterSuccess = 300;      // ~5 s at 60 fps
+
   std::unique_ptr<IVideoEncoder> active_;
   VideoEncoderConfig empty_config_{};
+  VideoEncoderConfig config_{};
+  std::chrono::steady_clock::time_point clock_origin_{};
+  bool using_mf_ = false;
+  bool mf_produced_ = false;
+  int mf_failures_ = 0;
 };
 #endif
 
