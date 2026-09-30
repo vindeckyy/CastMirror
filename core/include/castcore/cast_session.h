@@ -134,6 +134,8 @@ class CastSession {
   std::condition_variable cv_;
   bool answer_received_ = false;
   bool launch_received_ = false;
+  bool answer_failed_ = false;  // guarded by cv_mutex_
+  std::atomic<bool> launch_sent_{false};
 
   std::mutex video_queue_mutex_;
   std::condition_variable video_queue_cv_;

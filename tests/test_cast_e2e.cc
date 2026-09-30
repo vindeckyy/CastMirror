@@ -111,6 +111,9 @@ class TestReceiverServer {
     simulated_loss_rate_.store(std::clamp(loss_fraction, 0.0, 1.0));
   }
 
+  // Answer the next OFFERs with {"result":"error"} to exercise fast-fail.
+  void SetRejectOffer(bool reject) { reject_offer_.store(reject); }
+
   void SetSimulatedJitter(int min_ms, int max_ms) {
     jitter_min_ms_.store(std::max(0, min_ms));
     jitter_max_ms_.store(std::max(min_ms, max_ms));
@@ -400,11 +403,15 @@ class TestReceiverServer {
                   nlohmann::json ans;
                   ans["type"] = "ANSWER";
                   ans["seqNum"] = j.value("seqNum", 1001);
-                  ans["result"] = "ok";
-                  ans["answer"]["castMode"] = "mirroring";
-                  ans["answer"]["udpPort"] = udp_port_;
-                  ans["answer"]["sendIndexes"] = nlohmann::json::array({0, 1});
-                  ans["answer"]["ssrcs"] = nlohmann::json::array({10001, 10002});
+                  if (reject_offer_.load()) {
+                    ans["result"] = "error";
+                  } else {
+                    ans["result"] = "ok";
+                    ans["answer"]["castMode"] = "mirroring";
+                    ans["answer"]["udpPort"] = udp_port_;
+                    ans["answer"]["sendIndexes"] = nlohmann::json::array({0, 1});
+                    ans["answer"]["ssrcs"] = nlohmann::json::array({10001, 10002});
+                  }
                   SendMsg(ssl, kNamespaceWebrtc, ans.dump(), in_msg.destination_id(), in_msg.source_id());
                 }
               } catch (...) {}
@@ -488,6 +495,7 @@ class TestReceiverServer {
   uint16_t tls_port_ = 0;
   uint16_t udp_port_ = 0;
   std::string bound_ip_ = "127.0.0.1";
+  std::atomic<bool> reject_offer_{false};
   std::atomic<bool> running_{false};
   std::atomic<bool> is_ready_{false};
   std::atomic<uint32_t> packets_received_{0};
@@ -989,6 +997,40 @@ TEST(CastE2ETest, StateCallbackMayReadStatsAndStopMayCancelStart) {
   engine.StopCasting();
 
   engine.SetOnStateChanged(nullptr);
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+// A receiver that answers {"result":"error"} must fail the start immediately,
+// not after the full answer timeout.
+TEST(CastE2ETest, RejectedOfferFailsFast) {
+  TestReceiverServer server;
+  server.Start();
+  server.SetRejectOffer(true);
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+  ConfigStore::Instance().Mutable().answer_timeout_s = 10;
+
+  CastDevice dev;
+  dev.id = "test-e2e-reject-device";
+  dev.name = "Reject Test TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  const auto t0 = std::chrono::steady_clock::now();
+  EXPECT_FALSE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  const auto elapsed = std::chrono::steady_clock::now() - t0;
+  EXPECT_LT(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count(), 5)
+      << "an error ANSWER must not wait out answer_timeout_s";
+
+  engine.StopCasting();
   engine.Shutdown();
   ConfigStore::Instance().Mutable() = saved_cfg;
   ConfigStore::Instance().Save();

@@ -640,9 +640,12 @@ void CastChannel::ReceiveLoop() {
                        (static_cast<uint32_t>(len_buf[2]) << 8) |
                        static_cast<uint32_t>(len_buf[3]);
 
-    if (msg_len == 0 || msg_len > 64 * 1024 * 1024) {
+    // The Cast protocol caps a message at 64 KiB; 1 MiB leaves generous slack
+    // while keeping a hostile length prefix from allocating tens of megabytes.
+    if (msg_len == 0 || msg_len > 1024 * 1024) {
       LOG_ERROR << "Invalid CastMessage size: " << msg_len;
       is_connected_ = false;
+      NotifyDisconnected("Invalid message size from receiver");
       return;
     }
 

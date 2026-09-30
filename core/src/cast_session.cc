@@ -137,8 +137,13 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     std::lock_guard<std::mutex> qlock(video_queue_mutex_);
     pending_video_frame_.reset();
   }
-  answer_received_ = false;
-  launch_received_ = false;
+  {
+    std::lock_guard<std::mutex> lk(cv_mutex_);
+    answer_received_ = false;
+    answer_failed_ = false;
+    launch_received_ = false;
+  }
+  launch_sent_ = false;
   lock.unlock();
 
   state_machine_.TransitionTo(SessionState::kConnecting, "Connecting to " + device.name);
@@ -298,8 +303,15 @@ bool CastSession::NegotiateControlPlane() {
   const char* app_id = (enable_audio_ && !target_device_.HasVideoOut())
       ? kCastMirroringAudioOnlyAppId : kCastMirroringAudioVideoAppId;
 
-  launch_received_ = false;
-  answer_received_ = false;
+  {
+    std::lock_guard<std::mutex> lk(cv_mutex_);
+    launch_received_ = false;
+    answer_received_ = false;
+    answer_failed_ = false;
+  }
+  // Statuses that arrive before our LAUNCH describe whatever was already
+  // running on the TV; only ones after this point can confirm our launch.
+  launch_sent_ = true;
   launch_request_id_ = cast_channel_->LaunchApp(app_id);
 
   {
@@ -337,14 +349,14 @@ bool CastSession::NegotiateControlPlane() {
     int answer_s = ConfigStore::Instance().Get().answer_timeout_s > 0 ? ConfigStore::Instance().Get().answer_timeout_s : 5;
     std::unique_lock<std::mutex> lk(cv_mutex_);
     if (!cv_.wait_for(lk, std::chrono::seconds(answer_s), [this] {
-          return answer_received_ || stop_requested_.load() || fail_requested_.load();
+          return answer_received_ || answer_failed_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for ANSWER from " << target_device_.name;
       return false;
     }
   }
 
-  return !stop_requested_ && !fail_requested_;
+  return answer_received_ && !stop_requested_ && !fail_requested_;
 }
 
 bool CastSession::StartStreamingMedia() {
@@ -1206,7 +1218,6 @@ void CastSession::Stop() {
 
 void CastSession::OnChannelMessage(const std::string& ns, const std::string& payload,
                                   const std::string& src_id, const std::string& dest_id) {
-  (void)src_id;
   (void)dest_id;
   if (ns == kNamespaceReceiver) {
     HandleReceiverStatus(payload);
@@ -1216,8 +1227,15 @@ void CastSession::OnChannelMessage(const std::string& ns, const std::string& pay
     try {
       auto j = nlohmann::json::parse(payload);
       if (j.value("type", "") == "CLOSE" && !stop_requested_.load()) {
-        LOG_WARN << "Receiver sent CLOSE during active session";
-        RequestReconnect("Receiver closed connection");
+        if (!app_transport_id_.empty() && src_id == app_transport_id_) {
+          // The mirroring app itself closed (Back on the TV remote, another
+          // app took over). Relaunching would fight the user, so end the cast.
+          LOG_INFO << "Mirroring app closed on the receiver; ending the session";
+          FailSession("The cast was ended on the TV");
+        } else {
+          LOG_WARN << "Receiver sent CLOSE during active session";
+          RequestReconnect("Receiver closed connection");
+        }
       }
     } catch (...) {}
   }
@@ -1237,6 +1255,9 @@ void CastSession::HandleReceiverStatus(const std::string& payload) {
       return;
     }
 
+    if (!launch_sent_.load()) {
+      return;
+    }
     const auto& apps = j["status"]["applications"];
     if (apps.is_array() && !apps.empty()) {
       for (const auto& app : apps) {
@@ -1245,11 +1266,11 @@ void CastSession::HandleReceiverStatus(const std::string& payload) {
             app_id == "85CDB22F" || app_id == "0F5096E8") {
           app_session_id_ = app.value("sessionId", "");
           app_transport_id_ = app.value("transportId", "");
-          launch_received_ = true;
           LOG_INFO << "Mirroring App confirmed running! appId: " << app_id
                    << ", sessionId: " << app_session_id_
                    << ", transportId: " << app_transport_id_;
           std::lock_guard<std::mutex> lk(cv_mutex_);
+          launch_received_ = true;
           cv_.notify_all();
           break;
         }
@@ -1263,11 +1284,24 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
     auto j = nlohmann::json::parse(payload);
     std::string type = j.value("type", "");
     if (type == "ANSWER") {
-      if (MirroringNegotiator::ParseAnswerJson(payload, video_keys_, audio_keys_, negotiated_params_)) {
-        answer_received_ = true;
-        std::lock_guard<std::mutex> lk(cv_mutex_);
-        cv_.notify_all();
+      // An ANSWER for some other OFFER (stale, or a duplicate after a
+      // reconnect) must not be taken as the reply to the one we just sent.
+      if (j.contains("seqNum") && j["seqNum"].is_number_integer() &&
+          j["seqNum"].get<int>() != offer_seq_num_) {
+        LOG_WARN << "Ignoring ANSWER for seqNum " << j["seqNum"].get<int>()
+                 << " (expected " << offer_seq_num_ << ")";
+        return;
       }
+      NegotiatedSessionParams params;
+      const bool ok = MirroringNegotiator::ParseAnswerJson(payload, video_keys_, audio_keys_, params);
+      std::lock_guard<std::mutex> lk(cv_mutex_);
+      if (ok) {
+        negotiated_params_ = params;
+        answer_received_ = true;
+      } else {
+        answer_failed_ = true;  // fail fast instead of waiting out the answer timeout
+      }
+      cv_.notify_all();
     } else if (type == "GET_STATUS") {
       int seq = j.value("seqNum", 0);
       std::string status_json = MirroringNegotiator::CreateStatusJson(seq, GetStats());
