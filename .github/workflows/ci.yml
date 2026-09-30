@@ -39,7 +39,7 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: xvfb-run -a ./tests/castmirror_tests
+        run: xvfb-run -a ctest --output-on-failure --timeout 120
 
       - name: License Surface & GPL Hygiene Check
         run: ./scripts/check_license_surface.sh
@@ -47,6 +47,112 @@ jobs:
       - name: Accessibility Audit
         run: ./scripts/audit_a11y.sh
 
+  cast-app-id-drift:
+    name: Cast App ID Drift (scheduled)
+    # Cron, not on-push: upstream Chromium changes these IDs rarely but
+    # unpredictably, and the product cannot work at all if one moves.
+    schedule:
+      - cron: '17 6 * * 1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check cast_app_ids.h against Chromium HEAD
+        run: ./scripts/fetch_cast_appids.sh --check
+
+      - name: Explain the failure
+        if: failure()
+        run: |
+          echo '::error::cast_app_ids.h has drifted from upstream Chromium.'
+          echo 'Run scripts/fetch_cast_appids.sh and open a PR.'
+
+  fuzz:
+    name: libFuzzer (RTCP + mDNS parsers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # These two harnesses cover the only untrusted input in the product: the
+      # RTCP feedback parser and the mDNS TXT parser, both fed straight off the
+      # LAN. They existed under tests/fuzz/ but no job ever built them, so the
+      # gate was dead code.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev \
+            libxrandr-dev libxfixes-dev libxcomposite-dev libxdamage-dev \
+            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev \
+            libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev
+
+      - name: Build fuzzers
+        run: |
+          cmake -S . -B build-fuzz -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCASTMIRROR_BUILD_GUI=OFF \
+            -DCASTMIRROR_ENABLE_TRAY=OFF \
+            -DCASTMIRROR_BUILD_FUZZERS=ON \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build-fuzz -j"$(nproc)"
+
+      - name: Run fuzzers
+        run: |
+          for h in build-fuzz/tests/fuzz/fuzz_*; do
+            echo "::group::$h"
+            "$h" -max_total_time=60 -timeout=25 -rss_limit_mb=2048 || exit 1
+            echo "::endgroup::"
+          done
+
+      - name: Upload fuzzing artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzzing-artifacts
+          path: build-fuzz/tests/fuzz/
+
+  style:
+    name: clang-format / clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang clang-tidy cmake ninja-build pkg-config protobuf-compiler \
+            libprotobuf-dev libssl-dev libopus-dev libpulse-dev libx11-dev \
+            libxext-dev libxrandr-dev libxfixes-dev libxcomposite-dev \
+            libxdamage-dev libva-dev libpipewire-0.3-dev libglib2.0-dev \
+            libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev \
+            libgtest-dev
+
+      # .clang-format and .clang-tidy are committed but were never run by any
+      # workflow, so both configs were decorative.
+      - name: clang-format check
+        run: |
+          find core app tools tests \( -name '*.cc' -o -name '*.h' \) | \
+            xargs clang-format --dry-run -Werror
+
+      - name: Configure compilation database
+        run: |
+          cmake -S . -B build-tidy -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCASTMIRROR_BUILD_GUI=OFF -DCASTMIRROR_ENABLE_TRAY=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      # Reported, not enforced: the point on the first run is to publish the
+      # backlog rather than block every PR on pre-existing findings.
+      - name: clang-tidy
+        run: run-clang-tidy -p build-tidy
+
+      - name: Upload tidy results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-tidy-results
+          path: build-tidy/**
   build-test-asan:
     name: Ubuntu ASan / UBSan Debug
     runs-on: ubuntu-latest
@@ -79,7 +185,7 @@ jobs:
 
       - name: Test
         working-directory: build-asan
-        run: ASAN_OPTIONS=detect_leaks=0 CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
+        run: ASAN_OPTIONS=detect_leaks=0 CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ctest --output-on-failure --timeout 300
 
   build-test-tsan:
     name: Ubuntu TSan Debug
@@ -113,7 +219,7 @@ jobs:
 
       - name: Test
         working-directory: build-tsan
-        run: TSAN_OPTIONS="suppressions=${GITHUB_WORKSPACE}/tests/tsan_suppressions.txt" CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
+        run: TSAN_OPTIONS="suppressions=${GITHUB_WORKSPACE}/tests/tsan_suppressions.txt" CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ctest --output-on-failure --timeout 600
 
   coverage:
     name: Code Coverage
@@ -147,12 +253,23 @@ jobs:
 
       - name: Run Tests
         working-directory: build-cov
-        run: CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ./tests/castmirror_tests
+        run: CASTMIRROR_FORCE_SOFTWARE_ENCODE=1 xvfb-run -a ctest --output-on-failure --timeout 300
 
+      # --fail-under-line makes this job able to FAIL. Without it the job only
+      # produced an HTML artifact, so coverage could silently regress forever.
+      # CASTMIRROR_MIN_COVERAGE is the ratchet: raise it as coverage improves.
       - name: Generate Coverage Report
+        env:
+          CASTMIRROR_MIN_COVERAGE: '55'
         run: |
-          gcovr -r . --filter 'core/' --html --html-details -o build-cov/coverage.html
-          gcovr -r . --filter 'core/' --txt
+          gcovr -r . --filter 'core/' --xml -o build-cov/coverage.xml --html --html-details -o build-cov/coverage.html
+          gcovr -r . --filter 'core/' --txt --fail-under-line "${CASTMIRROR_MIN_COVERAGE}"
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: build-cov/coverage.xml
+          fail_ci_if_error: false
+          verbose: true
 
       - name: Upload Coverage Artifact
         uses: actions/upload-artifact@v4
@@ -184,4 +301,66 @@ jobs:
 
       - name: Test
         working-directory: build-fedora
-        run: xvfb-run -a ./tests/castmirror_tests
+        run: xvfb-run -a ctest --output-on-failure --timeout 120
+
+  windows:
+    name: Windows (MSYS2 UCRT64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 UCRT64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-protobuf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-nlohmann-json
+            mingw-w64-ucrt-x86_64-gtest
+            mingw-w64-ucrt-x86_64-libx264
+
+      # Windows has no GTK, so the GUI is off and the Windows client is built by
+      # the .NET step below. Everything else (core, CLI, tests, tools) is built
+      # here: the release workflow packages the client from this same tree, and
+      # nothing else compiles the CLI or the test suite for Windows.
+      - name: Configure
+        shell: msys2 {0}
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCASTMIRROR_BUILD_GUI=OFF
+          -DCASTMIRROR_ENABLE_TRAY=OFF
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build -j"$(nproc)"
+
+      # Runs from the MSYS2 shell so the UCRT64 runtime directory is on PATH for
+      # ctest and for every discovered case (see tests/CMakeLists.txt). A runner
+      # has no interactive desktop, so the tests that need one skip rather than
+      # fail; there is no xvfb equivalent to hide behind.
+      - name: Test
+        shell: msys2 {0}
+        run: ctest --test-dir build --output-on-failure --timeout 120
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # The WinUI client is what the Windows release ships, so it must compile
+      # on every change, not only when a tag is cut. It copies build/core/
+      # castcore.dll, which is why the native build runs first.
+      - name: Build Windows client (WinUI 3)
+        shell: pwsh
+        run: >
+          dotnet build app/winui/CastMirrorApp.csproj -c Release
+          -p:Platform=x64 -r win-x64 --self-contained true

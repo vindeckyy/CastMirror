@@ -1,11 +1,23 @@
 name: Pages
 
+# NOTE: this workflow requires the repository's Settings -> Pages -> Source to be
+# set to "GitHub Actions". Nothing in the repo can assert that; if the deploy step
+# fails with a 404 on the Pages API, that setting is what is wrong.
+
 on:
   push:
     branches: [master, main]
     paths:
       - "docs/**"
       - ".github/workflows/pages.yml"
+      # The site publishes a test count, the quality-preset list and the adaptive
+      # ladder table, all of which are derived from source. Without these paths a
+      # change to the tests or the ladder silently leaves the deployed site stale
+      # (which is how it ended up advertising 87/87 against 124 real cases).
+      - "tests/**"
+      - "core/src/adaptive_controller.cc"
+      - "core/include/castcore/types.h"
+      - "README.md"
   workflow_dispatch:
 
 permissions:
@@ -25,6 +37,16 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      # Fail loudly instead of deploying an empty or half-populated site.
+      - name: Verify site entry point
+        run: |
+          test -f docs/index.html || { echo "docs/index.html is missing"; exit 1; }
+          test -s docs/index.html || { echo "docs/index.html is empty"; exit 1; }
+          for f in docs/styles.css docs/site.js; do
+            test -f "$f" || { echo "missing site asset: $f"; exit 1; }
+          done
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

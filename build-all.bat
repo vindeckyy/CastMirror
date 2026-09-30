@@ -9,6 +9,18 @@ set "PATH=%CASTMIRROR_MSYS2_BIN%;%CASTMIRROR_DOTNET_ROOT%;%PATH%"
 echo ========================================================
 echo Building CastMirror Native C++ Core and Tools (Ninja)...
 echo ========================================================
+rem The canonical build tree lives in build\, which is gitignored: a fresh
+rem checkout has nothing to build in. Configure it on first run.
+if not exist "%~dp0build\CMakeCache.txt" (
+    echo Configuring build\ (first run^)...
+    cmake -S "%~dp0." -B "%~dp0build" -G Ninja -DCMAKE_BUILD_TYPE=Release ^
+        -DCMAKE_C_COMPILER="%CASTMIRROR_MSYS2_BIN%\gcc.exe" ^
+        -DCMAKE_CXX_COMPILER="%CASTMIRROR_MSYS2_BIN%\g++.exe"
+    if %ERRORLEVEL% neq 0 (
+        echo CMake configure failed!
+        exit /b %ERRORLEVEL%
+    )
+)
 ninja -C "%~dp0build"
 if %ERRORLEVEL% neq 0 (
     echo Native build failed!
