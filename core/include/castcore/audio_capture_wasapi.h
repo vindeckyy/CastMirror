@@ -81,6 +81,8 @@ class WasapiAudioCapture : public IAudioCapture {
 #endif
 
   uint32_t target_pid_ = 0;  // 0 = whole system
+  int output_rate_ = 48000;
+  int output_channels_ = 2;
   std::atomic<bool> running_{false};
   std::atomic<bool> init_done_{false};
   bool init_ok_ = false;
@@ -106,8 +108,6 @@ class WasapiAudioCapture : public IAudioCapture {
   Microsoft::WRL::ComPtr<IMMNotificationClient> notifier_;
   int src_rate_ = 48000;
   int src_channels_ = 2;
-  int output_rate_ = 48000;
-  int output_channels_ = 2;
 
   // Resampler state: fractional read position in source frames.
   double resample_pos_ = 0.0;

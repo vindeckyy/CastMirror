@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Builds the native test suite with clang's UndefinedBehaviorSanitizer and runs it.
 
@@ -25,10 +25,13 @@ $env:PATH = "$Msys2Bin;$env:PATH"
 $build = Join-Path $root 'build-ubsan'
 $flags = '-fsanitize=undefined -fsanitize-trap=undefined -fno-omit-frame-pointer -g -O1'
 
+# Some runners carry another protobuf (MySQL ships one under Program Files); make sure CMake
+# looks in the MSYS2 prefix first so it links the library the headers came from.
 & cmake -S $root -B $build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
     "-DCMAKE_C_COMPILER=$($Msys2Bin -replace '\\','/')/clang.exe" `
     "-DCMAKE_CXX_COMPILER=$($Msys2Bin -replace '\\','/')/clang++.exe" `
     "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" `
+    "-DCMAKE_PREFIX_PATH=$((Split-Path -Parent $Msys2Bin) -replace '\\','/')" `
     -DCASTMIRROR_BUILD_GUI=OFF -DCASTMIRROR_ENABLE_TRAY=OFF
 if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
 & ninja -C $build castmirror_tests

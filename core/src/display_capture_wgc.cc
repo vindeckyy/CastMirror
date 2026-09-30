@@ -398,8 +398,8 @@ std::vector<WindowInfo> DisplayCaptureWgc::EnumerateWindows() {
             // 255 UTF-16 units can need up to 3 bytes each in UTF-8; a smaller buffer makes the
             // conversion fail and leaves it unterminated.
             char title_utf8[1024] = {};
-            if (WideCharToMultiByte(CP_UTF8, 0, title, -1, title_utf8, sizeof(title_utf8),
-                                    nullptr, nullptr) <= 0) {
+            if (WideCharToMultiByte(
+                    CP_UTF8, 0, title, -1, title_utf8, sizeof(title_utf8), nullptr, nullptr) <= 0) {
               return TRUE;
             }
             wi.title = title_utf8;
