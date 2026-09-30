@@ -5,180 +5,97 @@
 <h1 align="center">CastMirror</h1>
 
 <p align="center">
-  Native Chromecast display mirroring.<br>
-  Low latency. No Chrome.
+  Mirror your Windows PC to a Chromecast or Google TV.<br>
+  Your whole screen or one window, with sound, and no Chrome.
 </p>
 
 <p align="center">
   <a href="https://github.com/vindeckyy/CastMirror/actions/workflows/ci.yml"><img src="https://github.com/vindeckyy/CastMirror/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-182-4caf50" alt="GoogleTest">
-  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C" alt="C++20">
-  <img src="https://img.shields.io/badge/platform-Linux-0078d4" alt="Linux">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2B-0078d4" alt="Windows 10 and later">
   <img src="https://img.shields.io/badge/license-Apache--2.0-8c93a0" alt="Apache-2.0">
-  <img src="https://img.shields.io/badge/latency-~200ms_playout-00d2ff" alt="latency">
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-cast.png" width="720" alt="CastMirror GTK app — Cast tab">
+  <img src="docs/assets/screenshot-windows-main.png" width="760" alt="CastMirror main window listing two Cast devices, with the capture source, quality preset and bitrate controls">
 </p>
 
-## What it is
+## Install
 
-CastMirror is a native **C++20** sender for Google Cast display mirroring. It discovers devices on the LAN, captures the Linux desktop and system audio, encodes **H.264** (libx264) and **Opus**, and streams **Cast RTP/RTCP** over UDP — the same media path Chrome uses for “Cast screen,” without embedding Chrome.
+1. Download `CastMirror-Setup-<version>-x64.exe` from the [latest release](https://github.com/vindeckyy/CastMirror/releases/latest).
+2. Run it. The installer adds a Start menu entry and a Windows Firewall rule for private and domain networks, so Windows doesn't stop discovery with a prompt.
+3. Turn your TV on, put it on the same Wi-Fi as the PC, and open CastMirror.
 
-The shipping UI is a **GTK 4 + libadwaita** desktop app. A CLI is included.
+A portable `CastMirror-win-x64.zip` is also on the release page. If you use it, run `scripts\setup_firewall.ps1` once from an elevated PowerShell, or allow CastMirror when Windows asks.
 
-## What it is not
+CastMirror needs Windows 10 version 2004 or later, 64-bit. Checksums for every download are in `SHA256SUMS-windows.txt`.
 
-- Not a Chrome / CEF wrapper
-- Not Sunshine or Moonlight (those are ~20–50 ms game streams; Cast keeps a **playout delay**, about **200 ms** here)
-- Not an HLS/DASH “fling” to the Default Media Receiver
-- **Not affiliated with Google.** Chromecast, Google Cast, and Google TV are Google trademarks
-- `app/winui/` is a Windows client built on the same core, not a blueprint; the GTK app remains the primary target
+## Use it
 
-Official Cast sender SDKs cannot mirror a desktop. Chrome’s mirroring path is private as a product and open as a protocol. CastMirror implements that protocol as a LAN sender.
+1. Pick your TV from the list. If it doesn't appear, press **Rescan** (F5) or use **Add by IP**.
+2. Pick what to share: a whole display or a single window.
+3. Choose a quality preset and press **Cast display** (Ctrl+Enter).
 
-## Features
+While casting you can freeze the picture, mute the TV, and change the bitrate without restarting. Closing the window keeps the cast running in the tray. Quit from the tray icon.
 
-- One-click Cast to Chromecast, Google TV, and Cast TVs (or add a device by IP) with dynamic hardware model glyphs
-- **Screen or window sharing** — cast an entire monitor or pick a single application window with application icon resolution. On Wayland the system portal picker handles selection; on X11 CastMirror enumerates and captures windows directly with XComposite redirection
-- Quality presets **Auto / High / Balanced / Smooth / Game / Cinema** with an **inline bitrate slider** (1–25 Mbps) synchronized between Cast and Settings
-- **Live studio controls** — Freeze display and Mute TV audio on the fly with clean silence-frame injection
-- **Real-time vector sparklines** — Hardware-accelerated Cairo mini-charts for live FPS, bitrate, RTT, and packet loss
-- Host speakers **mute** while audio is mirrored; previous mute state is restored on Stop. **Linux only** — the Windows client disables this: zeroing the speaker endpoint volume also silences WASAPI loopback capture, which would send silence to the receiver
-- **Adaptive bitrate is always on**: it holds your selected bitrate target, drops on congestion, and ramps back up aggressively once the link recovers
-- **Appearance & Diagnostics** — System / Light / Dark theme switcher and built-in hardware/network self-test wizard
-- **Windows client (WinUI 3)** — settings parity with the Linux GUI (bitrate, capture fps, audio quality, playout delay, latency HUD, subnet scan, tray, notifications, theme, self-test), Freeze/Mute TV live controls, and a paced **DXGI Desktop Duplication** capture loop that holds a steady 30 or 60 fps even on a static desktop, rebuilding the duplication across mode changes and TDRs instead of dropping the session. **Single-instance per user session**, so a second launch cannot start a competing cast, and the tray icon is created off the UI thread so the window paints immediately
-- AES-128-CTR per-frame media crypto as required by Cast Streaming
-- TLS control plane on port **8009**
-- Stop budget under **500 ms** (capture does not run except during a live session)
+| Preset | Use it for | Buffer |
+|---|---|---|
+| Auto | Most things. Starts at 1080p and adapts to your Wi-Fi. | 200 ms |
+| High | A strong 5 GHz link and a TV that can take the bitrate. | 200 ms |
+| Balanced | Everyday use over average Wi-Fi. | 200 ms |
+| Smooth | Weak Wi-Fi. Drops to 720p. | 200 ms |
+| Game | Lowest delay. Keeps resolution fixed. | 150 ms |
+| Cinema | Video. Highest bitrate, deepest buffer. | 400 ms |
 
-## Quick start (Linux)
+### Keyboard shortcuts
 
-```bash
-sudo apt update
-sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
-    libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
-    libxcomposite-dev libxdamage-dev \
-    libva-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
-    libgtk-4-dev libadwaita-1-dev
+In the window: **Ctrl+Enter** start or stop, **F5** rescan, **Ctrl+,** settings, **Ctrl+L** logs.
 
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)"
+Optional system-wide shortcuts (Settings, Desktop integration, Global shortcuts): **Ctrl+Alt+C** start or stop, **Ctrl+Alt+F** freeze, **Ctrl+Alt+M** mute the TV.
 
-./build/app/castmirror-gui
-./build/app/castmirror
+## What it does
+
+- Discovers Cast devices over mDNS. If your router blocks mDNS, an opt-in subnet scan finds them directly.
+- Captures a monitor with DXGI Desktop Duplication at a steady 30 or 60 fps, even when nothing on screen changes. HDR desktops are tone-mapped to SDR.
+- Captures system audio with WASAPI loopback, follows the default speakers when you switch to headphones, and folds 5.1 and 7.1 down to stereo.
+- Encodes H.264 on the GPU through Media Foundation and falls back to x264 on the CPU when the GPU encoder doesn't produce frames. Audio is Opus.
+- Sends the same encrypted Cast RTP stream Chrome's "Cast screen" uses. The control connection is TLS on port 8009, and each device proves its identity against the Cast root certificates.
+- Adapts bitrate and resolution to packet loss and round-trip time, and reconnects after a dropped connection, a sleep or a Wi-Fi change. You choose how long it keeps trying.
+- Runs a single instance. Starting it again brings the running window forward.
+- Optional: start hidden in the tray at sign-in, desktop notifications, light or dark theme.
+
+## Privacy
+
+CastMirror talks to your TV over your local network and to nothing else. It has no telemetry and no account. It contacts GitHub only when you press **Check for updates** in About. Logs and settings stay in `%APPDATA%\CastMirror`. **Logs, Copy for bug report** masks the last part of every IP address before it reaches your clipboard.
+
+## When something goes wrong
+
+- **No devices found.** Check the PC and TV are on the same network, and that the network isn't a guest or "client isolation" network. Then try **Settings, Device discovery, Scan the network for TVs**.
+- **Windows asked about the firewall.** Choose **Allow** for private networks. The installer normally does this for you.
+- **The picture glitches or stutters.** Lower the preset to Balanced or Smooth, or turn on **Force software encode**.
+- **CastMirror crashed.** It saves a crash file in `%APPDATA%\CastMirror\crashes` and tells you next launch. The file holds a copy of the program's memory, so share it only if you're comfortable with that.
+- **Anything else.** Open **Logs**, press **Copy for bug report**, and paste it into an [issue](https://github.com/vindeckyy/CastMirror/issues).
+
+## Build from source
+
+Windows build steps, including the MSYS2 packages and the .NET SDK, are in [docs/building.md](docs/building.md). In short:
+
+```bat
+build-all.bat        :: native core + WinUI app
+package.ps1          :: tests, self-contained publish, licence checks
 ```
 
-Full package notes, firewall, and audio behavior: [docs/building.md](docs/building.md).
+Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the Cast protocol details in [docs/protocol.md](docs/protocol.md), and device test results in [docs/DEVICE_MATRIX.md](docs/DEVICE_MATRIX.md). Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Usage
+## What it isn't
 
-The GUI is split into four dedicated tabs:
+- Not a Chrome or CEF wrapper.
+- Not a game-streaming tool like Sunshine or Moonlight. Cast keeps a playout buffer, so expect about 150 to 400 ms of delay depending on the preset.
+- Not affiliated with Google. Chromecast, Google Cast and Google TV are trademarks of Google LLC.
 
-### 1. Cast
-Discover LAN receivers, select a monitor display or open application window, tune target bitrate, and start mirroring.
+## Linux
 
-<p align="center">
-  <img src="docs/assets/screenshot-cast.png" width="720" alt="CastMirror — Cast tab">
-</p>
+The same `castcore` engine builds on Linux with a GTK 4 app and a CLI, but the Windows app is the primary product and Linux gets fixes rather than features. See [docs/building.md](docs/building.md).
 
-### 2. Live session
-Real-time streaming pipeline visualization, hardware-accelerated Cairo vector sparkline charts (FPS, Bitrate, RTT, Packet Loss), dynamic adaptive ladder rungs, and live studio controls (Freeze display, Mute TV audio).
+## Licence
 
-<p align="center">
-  <img src="docs/assets/screenshot-live.png" width="720" alt="CastMirror — Live session tab">
-</p>
-
-### 3. Settings
-Configure video encoding presets, target playout buffer delay, host audio mute behavior, color scheme theme (System default / Light / Dark), and run hardware/network self-test diagnostics.
-
-<p align="center">
-  <img src="docs/assets/screenshot-settings.png" width="720" alt="CastMirror — Settings tab">
-</p>
-
-### 4. Logs
-Live searchable diagnostic event logs with filter levels, quick copy, and open log directory actions.
-
-<p align="center">
-  <img src="docs/assets/screenshot-logs.png" width="720" alt="CastMirror — Logs tab">
-</p>
-
-CLI:
-
-```bash
-# Cast a full display
-./build/app/castmirror --device 192.168.1.150 --display 0 --preset High
-
-# List available windows, then cast one
-./build/app/castmirror --list-windows
-./build/app/castmirror --device 192.168.1.150 --window 12345
-
-# Audio-only
-./build/app/castmirror --device 192.168.1.150 --no-audio
-```
-
-Desktop launcher: [app/io.github.vindeckyy.CastMirror.desktop](app/io.github.vindeckyy.CastMirror.desktop).
-
-## Architecture
-
-```mermaid
-flowchart LR
-  X11[X11 screen/window capture] --> x264[libx264]
-  Portal[Wayland portal+PipeWire] --> x264
-  Pulse[Pulse/PipeWire monitor] --> Opus[Opus]
-  x264 --> AES[AES-128-CTR]
-  Opus --> AES
-  AES --> RTP[Cast RTP]
-  RTP --> UDP[UDP to device]
-  Device[Cast device] -->|RTCP CAST NACK PLI| Adapt[Adaptive controller]
-  Adapt --> x264
-  TLS[Cast V2 TLS 8009] --- Device
-```
-
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/protocol.md](docs/protocol.md).
-
-## Compatibility
-
-Chromecast 3rd gen, Ultra, Google TV / Streamer, and built-in Cast TVs. **Nest Hub is 720p-class.** Matrix and preset table: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
-
-## Project layout
-
-```
-CastMirror/
-├── app/gui/                 # Shipping GTK 4 + libadwaita UI
-├── app/cli/                 # Interactive / flag CLI
-├── app/winui/               # Windows client (WinUI 3)
-├── core/                    # castcore C++20 library
-├── tests/                   # Google Test
-├── tools/                   # poc-control, poc-streaming, poc-encode, poc-join, fake-receiver
-├── docs/                    # Pages site + architecture / protocol / building
-└── receiver-fallback/       # CAF research fallback, not the primary path
-```
-
-## Development
-
-The GoogleTest suite has <!-- testcount -->182<!-- /testcount --> cases across the sources registered in `tests/CMakeLists.txt`. That number is generated from the `TEST(` / `TEST_F(` macros by `python3 scripts/count_tests.py` — do not edit it by hand.
-
-```bash
-cd build && ctest --output-on-failure
-./tests/castmirror_tests
-./tools/poc-encode
-./tools/fake-receiver 28009 53533
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Historical lab notes: [docs/TEST_REPORT.md](docs/TEST_REPORT.md).
-
-## Security
-
-LAN-only. TLS to :8009. Media AES as the protocol requires. No cloud. Report privately: [SECURITY.md](SECURITY.md).
-
-## License
-
-Source in this repository is **Apache License 2.0** — see [LICENSE](LICENSE).
-
-**Binaries linked against GPL libx264 generally must be treated as GPL.** Read [NOTICE](NOTICE) before you distribute builds.
-
-## Disclaimer
-
-CastMirror is an independent project. It is not affiliated with, endorsed by, or sponsored by Google LLC. It speaks a Chromium-compatible Cast Streaming protocol; firmware app IDs can change.
+CastMirror's source is Apache-2.0 (see [LICENSE](LICENSE)). The Windows binaries include FFmpeg and libx264, which are GPL, so the download as a whole is distributed under the GPL. The details and the source offer are in [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt).

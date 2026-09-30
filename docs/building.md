@@ -1,6 +1,88 @@
 # Building CastMirror
 
-Linux is the supported v1 platform. You need a C++20 compiler, CMake 3.20+, Ninja, and the libraries below.
+The Windows app is the primary product, so its steps come first. The Linux build follows.
+
+## Windows
+
+### What you need
+
+| Tool | Version | Notes |
+|---|---|---|
+| Windows | 10 2004 or later, 64-bit | Windows 11 is fine |
+| [MSYS2](https://www.msys2.org/) | current | UCRT64 environment, installed to `C:\msys64` |
+| .NET SDK | 8.0 | `winget install Microsoft.DotNet.SDK.8` |
+| Inno Setup | 6 | Only to build the installer |
+
+Install the native dependencies from an MSYS2 UCRT64 shell:
+
+```bash
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,protobuf,openssl,opus,ffmpeg,nlohmann-json,gtest,libx264}
+```
+
+### Build and run
+
+```bat
+build-all.bat
+```
+
+That configures `build\` on first run, builds `castcore.dll`, the CLI and the tests with the MSYS2 toolchain, then builds the WinUI app with `dotnet build`. `CastMirror.exe` ends up in `app\winui\bin\x64\Debug\net8.0-windows10.0.22621.0\win-x64\` with `castcore.dll` beside it.
+
+The DLL's MinGW dependencies (libstdc++, OpenSSL, FFmpeg and so on) are not copied into the debug output. Either launch from a shell where `C:\msys64\ucrt64\bin` is on `PATH`, or use `run-gui.bat`, which sets it. The packaged build (below) carries them.
+
+To use a different MSYS2 or .NET location, set `CASTMIRROR_MSYS2_BIN` and `CASTMIRROR_DOTNET_ROOT`.
+
+### Tests
+
+```bat
+ctest --test-dir build --output-on-failure
+dotnet test tests\winui\CastMirror.Tests.csproj
+```
+
+The native suite has about 200 cases. Cases that need an interactive desktop skip themselves on a runner that has none. The .NET tests cover the client's pure logic (update check, diagnostics bundle, crash-file handling) and run anywhere.
+
+`CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE=1` lets a session use generated video and audio when real capture is unavailable. The test binary sets it. Real sessions never fall back to it.
+
+### Package and installer
+
+```bat
+package.ps1
+```
+
+It builds, runs the whole native suite, publishes a self-contained x64 build to `publish\`, copies the MinGW runtime DLLs beside it, adds the licence files, removes debug symbols and unused language folders, and runs `scripts\check_windows_package.ps1`. The check fails on a missing licence file, leftover symbols, a package over 400 MB, or a libx264 build without the GPL notice.
+
+Build the installer from that folder:
+
+```bat
+iscc installer\CastMirror.iss /DAppVersion=1.0.0
+```
+
+The result is `dist\CastMirror-Setup-1.0.0-x64.exe`. Release builds run the same steps in `.github/workflows/release.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
+
+### Cutting a release
+
+1. Set the same version in `CMakeLists.txt` (`project(CastMirror VERSION ...)`) and `app\winui\CastMirrorApp.csproj` (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`).
+2. `scripts\check_version.ps1` confirms they agree.
+3. Move the Unreleased notes in `CHANGELOG.md` under the new version.
+4. Tag `vX.Y.Z` and push. The workflow refuses a tag that doesn't match the version files, and the publish job waits for approval in the `release` environment.
+
+### Files and folders
+
+| Path | Contents |
+|---|---|
+| `%APPDATA%\CastMirror\config.json` | Settings |
+| `%APPDATA%\CastMirror\castmirror.log` | Engine log |
+| `%APPDATA%\CastMirror\gui-errors.log` | App log |
+| `%APPDATA%\CastMirror\crashes\` | Crash minidumps, newest five |
+
+`CASTMIRROR_CONFIG_DIR` redirects the config file. The test binary uses it so a test run never touches your settings.
+
+### Firewall
+
+The installer allows `CastMirror.exe` on private and domain networks in both directions. For a portable copy, run `scripts\setup_firewall.ps1 -Program <path to CastMirror.exe>` from an elevated PowerShell, and `-Remove` to undo it. Public networks stay closed on purpose.
+
+## Linux
+
+Linux builds exist but get fixes rather than features. You need a C++20 compiler, CMake 3.20+, Ninja, and the libraries below.
 
 ## Packages (Debian / Ubuntu / Kali)
 
@@ -69,20 +151,3 @@ Cast control uses **TCP 8009** (TLS) to the device. Media uses **UDP** to the po
 ## Audio
 
 Capture uses the PulseAudio/PipeWire **default sink monitor**. While mirroring with audio on, the default sink is muted so host speakers do not play the same stream; previous mute state is restored on Stop.
-
-## Windows
-
-`app/winui/` is the Windows client (WinUI 3) on top of the same `castcore`: display capture uses **DXGI Desktop Duplication** (device-independent per-monitor duplication with a per-frame window crop, recreation on `DXGI_ERROR_ACCESS_LOST`), audio uses WASAPI loopback, and the settings window mirrors the Linux GUI (bitrate cap, capture fps, audio quality, playout delay, latency HUD, subnet scan, force software encode, tray, close-to-tray, notifications, theme, self-test).
-
-```bat
-:: core first (MSYS2 UCRT64 toolchain), then the app
-cmake -S . -B build -G Ninja
-cmake --build build
-
-cd app\winui
-dotnet build CastMirrorApp.csproj -p:Platform=x64 -r win-x64 --self-contained true
-```
-
-The app loads `castcore.dll` from `PATH`, so add the core build output (e.g. `build\core`) before launching. Settings persist to `%APPDATA%\CastMirror\config.json` through the same `ConfigStore` the Linux build uses, so `capture_fps`, per-preset bitrate caps, and the rest of the config apply identically. Set `CASTMIRROR_CONFIG_DIR` to redirect that file (the test binary does this so it never rewrites your settings).
-
-Capture is paced: the capture loop re-sends the newest frame on a fixed cadence, so a 30/60 fps session keeps its rate on a static desktop instead of collapsing to zero and tripping the stall detector. CI builds this tree and runs the suite on `windows-latest` (MSYS2 UCRT64) with no interactive desktop, so the tests that need one — DXGI output enumeration, duplication pacing — report `skipped` rather than failing.

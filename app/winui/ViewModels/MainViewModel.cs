@@ -277,7 +277,8 @@ namespace CastMirror.ViewModels
             }
         }
 
-        private string _statusMessage = "Scanning your Wi-Fi network for Cast devices.";
+        private const string ScanningMessage = "Scanning your Wi-Fi network for Cast devices.";
+        private string _statusMessage = ScanningMessage;
         public string StatusMessage
         {
             get => _statusMessage;
@@ -862,6 +863,12 @@ namespace CastMirror.ViewModels
                 }
             }
 
+            // The "scanning" line is stale once a TV has turned up.
+            if (Devices.Count > 0 && !IsSessionActive && StatusMessage == ScanningMessage)
+            {
+                StatusMessage = "Choose a TV, then press Cast display.";
+            }
+
             if (changed)
             {
                 NoDevicesFound = false;
@@ -1235,7 +1242,7 @@ namespace CastMirror.ViewModels
             {
                 NoDevicesFound = false;
                 CastCoreBridge.castmirror_rescan();
-                StatusMessage = "Scanning your Wi-Fi network for Cast devices.";
+                StatusMessage = ScanningMessage;
                 _discoveryTimer?.Stop();
                 _discoveryTimer?.Start();
             }

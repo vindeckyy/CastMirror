@@ -1,37 +1,48 @@
-# Security Policy
+# Security policy
 
 ## Scope
 
-This policy covers the **CastMirror** repository: `castcore`, the Linux GTK GUI, the CLI, tests, and tools.
+This policy covers the CastMirror repository: the `castcore` engine, the Windows app (`app/winui`), the CLI, the installer and packaging scripts, tests, and tools. The Linux GTK app is in scope too, on a best-effort basis.
 
-CastMirror is a **LAN sender**. It does not operate a cloud service and does not accept untrusted internet clients. Security reports should be about this software, not about attacking Chromecast firmware or third-party devices.
+CastMirror is a sender on your local network. It runs no cloud service and accepts no connections from the internet. Report problems in this software, not in Chromecast firmware or other people's devices.
 
 ## Supported versions
 
-The default branch is the only supported line until tagged releases exist.
+The latest release and the default branch get security fixes. Older releases don't.
 
 ## Reporting a vulnerability
 
-Please **do not** open a public GitHub issue for security vulnerabilities.
+Please don't open a public issue for a vulnerability.
 
-Email the maintainer using the address on the GitHub profile that owns this repository, with:
+Use GitHub's private reporting: [Report a vulnerability](https://github.com/vindeckyy/CastMirror/security/advisories/new). If that page isn't available to you, open an issue that says only "security report, please contact me" and no details, and a maintainer will reach out.
 
-- A description of the issue and impact
-- Steps to reproduce (PoC against **this** codebase, not against others’ devices)
-- Affected commit SHA or version
-- Any logs from `~/.config/castmirror/castmirror.log` that do not contain secrets you care about
+Include:
 
-You should receive an acknowledgement within 7 days. We will work with you on a fix and coordinated disclosure.
+- What the problem is and what an attacker gains
+- Steps to reproduce it against this code, on devices you own
+- The version (About dialog) or commit
+- Log lines from **Logs, Copy for bug report** with anything sensitive removed. The bundle masks IP addresses already, and the AES session key is never logged.
 
-## What we will not accept as a “vulnerability”
+You should get an acknowledgement within 7 days. We'll agree on a fix and a disclosure date with you.
 
-- Public write-ups whose primary purpose is to attack Cast devices, steal sessions, or bypass device authentication on hardware you do not own
-- Reports that require a malicious device on the same LAN presented as a remote RCE in CastMirror
-- Social-engineering Google accounts or Cast developer consoles
+## Out of scope
 
-## Security properties (honest)
+- Write-ups meant to attack Cast devices, take over sessions, or bypass device authentication on hardware you don't own
+- A malicious device on the same LAN presented as remote code execution in CastMirror, without a memory-safety flaw in our parsing of its traffic
+- Social engineering aimed at Google accounts or Cast developer consoles
+- Findings that need an attacker who already has administrator rights on the PC
 
-- Control plane: TLS to Cast port **8009**. Device certificate verification is a goal; treat untrusted networks accordingly.
-- Media: Cast Streaming **AES-128-CTR** per the protocol (keys in the OFFER). This protects the UDP media path the way Chrome mirroring does; it is not a substitute for a trusted LAN.
-- No telemetry is sent off-LAN by CastMirror itself.
-- Capture runs only while a session is streaming and should stop within 500 ms of Stop.
+## Security properties
+
+- **Control connection.** TLS to port 8009. Each device signs a fresh challenge, and CastMirror checks the signature and certificate chain against the Cast root certificates before it sends anything. The TLS certificate itself is self-signed by design, so the challenge is what proves identity.
+- **Media.** Cast Streaming's per-frame AES-128-CTR, with a new key for every session. It protects the UDP stream the way Chrome mirroring does. It doesn't replace a trusted network, and RTCP feedback is only checked by source address.
+- **Untrusted input.** mDNS responses, RTCP feedback and Cast channel messages come straight from the LAN. The mDNS and RTCP parsers have fuzz harnesses (`tests/fuzz`), bounds-checked loops, and a message size cap.
+- **Secrets in logs.** The session key and IV mask are redacted from every log sink. Logs stay on your PC.
+- **Network exposure.** The installer opens Windows Firewall for CastMirror on private and domain networks only.
+- **Telemetry.** None. The only outbound request to a non-Cast host is the update check, and only when you press the button.
+- **Crash files.** Minidumps stay in `%APPDATA%\CastMirror\crashes`. They contain process memory, so treat them like a password manager export before you share one.
+- **Capture.** Screen and audio capture run only during a session, and stop within about 500 ms of Stop.
+
+## Signing
+
+Release binaries and the installer are code-signed when the maintainers' certificate is configured for that release. Every release also lists SHA-256 checksums in `SHA256SUMS-windows.txt`. Verify a download with `Get-FileHash <file> -Algorithm SHA256`.

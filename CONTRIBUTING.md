@@ -4,18 +4,34 @@ Thanks for helping. CastMirror is a native C++20 Cast Streaming sender. Keep cha
 
 ## Development setup
 
-See [docs/building.md](docs/building.md) for packages and CMake. Typical loop:
+See [docs/building.md](docs/building.md) for the tools and packages. On Windows, the usual loop is:
 
-```bash
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j"$(nproc)"
-cd build && ctest --output-on-failure
+```bat
+build-all.bat
+ctest --test-dir build --output-on-failure
+dotnet test tests\winui\CastMirror.Tests.csproj
+run-gui.bat
 ```
 
-Run the GUI after UI changes:
+The Windows app is the primary product. Linux builds get fixes, not new features.
 
-```bash
-./build/app/castmirror-gui
+## The Windows client
+
+`app/winui` is a WinUI 3 app on .NET 8 that talks to `castcore.dll` through `Services/CastCoreBridge.cs`. A few rules keep it maintainable:
+
+- **Logic that doesn't need XAML goes in `Services/` and gets a test** in `tests/winui`. That project compiles the service files directly, so the tests run without the Windows App SDK.
+- **Changing the C API?** Bump the ABI version in `c_api.h`, update the struct mirrors and the `VerifyNativeAbi` check in `CastCoreBridge.cs`, and rebuild both sides together.
+- **New setting?** Add the key in three places: `core/include/castcore/config.h` and `config.cc` (load and save), `core/src/c_api.cc` (get and set JSON), and `CastMirrorSettings` in `Services/SettingsService.cs`. Unknown keys are ignored, so a client and engine from different builds still talk.
+- **Dialogs** go through `Services/Dialogs.cs`, which applies the forced theme and prevents two dialogs at once.
+- **Buttons that change colour** need a template-safe style (override the `ButtonBackground*` resources) rather than a code-set `Background`, which hover and pressed states overwrite.
+- **User-facing text** is plain and specific. Say what happened and what to do. No filler, no "seamless", no exclamation marks. Read new strings aloud before you commit them.
+- **Accessibility.** Give controls an accessible name, mark status text that changes as a live region, and check the window with Tab only.
+
+Smoke-test the real app after UI changes. This starts the exe, opens Settings and Logs, and fails if the error log grows:
+
+```powershell
+$env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+Start-Process app\winui\bin\x64\Debug\net8.0-windows10.0.22621.0\win-x64\CastMirror.exe
 ```
 
 ## Code style
