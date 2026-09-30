@@ -2,10 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using CastMirror.Services;
@@ -19,6 +18,38 @@ namespace CastMirror.ViewModels
         private string _statusText = "Ready";
 
         public string Id { get; set; } = string.Empty;
+
+        private string _ipAddress = string.Empty;
+        public string IpAddress
+        {
+            get => _ipAddress;
+            set
+            {
+                if (_ipAddress == value) return;
+                _ipAddress = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(AddressText));
+            }
+        }
+
+        private ushort _port;
+        public ushort Port
+        {
+            get => _port;
+            set
+            {
+                if (_port == value) return;
+                _port = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(AddressText));
+            }
+        }
+
+        /// <summary>ip:port when the engine reported a port, otherwise the bare address.</summary>
+        public string AddressText =>
+            string.IsNullOrEmpty(IpAddress)
+                ? string.Empty
+                : (Port > 0 ? $"{IpAddress}:{Port}" : IpAddress);
 
         public string Name
         {
@@ -66,7 +97,8 @@ namespace CastMirror.ViewModels
         /// </summary>
         public CastMirrorSettings Settings { get; private set; } = new();
 
-        private static readonly int[] PresetBitrateKbps = { 8000, 12000, 8000, 5000, 8000, 16000 };
+        // Nominal per-preset bitrates live in CastMirrorSettings.EffectiveBitrateCapKbps
+        // (0 stored = preset default); the UI pushes the stored cap, not a table.
         private static readonly int[] PresetDelayMs = { 200, 200, 200, 200, 150, 400 };
 
         private readonly DispatcherQueue? _dispatcher;
@@ -74,6 +106,11 @@ namespace CastMirror.ViewModels
         private readonly DispatcherQueueTimer? _discoveryTimer;
         private readonly bool _nativeAvailable;
         private volatile bool _disposed;
+
+        // False when the engine config read failed: every Apply*/Persist path
+        // is gated on this so a default-valued DTO can never overwrite the
+        // user's saved configuration (see SettingsService.Load remarks).
+        private bool _settingsLoaded;
 
         // Devices added by address (not from mDNS); kept across refreshes.
         private readonly List<DeviceItem> _manualDevices = new();
@@ -195,6 +232,15 @@ namespace CastMirror.ViewModels
                 if (_presetIndex == value) return;
                 _presetIndex = value;
                 OnPropertyChanged();
+                // Persist the choice: quality_preset keys the per-preset
+                // bitrate caps on both sides, so leaving it unsaved desynced
+                // the engine's view of which cap applies.
+                Settings.QualityPreset = CastMirrorSettings.PresetName(value);
+                PersistSettings();
+                // A preset switch changes the effective cap, so the inline
+                // bitrate slider (and the settings window) must follow it.
+                OnPropertyChanged(nameof(BitrateCapKbps));
+                OnPropertyChanged(nameof(BitrateCapText));
                 ApplyPresetLive(value);
             }
         }
@@ -285,6 +331,48 @@ namespace CastMirror.ViewModels
             private set { if (_statsQualityText == value) return; _statsQualityText = value; OnPropertyChanged(); }
         }
 
+        // Sparkline history: one sample per stats tick, capped so a long session
+        // cannot grow without bound. The Sparkline control owns the rendering.
+        private const int SparkCapacity = Controls.Sparkline.DefaultCapacity;
+        private readonly List<double> _fpsHistory = new();
+        private readonly List<double> _bitrateHistory = new();
+        private readonly List<double> _rttHistory = new();
+        private readonly List<double> _lossHistory = new();
+
+        private double[] _fpsSeries = Array.Empty<double>();
+        public double[] FpsSeries
+        {
+            get => _fpsSeries;
+            private set { _fpsSeries = value; OnPropertyChanged(); }
+        }
+
+        private double[] _bitrateSeries = Array.Empty<double>();
+        public double[] BitrateSeries
+        {
+            get => _bitrateSeries;
+            private set { _bitrateSeries = value; OnPropertyChanged(); }
+        }
+
+        private double[] _rttSeries = Array.Empty<double>();
+        public double[] RttSeries
+        {
+            get => _rttSeries;
+            private set { _rttSeries = value; OnPropertyChanged(); }
+        }
+
+        private double[] _lossSeries = Array.Empty<double>();
+        public double[] LossSeries
+        {
+            get => _lossSeries;
+            private set { _lossSeries = value; OnPropertyChanged(); }
+        }
+
+        private static void PushHistory(List<double> history, double value)
+        {
+            history.Add(value);
+            if (history.Count > SparkCapacity) history.RemoveAt(0);
+        }
+
         private bool _freezeStream;
         public bool FreezeStream
         {
@@ -345,6 +433,11 @@ namespace CastMirror.ViewModels
 
             try
             {
+                // Fails fast (and loudly) when CastMirror.exe and castcore.dll
+                // come from different builds: the struct mirrors would otherwise
+                // marshal into the wrong offsets with no error at the boundary.
+                CastCoreBridge.VerifyNativeAbi();
+
                 if (!CastCoreBridge.castmirror_init())
                 {
                     ErrorMessage = "Failed to initialize the CastCore engine.";
@@ -437,7 +530,7 @@ namespace CastMirror.ViewModels
                     // 0 fps / 0 kbps: the engine applies capture_fps and the
                     // selected preset's bitrate from the saved configuration.
                     bool started = CastCoreBridge.castmirror_start_cast_ex(
-                        device.Id, source.Kind, source.Id, 0, 0, preset, audio);
+                        NativeText.EncodeZ(device.Id), source.Kind, source.Id, 0, 0, preset, audio);
                     string message = started ? string.Empty : (ReadLastError() ?? "Failed to start casting.");
                     return (started, message);
                 });
@@ -564,9 +657,12 @@ namespace CastMirror.ViewModels
             }
         }
 
-        private void OnStateChanged(CastMirrorState state, string message, IntPtr userData)
+        private void OnStateChanged(CastMirrorState state, IntPtr message, IntPtr userData)
         {
-            string text = message ?? string.Empty;
+            // Native strings are UTF-8 (see NativeText), so decode the borrowed
+            // pointer explicitly instead of letting the marshaller treat the
+            // delegate parameter as an ANSI string.
+            string text = Marshal.PtrToStringUTF8(message) ?? string.Empty;
             RunOnUiThread(() => ApplyState(state, text));
         }
 
@@ -586,7 +682,7 @@ namespace CastMirror.ViewModels
             {
                 ErrorMessage = ReadLastError() ?? "The cast session failed.";
                 StatusMessage = "Connection failed. Check the TV and try again.";
-                NotificationService.Notify(Settings.NotifyOnEvents, "Casting failed", ErrorMessage);
+                NotificationService.Notify(Settings.NotifyOnEvents, "Casting failed", ErrorMessage, "cast-failed");
             }
             else if (state == CastMirrorState.Streaming)
             {
@@ -644,6 +740,8 @@ namespace CastMirror.ViewModels
                         Id = device.Id,
                         Name = device.Name,
                         ModelName = device.ModelName,
+                        IpAddress = device.IpAddress,
+                        Port = device.Port,
                         StatusText = "Ready"
                     });
                 }
@@ -680,6 +778,8 @@ namespace CastMirror.ViewModels
                 {
                     existing.Name = device.Name;
                     existing.ModelName = device.ModelName;
+                    existing.IpAddress = device.IpAddress;
+                    existing.Port = device.Port;
                     existing.StatusText = device.StatusText;
                 }
             }
@@ -712,8 +812,12 @@ namespace CastMirror.ViewModels
             }
         }
 
-        private void OnStatsUpdated(ref CastMirrorStreamStats stats, IntPtr userData)
+        private void OnStatsUpdated([In] ref CastMirrorStreamStats stats, IntPtr userData)
         {
+            // Copy the struct INSIDE the callback: the native pointer is only
+            // valid for the duration of this call, and the marshalled strings are
+            // freed on return. The closure below escapes to the UI thread, so it
+            // must capture this snapshot, never `stats` itself.
             CastMirrorStreamStats snapshot = stats;
             RunOnUiThread(() => ApplyStats(snapshot));
         }
@@ -746,6 +850,15 @@ namespace CastMirror.ViewModels
             StatsQualityText = stats.Width > 0
                 ? $"{stats.Width}x{stats.Height}@{framerate} - {encoder}"
                 : encoder;
+
+            PushHistory(_fpsHistory, stats.CurrentFps);
+            PushHistory(_bitrateHistory, stats.BitrateKbps / 1000.0);
+            PushHistory(_rttHistory, stats.RoundTripTimeMs);
+            PushHistory(_lossHistory, stats.PacketLossFraction * 100.0);
+            FpsSeries = _fpsHistory.ToArray();
+            BitrateSeries = _bitrateHistory.ToArray();
+            RttSeries = _rttHistory.ToArray();
+            LossSeries = _lossHistory.ToArray();
         }
 
         private void ResetStats()
@@ -755,15 +868,26 @@ namespace CastMirror.ViewModels
             StatsLatencyText = "RTT: --";
             StatsLossText = "Loss: --";
             StatsQualityText = string.Empty;
+
+            _fpsHistory.Clear();
+            _bitrateHistory.Clear();
+            _rttHistory.Clear();
+            _lossHistory.Clear();
+            FpsSeries = Array.Empty<double>();
+            BitrateSeries = Array.Empty<double>();
+            RttSeries = Array.Empty<double>();
+            LossSeries = Array.Empty<double>();
         }
 
         private void ApplyPresetLive(int presetIndex)
         {
             if (!_nativeAvailable || !IsSessionActive) return;
-            if (presetIndex < 0 || presetIndex >= PresetBitrateKbps.Length) return;
+            if (presetIndex < 0 || presetIndex >= PresetDelayMs.Length) return;
             try
             {
-                CastCoreBridge.castmirror_set_bitrate((uint)PresetBitrateKbps[presetIndex]);
+                // The user's stored per-preset cap (0 = nominal default) wins
+                // over the hardcoded table the engine only used at start.
+                CastCoreBridge.castmirror_set_bitrate(Settings.EffectiveBitrateCapKbps());
                 CastCoreBridge.castmirror_set_playout_delay(PresetDelayMs[presetIndex]);
                 // Game locks the resolution live (low latency beats detail);
                 // every other preset restores the user's steady-frame-rate choice.
@@ -816,11 +940,30 @@ namespace CastMirror.ViewModels
         {
             Settings.SetBitrateCapKbps(kbps);
             PersistSettings();
+            OnPropertyChanged(nameof(BitrateCapKbps));
+            OnPropertyChanged(nameof(BitrateCapText));
             if (_nativeAvailable && IsSessionActive)
             {
                 TryNative(() => CastCoreBridge.castmirror_set_bitrate(kbps));
             }
         }
+
+        /// <summary>
+        /// Inline bitrate slider on the Cast surface. Two-way bound to the same
+        /// stored cap the Settings slider edits, so the two stay synchronized.
+        /// </summary>
+        public double BitrateCapKbps
+        {
+            get => Settings.EffectiveBitrateCapKbps();
+            set
+            {
+                uint kbps = (uint)Math.Max(0, Math.Round(value));
+                if (Settings.EffectiveBitrateCapKbps() == kbps) return;
+                ApplyBitrateCap(kbps);
+            }
+        }
+
+        public string BitrateCapText => $"{Settings.EffectiveBitrateCapKbps() / 1000.0:F1} Mbps";
 
         public void ApplyAudioEnabled(bool enabled)
         {
@@ -863,6 +1006,31 @@ namespace CastMirror.ViewModels
             {
                 RescanDevices();
             }
+        }
+
+        private bool _showFirstRun;
+        /// <summary>
+        /// True on the first launch (or until the user dismisses the card): the
+        /// window explains what discovery needs and offers the subnet scan.
+        /// </summary>
+        public bool ShowFirstRun
+        {
+            get => _showFirstRun;
+            private set
+            {
+                if (_showFirstRun == value) return;
+                _showFirstRun = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>Finishes the first-run card; optionally turns on the LAN scan.</summary>
+        public void CompleteFirstRun(bool enableSubnetScan)
+        {
+            ShowFirstRun = false;
+            if (enableSubnetScan) ApplySubnetScan(true);
+            Settings.FirstRunComplete = true;
+            PersistSettings();
         }
 
         public void ApplyTrayEnabled(bool enabled)
@@ -913,7 +1081,16 @@ namespace CastMirror.ViewModels
         public bool AddDeviceByIp(string ip)
         {
             string address = (ip ?? string.Empty).Trim();
-            if (address.Length == 0) return false;
+            // The engine resolves a manual id through inet_pton(AF_INET): only
+            // a bare IPv4 literal is castable, so reject hostnames, ports and
+            // out-of-range text before the entry becomes permanent.
+            if (!System.Net.IPAddress.TryParse(address, out var parsed) ||
+                parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+            {
+                ErrorMessage = $"\"{address}\" is not a valid IPv4 address (e.g. 192.168.1.50).";
+                return false;
+            }
+            address = parsed.ToString();
 
             DeviceItem? existing = Devices.FirstOrDefault(d => d.Id == address);
             if (existing == null)
@@ -923,6 +1100,7 @@ namespace CastMirror.ViewModels
                     Id = address,
                     Name = $"Cast Device ({address})",
                     ModelName = "Chromecast",
+                    IpAddress = address,
                     StatusText = "Manual"
                 };
                 Devices.Add(existing);
@@ -942,24 +1120,56 @@ namespace CastMirror.ViewModels
         public void ReloadSettings()
         {
             if (!_nativeAvailable) return;
-            Settings = SettingsService.Load();
+            try
+            {
+                Settings = SettingsService.Load();
+                _settingsLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                // Keep the previous Settings: persisting this default DTO would
+                // overwrite the user's engine configuration (see Load remarks).
+                _settingsLoaded = false;
+                ErrorMessage = $"Could not load settings: {ex.Message}";
+                LogError(ex);
+                return;
+            }
             PresetIndex = PresetIndexOf(Settings.QualityPreset);
             AudioEnabled = Settings.AudioEnabled;
             OnPropertyChanged(nameof(SteadyFrameRate));
+            OnPropertyChanged(nameof(BitrateCapKbps));
+            OnPropertyChanged(nameof(BitrateCapText));
         }
 
         private void LoadSettings()
         {
-            Settings = SettingsService.Load();
+            try
+            {
+                Settings = SettingsService.Load();
+                _settingsLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                // Surface the failure but keep a default DTO gated off from
+                // persistence: writing it back would wipe the user's config.
+                _settingsLoaded = false;
+                ErrorMessage = $"Could not load settings: {ex.Message}";
+                LogError(ex);
+                return;
+            }
 
             // First Windows launch: the platform default is a steady frame rate
             // (adaptive resolution off); the core's own default stays unchanged
             // for the Linux front-end.
             if (!Settings.FirstRunComplete)
             {
+                // First Windows launch: the platform default is a steady frame
+                // rate (adaptive resolution off). first_run_complete is only set
+                // once the user dismisses the first-run card, so the card does
+                // not reappear on every launch.
                 Settings.AdaptiveResolutionEnabled = false;
-                Settings.FirstRunComplete = true;
-                SettingsService.Save(Settings);
+                PersistSettings();
+                ShowFirstRun = true;
             }
 
             PresetIndex = PresetIndexOf(Settings.QualityPreset);
@@ -968,21 +1178,17 @@ namespace CastMirror.ViewModels
 
         private static int PresetIndexOf(string preset)
         {
-            // Preset names come from the engine capitalized ("High").
-            return (preset ?? string.Empty).Trim().ToLowerInvariant() switch
-            {
-                "high" => (int)CastMirrorQualityPreset.High,
-                "balanced" => (int)CastMirrorQualityPreset.Balanced,
-                "smooth" => (int)CastMirrorQualityPreset.Smooth,
-                "game" => (int)CastMirrorQualityPreset.Game,
-                "cinema" => (int)CastMirrorQualityPreset.Cinema,
-                _ => (int)CastMirrorQualityPreset.Auto
-            };
+            return CastMirrorSettings.TryParsePresetName(preset, out int index)
+                ? index
+                : (int)CastMirrorQualityPreset.Auto;
         }
 
         private void PersistSettings()
         {
-            if (!_nativeAvailable) return;
+            // Never persist a fallback DTO: after a failed Load the in-memory
+            // settings are defaults, and saving them would wipe the user's
+            // engine configuration. Unblocked by the next successful Load.
+            if (!_nativeAvailable || !_settingsLoaded) return;
             if (!SettingsService.Save(Settings))
             {
                 ErrorMessage = "Could not save settings.";
@@ -1035,9 +1241,9 @@ namespace CastMirror.ViewModels
         {
             try
             {
-                var buffer = new StringBuilder(1024);
-                int length = CastCoreBridge.castmirror_get_last_error(buffer, buffer.Capacity);
-                return length > 0 ? buffer.ToString() : null;
+                // GetLastError reads castmirror_get_last_error as UTF-8 bytes;
+                // the StringBuilder marshalling here was ANSI.
+                return CastCoreBridge.GetLastError();
             }
             catch
             {
@@ -1047,20 +1253,9 @@ namespace CastMirror.ViewModels
 
         internal static void LogError(Exception ex)
         {
-            try
-            {
-                string dir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "CastMirror");
-                Directory.CreateDirectory(dir);
-                File.AppendAllText(
-                    Path.Combine(dir, "gui-errors.log"),
-                    $"{DateTime.Now:O} {ex}{Environment.NewLine}{Environment.NewLine}");
-            }
-            catch
-            {
-                // Never let diagnostics crash the app.
-            }
+            // LogService owns the shared %APPDATA%\CastMirror log and is
+            // internally best-effort, so diagnostics can never crash the app.
+            LogService.Log(ex.ToString());
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

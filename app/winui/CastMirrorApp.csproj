@@ -15,12 +15,25 @@
     <AssemblyName>CastMirror</AssemblyName>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <!-- CastMirror.ico lives next to this file and is the same artwork the Linux
+         packaging installs. Without ApplicationIcon the exe carries no icon at
+         all, so Explorer, the taskbar and the tray (which extracts the exe icon)
+         all showed the generic application icon. -->
+    <ApplicationIcon>CastMirror.ico</ApplicationIcon>
+    <!-- Product identity for Explorer's Details tab and for anything that reads
+         the file version. Keep <Version> in step with project() in the root
+         CMakeLists.txt (the single version source). -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>CastMirror</Product>
+    <Company>CastMirror Maintainers</Company>
+    <Description>Send this PC's screen to a Chromecast or Cast TV</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.241114003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.756" />
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,4 +42,14 @@
       <Link>castcore.dll</Link>
     </None>
   </ItemGroup>
+
+  <!-- The client is a thin shell over castcore.dll: with it missing the exe
+       builds fine and then throws DllNotFoundException on the first call, or is
+       packaged without its engine. Fail the build instead, naming the command
+       that produces it (the copy above is conditional, so without this the
+       absence is silent). -->
+  <Target Name="EnsureCastCoreDll" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\..\build\core\castcore.dll')"
+           Text="castcore.dll not found at build\core\castcore.dll. Build the native core first: cmake -S . -B build -G Ninja &amp;&amp; cmake --build build (MSYS2 UCRT64 toolchain)." />
+  </Target>
 </Project>

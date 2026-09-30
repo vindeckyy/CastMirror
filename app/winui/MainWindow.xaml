@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:controls="using:CastMirror.Controls"
     mc:Ignorable="d"
     Title="CastMirror">
 
@@ -26,6 +27,7 @@
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button Content="Logs" Click="OnOpenLogsClicked"/>
                     <Button Content="Settings" Click="OnOpenSettingsClicked"/>
                 </StackPanel>
             </Grid>
@@ -88,6 +90,7 @@
                                 BorderThickness="0"
                                 Padding="6,2"
                                 Margin="8,0,0,0"
+                                AutomationProperties.Name="Dismiss"
                                 ToolTipService.ToolTip="Dismiss">
                             <FontIcon Glyph="&#xE711;" FontSize="12"
                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
@@ -108,6 +111,7 @@
                                 <StackPanel Grid.Column="1">
                                     <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
                                     <TextBlock Text="{Binding ModelName}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Text="{Binding AddressText}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                 </StackPanel>
                                 <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12" Foreground="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center"/>
                             </Grid>
@@ -127,11 +131,13 @@
                 <ComboBox ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
                           SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=TwoWay}"
                           DisplayMemberPath="Name"
+                          AutomationProperties.Name="Capture source"
                           HorizontalAlignment="Stretch"/>
 
                 <!-- Quality Preset Selector -->
                 <TextBlock Text="Quality Preset" FontSize="14" FontWeight="Medium"/>
-                <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch">
+                <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                          AutomationProperties.Name="Quality preset">
                     <ComboBoxItem Content="Auto"/>
                     <ComboBoxItem Content="High"/>
                     <ComboBoxItem Content="Balanced"/>
@@ -139,6 +145,17 @@
                     <ComboBoxItem Content="Game (Low Latency)"/>
                     <ComboBoxItem Content="Cinema"/>
                 </ComboBox>
+
+                <!-- Inline bitrate slider: bound to the same stored cap as the
+                     Settings slider, so the two surfaces stay synchronized. -->
+                <StackPanel Spacing="2">
+                    <TextBlock x:Name="BitrateLabel" Text="Bitrate" FontSize="14" FontWeight="Medium"/>
+                    <Slider Minimum="1000" Maximum="25000" StepFrequency="500" SnapsTo="StepValues"
+                            Value="{x:Bind ViewModel.BitrateCapKbps, Mode=TwoWay}"
+                            AutomationProperties.LabeledBy="{x:Bind BitrateLabel}"/>
+                    <TextBlock Text="{x:Bind ViewModel.BitrateCapText, Mode=OneWay}" FontSize="12"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
 
                 <!-- Audio Toggle -->
                 <ToggleSwitch Header="System Audio" IsOn="{x:Bind ViewModel.AudioEnabled, Mode=TwoWay}"/>
@@ -183,13 +200,41 @@
         <Border Grid.Row="2" Padding="24,8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
             <Grid>
                 <StackPanel Orientation="Horizontal" Spacing="24">
-                    <TextBlock Text="{x:Bind ViewModel.StatsFpsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="{x:Bind ViewModel.StatsQualityText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="{x:Bind ViewModel.StatsBitrateText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="{x:Bind ViewModel.StatsLatencyText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="{x:Bind ViewModel.StatsLossText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel Spacing="2">
+                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.FpsSeries, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock Text="{x:Bind ViewModel.StatsFpsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.BitrateSeries, Mode=OneWay}" Stroke="#FF198754" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock Text="{x:Bind ViewModel.StatsBitrateText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.RttSeries, Mode=OneWay}" Stroke="#FFFD7E14" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock Text="{x:Bind ViewModel.StatsLatencyText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <StackPanel Spacing="2">
+                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.LossSeries, Mode=OneWay}" Stroke="#FFDC3545" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock Text="{x:Bind ViewModel.StatsLossText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <TextBlock Text="{x:Bind ViewModel.StatsQualityText, Mode=OneWay}" FontSize="12" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
             </Grid>
         </Border>
+
+        <!-- First-run card: shown until the user has seen the discovery explainer -->
+        <Grid Grid.RowSpan="3" Background="#B3000000" Visibility="{x:Bind ViewModel.ShowFirstRun, Mode=OneWay}">
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="24"
+                    MaxWidth="460" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel Spacing="12">
+                    <FontIcon Glyph="&#xE7F4;" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                    <TextBlock Text="Welcome to CastMirror" FontSize="20" FontWeight="SemiBold"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Text="CastMirror finds Cast devices over mDNS on your local network. Make sure your TV or speaker is powered on and on the same Wi-Fi network. If your network blocks mDNS, CastMirror can also probe your subnet directly on port 8009."/>
+                    <Button Content="Scan my LAN for TVs" Click="OnFirstRunScanClicked" HorizontalAlignment="Stretch"/>
+                    <Button Content="Not now" Click="OnFirstRunDismissClicked" HorizontalAlignment="Stretch"
+                            Background="Transparent" BorderThickness="0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

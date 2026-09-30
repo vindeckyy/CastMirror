@@ -1,7 +1,9 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -35,17 +37,35 @@ namespace CastMirror
             _desktopIntegrationChanged = desktopIntegrationChanged;
             InitializeComponent();
 
-            try
-            {
-                AppWindow.Resize(new Windows.Graphics.SizeInt32(700, 780));
-            }
-            catch
-            {
-                // Sizing is best-effort.
-            }
+            // Logical (DIP) size, converted for the monitor this window opens
+            // on. This window is tall, so the work-area clamp is what keeps it
+            // on-screen on a laptop at 125-150%.
+            WindowScaler.ResizeToDips(AppWindow, 700, 780);
 
             ThemeService.Register(Content as FrameworkElement);
             LoadFromSettings();
+
+            // The Cast surface has its own bitrate slider; keep this one in step
+            // with it (and with the engine config it writes).
+            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            Closed += (_, _) => _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        }
+
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(MainViewModel.BitrateCapKbps)) return;
+            if (BitrateSlider == null) return;
+
+            _loading = true;
+            try
+            {
+                BitrateSlider.Value = Clamp(_viewModel.BitrateCapKbps, BitrateSlider.Minimum, BitrateSlider.Maximum);
+            }
+            finally
+            {
+                _loading = false;
+            }
+            UpdateBitrateLabel();
         }
 
         private void LoadFromSettings()
@@ -58,14 +78,32 @@ namespace CastMirror
                 BitrateSlider.Value = Clamp(settings.EffectiveBitrateCapKbps(), BitrateSlider.Minimum, BitrateSlider.Maximum);
                 UpdateBitrateLabel();
 
-                FpsCombo.SelectedIndex = Math.Max(0, Array.IndexOf(FpsOptions, settings.CaptureFps));
+                // Unknown persisted values stay unselected instead of being
+                // silently coerced to a default that the next save would write
+                // over the user's hand-edited value.
+                int fpsIndex = Array.IndexOf(FpsOptions, settings.CaptureFps);
+                if (fpsIndex < 0)
+                {
+                    NoteUnsupportedValue("capture_fps", settings.CaptureFps);
+                }
+                else
+                {
+                    FpsCombo.SelectedIndex = fpsIndex;
+                }
 
                 SteadySwitch.IsOn = !settings.AdaptiveResolutionEnabled;
                 SoftwareEncodeSwitch.IsOn = settings.ForceSoftwareEncode;
                 AudioSwitch.IsOn = settings.AudioEnabled;
 
                 int audioIndex = Array.IndexOf(AudioQualityOptions, settings.AudioBitrateBps);
-                AudioQualityCombo.SelectedIndex = audioIndex >= 0 ? audioIndex : 2;
+                if (audioIndex < 0)
+                {
+                    NoteUnsupportedValue("audio_bitrate_bps", settings.AudioBitrateBps);
+                }
+                else
+                {
+                    AudioQualityCombo.SelectedIndex = audioIndex;
+                }
 
                 SilenceSwitch.IsOn = settings.SilenceHostSpeakers;
 
@@ -83,12 +121,25 @@ namespace CastMirror
                     ? "Shows desktop notifications when casting starts, disconnects, or reconnects."
                     : "Not supported in this build: the notification platform could not be registered.";
 
-                ThemeCombo.SelectedIndex = settings.UiTheme switch
+                string uiTheme = (settings.UiTheme ?? string.Empty).Trim();
+                int themeIndex = uiTheme switch
                 {
+                    "" => 0,
                     "light" => 1,
                     "dark" => 2,
-                    _ => 0
+                    _ => -1
                 };
+                if (themeIndex < 0)
+                {
+                    NoteUnsupportedValue("ui_theme", settings.UiTheme);
+                }
+                else
+                {
+                    ThemeCombo.SelectedIndex = themeIndex;
+                }
+
+                // The reload succeeded: any earlier error text is stale.
+                ClearError();
             }
             catch (Exception ex)
             {
@@ -126,9 +177,22 @@ namespace CastMirror
             SaveErrorText.Visibility = Visibility.Visible;
         }
 
+        /// <summary>
+        /// Hides the error banner. Called after a successful load and after
+        /// every applied change: the banner reports the LAST failure, so a
+        /// later successful save must not leave it visible.
+        /// </summary>
         private void ClearError()
         {
             SaveErrorText.Visibility = Visibility.Collapsed;
+        }
+
+        private static void NoteUnsupportedValue(string key, object? value)
+        {
+            // Not an error the user must fix on the spot; recorded so a
+            // hand-edited value that no control offers is visible in the log.
+            MainViewModel.LogError(new InvalidDataException(
+                $"Unsupported persisted value {key}={value}; the settings window left it untouched."));
         }
 
         private void OnBitrateChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -136,6 +200,7 @@ namespace CastMirror
             UpdateBitrateLabel();
             if (_loading) return;
             _viewModel.ApplyBitrateCap((uint)e.NewValue);
+            ClearError();
         }
 
         private void OnDelayChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -143,6 +208,7 @@ namespace CastMirror
             UpdateDelayLabel();
             if (_loading) return;
             _viewModel.ApplyTargetDelay((int)e.NewValue);
+            ClearError();
         }
 
         private void OnFpsChanged(object sender, SelectionChangedEventArgs e)
@@ -151,6 +217,7 @@ namespace CastMirror
             int index = FpsCombo.SelectedIndex;
             if (index < 0 || index >= FpsOptions.Length) return;
             _viewModel.ApplyCaptureFps(FpsOptions[index]);
+            ClearError();
         }
 
         private void OnAudioQualityChanged(object sender, SelectionChangedEventArgs e)
@@ -159,30 +226,35 @@ namespace CastMirror
             int index = AudioQualityCombo.SelectedIndex;
             if (index < 0 || index >= AudioQualityOptions.Length) return;
             _viewModel.ApplyAudioBitrate(AudioQualityOptions[index]);
+            ClearError();
         }
 
         private void OnSteadyToggled(object sender, RoutedEventArgs e)
         {
             if (_loading) return;
             _viewModel.ApplySteadyFrameRate(SteadySwitch.IsOn);
+            ClearError();
         }
 
         private void OnSoftwareEncodeToggled(object sender, RoutedEventArgs e)
         {
             if (_loading) return;
             _viewModel.ApplyForceSoftwareEncode(SoftwareEncodeSwitch.IsOn);
+            ClearError();
         }
 
         private void OnAudioToggled(object sender, RoutedEventArgs e)
         {
             if (_loading) return;
             _viewModel.ApplyAudioEnabled(AudioSwitch.IsOn);
+            ClearError();
         }
 
         private void OnLatencyHudToggled(object sender, RoutedEventArgs e)
         {
             if (_loading) return;
             _viewModel.ApplyLatencyHud(LatencyHudSwitch.IsOn);
+            ClearError();
         }
 
         private async void OnSubnetScanToggled(object sender, RoutedEventArgs e)
@@ -191,6 +263,7 @@ namespace CastMirror
             if (!SubnetScanSwitch.IsOn)
             {
                 _viewModel.ApplySubnetScan(false);
+                ClearError();
                 return;
             }
 
@@ -214,6 +287,7 @@ namespace CastMirror
             if (result == ContentDialogResult.Primary)
             {
                 _viewModel.ApplySubnetScan(true);
+                ClearError();
             }
             else
             {
@@ -227,6 +301,7 @@ namespace CastMirror
         {
             if (_loading) return;
             _viewModel.ApplyTrayEnabled(TraySwitch.IsOn);
+            ClearError();
             _desktopIntegrationChanged?.Invoke();
         }
 
@@ -234,6 +309,7 @@ namespace CastMirror
         {
             if (_loading) return;
             _viewModel.ApplyCloseToTray(CloseToTraySwitch.IsOn);
+            ClearError();
             _desktopIntegrationChanged?.Invoke();
         }
 
@@ -241,11 +317,15 @@ namespace CastMirror
         {
             if (_loading) return;
             _viewModel.ApplyNotifications(NotifySwitch.IsOn);
+            ClearError();
         }
 
         private void OnThemeChanged(object sender, SelectionChangedEventArgs e)
         {
             if (_loading) return;
+            // No selection means the persisted value was unsupported; keep it
+            // until the user picks a real entry.
+            if (ThemeCombo.SelectedIndex < 0) return;
             string theme = ThemeCombo.SelectedIndex switch
             {
                 1 => "light",
@@ -253,13 +333,26 @@ namespace CastMirror
                 _ => string.Empty
             };
             _viewModel.ApplyTheme(theme);
+            ClearError();
         }
 
         private async void OnSelfTestClicked(object sender, RoutedEventArgs e)
         {
-            string json = SettingsService.RunSelfTest();
-            SelfTestText.Text = DescribeSelfTest(json);
-            SelfTestText.Visibility = Visibility.Visible;
+            // The engine's self-test probes capture, encoder, audio and network
+            // and blocks for seconds; run it off the UI thread.
+            if (sender is Button button) button.IsEnabled = false;
+            try
+            {
+                string json = await Task.Run(SettingsService.RunSelfTest);
+                // WinUI installs a DispatcherQueue sync context, so this
+                // continuation is back on the UI thread.
+                SelfTestText.Text = DescribeSelfTest(json);
+                SelfTestText.Visibility = Visibility.Visible;
+            }
+            finally
+            {
+                if (sender is Button doneButton) doneButton.IsEnabled = true;
+            }
 
             var dialog = new ContentDialog
             {
@@ -301,11 +394,8 @@ namespace CastMirror
         {
             try
             {
-                string dir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "CastMirror");
-                Directory.CreateDirectory(dir);
-                Process.Start(new ProcessStartInfo("explorer.exe", dir) { UseShellExecute = true });
+                Directory.CreateDirectory(Services.LogService.DirectoryPath);
+                Process.Start(new ProcessStartInfo("explorer.exe", Services.LogService.DirectoryPath) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
@@ -318,7 +408,6 @@ namespace CastMirror
         public void Reload()
         {
             _viewModel.ReloadSettings();
-            ClearError();
             LoadFromSettings();
         }
     }

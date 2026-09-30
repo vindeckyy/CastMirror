@@ -29,12 +29,13 @@
                 <Expander Header="Picture &amp; encoding" IsExpanded="True" HorizontalAlignment="Stretch">
                     <StackPanel Spacing="14" Padding="4,10,4,4">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="Video bitrate cap" FontWeight="Medium"/>
+                            <TextBlock x:Name="BitrateLabel" Text="Video bitrate cap" FontWeight="Medium"/>
                             <TextBlock Text="Bitrate CastMirror holds while streaming. Drops only on network congestion and ramps back up quickly when the link recovers."
                                        FontSize="12" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <Slider x:Name="BitrateSlider" Maximum="25000" Minimum="1000" StepFrequency="500"
-                                    SnapsTo="StepValues" ValueChanged="OnBitrateChanged" Margin="0,6,0,0"/>
+                                    SnapsTo="StepValues" ValueChanged="OnBitrateChanged" Margin="0,6,0,0"
+                                    AutomationProperties.LabeledBy="{x:Bind BitrateLabel}"/>
                             <TextBlock x:Name="BitrateValueText" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
@@ -45,6 +46,7 @@
                                        FontSize="12" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <ComboBox x:Name="FpsCombo" HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                                      AutomationProperties.Name="Capture frame rate"
                                       SelectionChanged="OnFpsChanged">
                                 <ComboBoxItem Content="Auto"/>
                                 <ComboBoxItem Content="24 fps"/>
@@ -84,6 +86,7 @@
                                        FontSize="12" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <ComboBox x:Name="AudioQualityCombo" HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                                      AutomationProperties.Name="Audio quality"
                                       SelectionChanged="OnAudioQualityChanged">
                                 <ComboBoxItem Content="64 kbps"/>
                                 <ComboBoxItem Content="96 kbps"/>
@@ -105,12 +108,13 @@
                 <Expander Header="Latency &amp; buffering" IsExpanded="False" HorizontalAlignment="Stretch">
                     <StackPanel Spacing="14" Padding="4,10,4,4">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="Target delay" FontWeight="Medium"/>
+                            <TextBlock x:Name="DelayLabel" Text="Target delay" FontWeight="Medium"/>
                             <TextBlock Text="How long the TV waits before drawing each frame (buffer depth). 200 ms gives responsive cursor movement; 400 ms is Chrome's default buffer to withstand Wi-Fi retransmits."
                                        FontSize="12" TextWrapping="Wrap"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <Slider x:Name="DelaySlider" Maximum="400" Minimum="100" StepFrequency="10"
-                                    SnapsTo="StepValues" ValueChanged="OnDelayChanged" Margin="0,6,0,0"/>
+                                    SnapsTo="StepValues" ValueChanged="OnDelayChanged" Margin="0,6,0,0"
+                                    AutomationProperties.LabeledBy="{x:Bind DelayLabel}"/>
                             <TextBlock x:Name="DelayValueText" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
@@ -162,6 +166,7 @@
                     <StackPanel Spacing="10" Padding="4,10,4,4">
                         <TextBlock Text="Color scheme" FontWeight="Medium"/>
                         <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Stretch"
+                                  AutomationProperties.Name="Color scheme"
                                   SelectionChanged="OnThemeChanged">
                             <ComboBoxItem Content="System default"/>
                             <ComboBoxItem Content="Light"/>

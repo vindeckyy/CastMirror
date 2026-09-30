@@ -166,6 +166,7 @@ namespace CastMirror.Services
         private readonly Action _onExit;
         private readonly Func<bool> _isStreaming;
 
+        private readonly object _startLock = new();
         private Thread? _thread;
         private IntPtr _hwnd = IntPtr.Zero;
         private IntPtr _icon = IntPtr.Zero;
@@ -190,16 +191,40 @@ namespace CastMirror.Services
         }
 
         /// <summary>Creates the icon. Returns false when the shell rejected it.</summary>
+        /// <remarks>
+        /// Safe to call from any thread and more than once: the UI thread starts
+        /// the tray on a worker so the shell wait never stalls the window, and
+        /// the close-to-tray path may reach it again while that is in flight.
+        /// A second call joins the first rather than starting a second thread,
+        /// which would race RegisterClassExW and leave a duplicate icon.
+        /// </remarks>
         public bool Start()
         {
-            if (_thread != null) return _iconAdded;
-            _thread = new Thread(MessageLoop)
+            lock (_startLock)
             {
-                IsBackground = true,
-                Name = "CastMirrorTray"
-            };
-            _thread.SetApartmentState(ApartmentState.STA);
-            _thread.Start();
+                if (_disposed) return false;
+                if (_thread != null)
+                {
+                    // Already starting or started: wait on the same signal the
+                    // original Start() waits on, so the caller still gets a
+                    // truthful answer.
+                    _ready.Wait(TimeSpan.FromSeconds(5));
+                    return _iconAdded;
+                }
+                _thread = new Thread(MessageLoop)
+                {
+                    IsBackground = true,
+                    Name = "CastMirrorTray"
+                };
+                _thread.SetApartmentState(ApartmentState.STA);
+                _thread.Start();
+            }
+            // Waited outside the lock: MessageLoop never takes it, and holding
+            // it for the whole wait would block a concurrent Start() that is
+            // only trying to observe the outcome. A teardown between the two
+            // sections disposes _ready, so the flag is rechecked before waiting
+            // on it — a disposed ManualResetEventSlim would throw.
+            if (_disposed) return false;
             _ready.Wait(TimeSpan.FromSeconds(5));
             return _iconAdded;
         }
@@ -267,6 +292,12 @@ namespace CastMirror.Services
                     if (ExtractIconExW(exe, 0, large, small, 1) > 0)
                     {
                         IntPtr handle = large[0] != IntPtr.Zero ? large[0] : small[0];
+                        // ExtractIconExW fills both arrays when it is asked for
+                        // both, and nothing else owns either handle: Dispose
+                        // destroys only the one selected here, so the other
+                        // would leak for the lifetime of the process.
+                        IntPtr unused = large[0] != IntPtr.Zero ? small[0] : large[0];
+                        if (unused != IntPtr.Zero) DestroyIcon(unused);
                         if (handle != IntPtr.Zero)
                         {
                             _ownsIcon = true;
@@ -285,29 +316,34 @@ namespace CastMirror.Services
         private void AddIcon()
         {
             if (_hwnd == IntPtr.Zero) return;
-            var data = BuildIconData();
+            var data = BuildIconData(_hwnd);
             _iconAdded = Shell_NotifyIconW(NIM_ADD, ref data);
             if (!_iconAdded)
             {
-                Log("Shell_NotifyIconW(NIM_ADD) failed; tray icon unavailable");
+                LogService.Log("Shell_NotifyIconW(NIM_ADD) failed; tray icon unavailable");
             }
             _ready.Set();
         }
 
         private void RemoveIcon()
         {
-            if (!_iconAdded || _hwnd == IntPtr.Zero) return;
-            var data = BuildIconData();
+            if (!_iconAdded) return;
+            // Capture the handle once: Dispose owns _hwnd and clears it as soon
+            // as this thread is gone. A torn or re-read field here used to be
+            // how the NIM_DELETE was skipped, leaving a ghost icon in the tray.
+            IntPtr hwnd = _hwnd;
+            if (hwnd == IntPtr.Zero) return;
+            var data = BuildIconData(hwnd);
             Shell_NotifyIconW(NIM_DELETE, ref data);
             _iconAdded = false;
         }
 
-        private NOTIFYICONDATA BuildIconData()
+        private NOTIFYICONDATA BuildIconData(IntPtr hwnd)
         {
             return new NOTIFYICONDATA
             {
                 cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
-                hWnd = _hwnd,
+                hWnd = hwnd,
                 uID = 1,
                 uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP,
                 uCallbackMessage = WM_TRAYICON,
@@ -338,7 +374,7 @@ namespace CastMirror.Services
                 // Tooltip refresh requested from another thread.
                 if (_iconAdded)
                 {
-                    var data = BuildIconData();
+                    var data = BuildIconData(hWnd);
                     Shell_NotifyIconW(NIM_MODIFY, ref data);
                 }
                 return IntPtr.Zero;
@@ -419,22 +455,6 @@ namespace CastMirror.Services
             });
         }
 
-        private static void Log(string message)
-        {
-            try
-            {
-                string dir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CastMirror");
-                System.IO.Directory.CreateDirectory(dir);
-                System.IO.File.AppendAllText(
-                    System.IO.Path.Combine(dir, "gui-errors.log"),
-                    $"{DateTime.Now:O} {message}{Environment.NewLine}");
-            }
-            catch
-            {
-                // Diagnostics must never break startup.
-            }
-        }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr GetModuleHandleW(string? lpModuleName);
@@ -443,13 +463,32 @@ namespace CastMirror.Services
         {
             if (_disposed) return;
             _disposed = true;
+            bool threadStopped;
             try
             {
+                // Read the thread handle under the lock Start() uses: a tray that
+                // is still being created on a worker would otherwise race this
+                // teardown, and we could null out _thread underneath a live
+                // thread or skip joining it.
+                Thread? thread;
+                lock (_startLock)
+                {
+                    thread = _thread;
+                }
                 if (_hwnd != IntPtr.Zero)
                 {
                     PostMessageW(_hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
                 }
-                _thread?.Join(TimeSpan.FromSeconds(2));
+                if (thread?.Join(TimeSpan.FromSeconds(2)) == false && _hwnd != IntPtr.Zero)
+                {
+                    // The tray thread is most likely parked inside the modal
+                    // TrackPopupMenu loop, which can swallow the first WM_CLOSE.
+                    // Nudge it once more; the icon itself is always removed by
+                    // the tray thread's own finally, so a failed join here only
+                    // means the OS reclaims the handles at process exit.
+                    PostMessageW(_hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                    thread.Join(TimeSpan.FromMilliseconds(500));
+                }
             }
             catch (Exception ex)
             {
@@ -457,15 +496,28 @@ namespace CastMirror.Services
             }
             finally
             {
-                _thread = null;
-                _hwnd = IntPtr.Zero;
-                if (_ownsIcon && _icon != IntPtr.Zero)
+                // Tear the shell state down only once the tray thread is gone:
+                // its finally already ran RemoveIcon() with the live _hwnd, so
+                // zeroing _hwnd/_icon now cannot skip the NIM_DELETE or pull
+                // the HICON out from under a NIM_MODIFY still in flight.
+                lock (_startLock)
                 {
-                    DestroyIcon(_icon);
-                    _icon = IntPtr.Zero;
-                    _ownsIcon = false;
+                    threadStopped = _thread == null || !_thread.IsAlive;
+                    _thread = null;
                 }
-                _ready.Dispose();
+                if (threadStopped)
+                {
+                    _hwnd = IntPtr.Zero;
+                    if (_ownsIcon && _icon != IntPtr.Zero)
+                    {
+                        DestroyIcon(_icon);
+                        _icon = IntPtr.Zero;
+                        _ownsIcon = false;
+                    }
+                    // Start() is never called again after _disposed, so nothing
+                    // can be waiting on this signal by the time it is disposed.
+                    _ready.Dispose();
+                }
             }
         }
     }

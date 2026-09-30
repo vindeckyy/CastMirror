@@ -14,17 +14,27 @@ namespace CastMirror.Services
     {
         public static bool IsSupported { get; private set; }
 
+        /// <summary>
+        /// Raised when the user clicks a toast. The argument is the raw
+        /// activation argument string (e.g. "tag=cast-failed"), so callers can
+        /// decide whether to surface the window.
+        /// </summary>
+        public static event Action<string?>? Activated;
+
         public static void Initialize()
         {
             try
             {
+                // Without this the toast is shown but clicking it does nothing:
+                // no window is brought forward and no action runs.
+                AppNotificationManager.Default.NotificationInvoked += OnNotificationInvoked;
                 AppNotificationManager.Default.Register();
                 IsSupported = true;
             }
             catch (Exception ex)
             {
                 IsSupported = false;
-                ViewModels.MainViewModel.LogError(ex);
+                LogService.Log(ex.ToString());
             }
         }
 
@@ -33,29 +43,46 @@ namespace CastMirror.Services
             if (!IsSupported) return;
             try
             {
+                AppNotificationManager.Default.NotificationInvoked -= OnNotificationInvoked;
                 AppNotificationManager.Default.Unregister();
             }
             catch (Exception ex)
             {
-                ViewModels.MainViewModel.LogError(ex);
+                LogService.Log(ex.ToString());
             }
         }
 
         /// <summary>Shows a toast when the user has notifications enabled.</summary>
-        public static void Notify(bool enabled, string title, string body)
+        /// <param name="tag">Optional activation tag echoed back on click.</param>
+        public static void Notify(bool enabled, string title, string body, string? tag = null)
         {
             if (!enabled || !IsSupported) return;
             try
             {
-                var notification = new AppNotificationBuilder()
+                var builder = new AppNotificationBuilder()
                     .AddText(title)
-                    .AddText(body)
-                    .BuildNotification();
-                AppNotificationManager.Default.Show(notification);
+                    .AddText(body);
+                if (!string.IsNullOrEmpty(tag))
+                {
+                    builder.AddArgument("tag", tag);
+                }
+                AppNotificationManager.Default.Show(builder.BuildNotification());
             }
             catch (Exception ex)
             {
-                ViewModels.MainViewModel.LogError(ex);
+                LogService.Log(ex.ToString());
+            }
+        }
+
+        private static void OnNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
+        {
+            try
+            {
+                Activated?.Invoke(args?.Argument);
+            }
+            catch (Exception ex)
+            {
+                LogService.Log(ex.ToString());
             }
         }
     }

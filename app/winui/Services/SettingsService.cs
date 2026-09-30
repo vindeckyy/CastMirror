@@ -14,6 +14,45 @@ namespace CastMirror.Services
     {
         public const string AutoPresetKey = "auto";
 
+        // The single name↔ordinal mapping for the engine's QualityPreset
+        // (castcore's preset list order); index 0 is Auto. These are the
+        // canonical spellings castcore's QualityPresetToString emits.
+        private static readonly string[] PresetNames =
+            { "Auto", "High", "Balanced", "Smooth", "Game", "Cinema" };
+
+        /// <summary>
+        /// Maps an engine preset name to its ordinal. Matching is
+        /// case-insensitive because hand-edited configs tend to use lower
+        /// case even though castcore's QualityPresetFromString only accepts
+        /// the canonical capitalized spellings.
+        /// </summary>
+        public static bool TryParsePresetName(string? name, out int index)
+        {
+            index = -1;
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            for (int i = 0; i < PresetNames.Length; ++i)
+            {
+                if (string.Equals(name.Trim(), PresetNames[i],
+                                  StringComparison.OrdinalIgnoreCase))
+                {
+                    index = i;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Canonical preset name for an ordinal ("High", ...), or "Auto" when
+        /// the index is out of range. Use this — not a hand-cased literal —
+        /// when writing quality_preset: the engine's parser is case-sensitive
+        /// and reads anything else (including "high") as auto.
+        /// </summary>
+        public static string PresetName(int index) =>
+            index >= 0 && index < PresetNames.Length
+                ? PresetNames[index]
+                : PresetNames[0];
+
         // Defaults mirror core `AppConfig` (core/include/castcore/config.h): if
         // Load() ever fails, the values this DTO would persist must not silently
         // change engine behaviour. 0 for the per-preset bitrates means "use the
@@ -46,15 +85,14 @@ namespace CastMirror.Services
         /// <summary>Bitrate cap currently in force for the selected preset.</summary>
         public uint BitrateCapKbps()
         {
-            // The engine writes preset names capitalized ("High"); match them
-            // case-insensitively so a hand-edited config also works.
-            return (QualityPreset ?? string.Empty).Trim().ToLowerInvariant() switch
+            if (!TryParsePresetName(QualityPreset, out int index)) return BitrateKbpsAuto;
+            return (CastMirrorQualityPreset)index switch
             {
-                "high" => BitrateKbpsHigh,
-                "balanced" => BitrateKbpsBalanced,
-                "smooth" => BitrateKbpsSmooth,
-                "game" => BitrateKbpsGame,
-                "cinema" => BitrateKbpsCinema,
+                CastMirrorQualityPreset.High => BitrateKbpsHigh,
+                CastMirrorQualityPreset.Balanced => BitrateKbpsBalanced,
+                CastMirrorQualityPreset.Smooth => BitrateKbpsSmooth,
+                CastMirrorQualityPreset.Game => BitrateKbpsGame,
+                CastMirrorQualityPreset.Cinema => BitrateKbpsCinema,
                 _ => BitrateKbpsAuto
             };
         }
@@ -67,11 +105,12 @@ namespace CastMirror.Services
         {
             uint stored = BitrateCapKbps();
             if (stored != 0) return stored;
-            return (QualityPreset ?? string.Empty).Trim().ToLowerInvariant() switch
+            if (!TryParsePresetName(QualityPreset, out int index)) return 8000;
+            return (CastMirrorQualityPreset)index switch
             {
-                "high" => 12000,
-                "smooth" => 5000,
-                "cinema" => 16000,
+                CastMirrorQualityPreset.High => 12000,
+                CastMirrorQualityPreset.Smooth => 5000,
+                CastMirrorQualityPreset.Cinema => 16000,
                 _ => 8000
             };
         }
@@ -79,13 +118,17 @@ namespace CastMirror.Services
         /// <summary>Stores a bitrate cap for the selected preset (and its ceiling).</summary>
         public void SetBitrateCapKbps(uint kbps)
         {
-            switch ((QualityPreset ?? string.Empty).Trim().ToLowerInvariant())
+            CastMirrorQualityPreset preset =
+                TryParsePresetName(QualityPreset, out int index)
+                    ? (CastMirrorQualityPreset)index
+                    : CastMirrorQualityPreset.Auto;
+            switch (preset)
             {
-                case "high": BitrateKbpsHigh = kbps; break;
-                case "balanced": BitrateKbpsBalanced = kbps; break;
-                case "smooth": BitrateKbpsSmooth = kbps; break;
-                case "game": BitrateKbpsGame = kbps; break;
-                case "cinema": BitrateKbpsCinema = kbps; break;
+                case CastMirrorQualityPreset.High: BitrateKbpsHigh = kbps; break;
+                case CastMirrorQualityPreset.Balanced: BitrateKbpsBalanced = kbps; break;
+                case CastMirrorQualityPreset.Smooth: BitrateKbpsSmooth = kbps; break;
+                case CastMirrorQualityPreset.Game: BitrateKbpsGame = kbps; break;
+                case CastMirrorQualityPreset.Cinema: BitrateKbpsCinema = kbps; break;
                 default: BitrateKbpsAuto = kbps; break;
             }
             MaxBitrateKbps = kbps;
@@ -106,34 +149,87 @@ namespace CastMirror.Services
             ReadCommentHandling = JsonCommentHandling.Skip
         };
 
-        /// <summary>Loads the engine configuration; returns defaults if unavailable.</summary>
+        /// <summary>
+        /// Loads the engine configuration.
+        /// </summary>
+        /// <remarks>
+        /// This throws on failure instead of substituting defaults. Returning a
+        /// default-valued DTO used to be silently fatal: every caller persists
+        /// whatever it holds, so one truncated or unparsable read rewrote the
+        /// user's entire configuration with the defaults. Callers must surface
+        /// the failure and leave the existing settings untouched.
+        /// </remarks>
         public static CastMirrorSettings Load()
         {
-            try
+            string json = ReadConfigJson();
+            CastMirrorSettings? settings =
+                JsonSerializer.Deserialize<CastMirrorSettings>(json, Options);
+            if (settings == null)
             {
-                int needed = CastCoreBridge.castmirror_get_config_json(null!, 0);
-                if (needed <= 0) return new CastMirrorSettings();
-
-                var buffer = new StringBuilder(needed);
-                int written = CastCoreBridge.castmirror_get_config_json(buffer, buffer.Capacity);
-                if (written <= 0) return new CastMirrorSettings();
-
-                return JsonSerializer.Deserialize<CastMirrorSettings>(buffer.ToString(), Options)
-                       ?? new CastMirrorSettings();
+                throw new InvalidOperationException(
+                    "The engine returned an empty configuration document.");
             }
-            catch (Exception ex)
-            {
-                ViewModels.MainViewModel.LogError(ex);
-                return new CastMirrorSettings();
-            }
+            return settings;
         }
+
+        /// <summary>
+        /// Reads a JSON document from the engine with the documented two-step
+        /// contract (query the required size, then fill), growing and retrying
+        /// while the engine reports that the document did not fit.
+        /// </summary>
+        /// <remarks>
+        /// Shared by the configuration and the self-test: they expose the same
+        /// buffer contract, and a self-test read that skipped the grow-and-retry
+        /// returned truncated JSON that the diagnostics pane then displayed as
+        /// raw partial text.
+        /// </remarks>
+        private static string ReadNativeJson(string what, Func<int> sizeQuery,
+                                             Func<byte[], int, int> fill)
+        {
+            int needed = sizeQuery();
+            if (needed <= 0)
+            {
+                throw new InvalidOperationException($"The engine did not report a {what} size.");
+            }
+
+            for (int attempt = 0; attempt < 4; ++attempt)
+            {
+                var buffer = new byte[needed];
+                int written = fill(buffer, buffer.Length);
+                if (written <= 0)
+                {
+                    throw new InvalidOperationException($"The engine returned no {what}.");
+                }
+
+                // A write that exactly filled the buffer may have been truncated
+                // by the engine; grow the buffer and ask again rather than
+                // parsing a partial document.
+                if (written < buffer.Length - 1)
+                {
+                    return NativeText.Decode(buffer);
+                }
+                needed = buffer.Length * 2;
+            }
+
+            throw new InvalidOperationException($"The {what} did not fit in the buffer.");
+        }
+
+        private static string ReadConfigJson() =>
+            ReadNativeJson(
+                "configuration",
+                () => CastCoreBridge.castmirror_get_config_json(null!, 0),
+                (buffer, length) => CastCoreBridge.castmirror_get_config_json(buffer, length));
 
         /// <summary>Persists the configuration. Returns false when the engine rejected it.</summary>
         public static bool Save(CastMirrorSettings settings)
         {
             try
             {
-                return CastCoreBridge.castmirror_set_config_json(JsonSerializer.Serialize(settings, Options));
+                // UTF-8 on both sides: the engine parses the bytes as UTF-8, so
+                // encoding them through the ANSI code page would corrupt any
+                // non-ASCII string value.
+                return CastCoreBridge.castmirror_set_config_json(
+                    NativeText.EncodeZ(JsonSerializer.Serialize(settings, Options)));
             }
             catch (Exception ex)
             {
@@ -147,11 +243,10 @@ namespace CastMirror.Services
         {
             try
             {
-                int needed = CastCoreBridge.castmirror_self_test(null!, 0);
-                if (needed <= 0) return string.Empty;
-                var buffer = new StringBuilder(needed);
-                int written = CastCoreBridge.castmirror_self_test(buffer, buffer.Capacity);
-                return written > 0 ? buffer.ToString() : string.Empty;
+                return ReadNativeJson(
+                    "self-test result",
+                    () => CastCoreBridge.castmirror_self_test(null!, 0),
+                    (buffer, length) => CastCoreBridge.castmirror_self_test(buffer, length));
             }
             catch (Exception ex)
             {
