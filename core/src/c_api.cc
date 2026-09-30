@@ -97,6 +97,10 @@ void ConvertStats(const castcore::StreamStats& in, CastMirrorStreamStats* out) {
   out->capture_backend[sizeof(out->capture_backend) - 1] = '\0';
   std::strncpy(out->display_name, in.display_name.c_str(), sizeof(out->display_name) - 1);
   out->display_name[sizeof(out->display_name) - 1] = '\0';
+  out->recovery_attempt = in.recovery_attempt;
+  out->recovery_elapsed_s = in.recovery_elapsed_s;
+  std::strncpy(out->health_hint, in.health_hint.c_str(), sizeof(out->health_hint) - 1);
+  out->health_hint[sizeof(out->health_hint) - 1] = '\0';
 }
 
 // Shared buffer contract for castmirror_get_config_json / castmirror_self_test:
@@ -343,6 +347,10 @@ uint32_t castmirror_abi_version(void) {
 }
 
 void castmirror_shutdown(void) {
+  // Stop a running cast first, while the callbacks are still registered, so the
+  // client sees the Stopping and Idle transitions instead of a session that just
+  // vanishes.
+  castcore::CastEngine::Instance().StopCasting();
   // Drop every registered callback before tearing the engine down: a client
   // that re-creates its view model must not leave a dangling native pointer.
   {
@@ -491,6 +499,21 @@ bool castmirror_start_cast_ex(const char* device_id,
                     ? castcore::CaptureSourceKind::kWindow
                     : castcore::CaptureSourceKind::kMonitor;
   source.id = source_id;
+  if (source.kind == castcore::CaptureSourceKind::kWindow) {
+    // The caller only knows the window id. Fill in the title and geometry so the
+    // capture crops the right rectangle and "cast to last" can find the window
+    // again by name instead of falling back to the monitor.
+    for (const auto& w : castcore::CastEngine::Instance().GetWindows()) {
+      if (w.id == source_id) {
+        source.name = w.title;
+        source.x = w.x;
+        source.y = w.y;
+        source.width = w.width;
+        source.height = w.height;
+        break;
+      }
+    }
+  }
   return castcore::CastEngine::Instance().StartCasting(device_id, source, opts);
 }
 

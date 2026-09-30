@@ -263,3 +263,27 @@ TEST(GpuProcessorTest, InitializeAndConversionsRejectInvalidArguments) {
   EXPECT_FALSE(gp.ConvertBgraToNv12(src, y.data(), 64, nullptr, 64));
   EXPECT_FALSE(gp.ConvertBgraToNv12(src, y.data(), 64, u.data(), 0));
 }
+
+// A TV decodes HD video as BT.709. A pure red frame must come out with the 709 luma
+// (about 63 in limited range), not the BT.601 value (about 82) that swscale produces
+// by default, which shows up on screen as shifted colours.
+TEST(GpuProcessorTest, ColoursAreConvertedWithBt709NotBt601) {
+  GpuProcessor gp;
+  const int w = 64, h = 64;
+  ASSERT_TRUE(gp.Initialize(w, h, w, h));
+
+  CapturedVideoFrame red = MakeSolidFrame(w, h, 0, 0, 255);  // B, G, R
+  std::vector<uint8_t> y, u, v;
+  y.resize(static_cast<size_t>(w) * h);
+  u.resize(static_cast<size_t>(w / 2) * (h / 2));
+  v.resize(static_cast<size_t>(w / 2) * (h / 2));
+  int y_stride = w, u_stride = w / 2, v_stride = w / 2;
+  ASSERT_TRUE(gp.ConvertBgraToYuv420p(red, y, u, v, y_stride, u_stride, v_stride));
+
+  const int luma = y[static_cast<size_t>(h / 2) * w + w / 2];
+  EXPECT_NEAR(luma, 63, 3) << "BT.601 would give about 82";
+
+  CapturedVideoFrame white = MakeSolidFrame(w, h, 255, 255, 255);
+  ASSERT_TRUE(gp.ConvertBgraToYuv420p(white, y, u, v, y_stride, u_stride, v_stride));
+  EXPECT_NEAR(y[static_cast<size_t>(h / 2) * w + w / 2], 235, 2) << "limited-range white";
+}

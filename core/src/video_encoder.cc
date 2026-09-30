@@ -470,6 +470,10 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     codec_ctx_->time_base = {1, 90000};  // Cast video timebase: 90kHz
     codec_ctx_->framerate = {config_.framerate, 1};
     codec_ctx_->pix_fmt = AV_PIX_FMT_VAAPI;
+    codec_ctx_->colorspace = AVCOL_SPC_BT709;
+    codec_ctx_->color_primaries = AVCOL_PRI_BT709;
+    codec_ctx_->color_trc = AVCOL_TRC_BT709;
+    codec_ctx_->color_range = AVCOL_RANGE_MPEG;
     codec_ctx_->bit_rate = static_cast<int64_t>(config_.bitrate_kbps) * 1000;
     codec_ctx_->rc_max_rate = codec_ctx_->bit_rate;
     int fps = std::max(config_.framerate, 1);
@@ -560,6 +564,12 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     codec_ctx_->time_base = {1, 90000};  // Cast video timebase: 90kHz
     codec_ctx_->framerate = {config_.framerate, 1};
     codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
+    // Tell the decoder what the converter produced (BT.709, limited range) so the
+    // TV does not have to guess.
+    codec_ctx_->colorspace = AVCOL_SPC_BT709;
+    codec_ctx_->color_primaries = AVCOL_PRI_BT709;
+    codec_ctx_->color_trc = AVCOL_TRC_BT709;
+    codec_ctx_->color_range = AVCOL_RANGE_MPEG;
     codec_ctx_->bit_rate = static_cast<int64_t>(config_.bitrate_kbps) * 1000;
     codec_ctx_->rc_max_rate = static_cast<int64_t>(config_.bitrate_kbps) * 1000;
     codec_ctx_->gop_size = config_.intra_refresh ? 10000 :

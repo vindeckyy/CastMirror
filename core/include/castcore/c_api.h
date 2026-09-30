@@ -61,6 +61,10 @@ typedef struct {
   char encoder_name[64];
   char capture_backend[64];
   char display_name[128];
+  // Appended in v3.
+  int recovery_attempt;      // 0 unless the connection dropped and is being retried
+  int recovery_elapsed_s;    // seconds spent retrying so far
+  char health_hint[160];     // plain-language advice, empty when the stream is healthy
 } CastMirrorStreamStats;
 
 // Capture source kinds matching castcore::CaptureSourceKind
@@ -125,8 +129,8 @@ typedef struct {
   #define CASTMIRROR_ABI_ASSERT(cond) /* no compile-time assert before C11 */
 #endif
 
-// sizeof == 344, alignof == 8.
-CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorStreamStats) == 344);
+// sizeof == 512, alignof == 8.
+CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorStreamStats) == 512);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, bitrate_kbps) == 0);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, current_fps) == 8);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, round_trip_time_ms) == 16);
@@ -145,6 +149,9 @@ CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, adaptive_enabled) == 84);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, encoder_name) == 88);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, capture_backend) == 152);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, display_name) == 216);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, recovery_attempt) == 344);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, recovery_elapsed_s) == 348);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, health_hint) == 352);
 
 // sizeof == 450, alignof == 2 (port is the widest scalar before model_name).
 CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorDeviceInfo) == 450);
@@ -218,7 +225,7 @@ CASTMIRROR_API void castmirror_shutdown(void);
 // History: 2 - current layouts (stats gained current_framerate,
 // adaptive_rung_*, encoder_name, capture_backend, display_name).
 // ---------------------------------------------------------------------------
-#define CASTMIRROR_ABI_VERSION 2u
+#define CASTMIRROR_ABI_VERSION 3u
 CASTMIRROR_API uint32_t castmirror_abi_version(void);
 
 // Device discovery

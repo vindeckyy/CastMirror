@@ -113,10 +113,16 @@ namespace CastMirror.Services
         public byte[] CaptureBackendUtf8;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)]
         public byte[] DisplayNameUtf8;
+        // Appended in v3.
+        public int RecoveryAttempt;
+        public int RecoveryElapsedSeconds;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 160)]
+        public byte[] HealthHintUtf8;
 
         public string EncoderName => NativeText.Decode(EncoderNameUtf8);
         public string CaptureBackend => NativeText.Decode(CaptureBackendUtf8);
         public string DisplayName => NativeText.Decode(DisplayNameUtf8);
+        public string HealthHint => NativeText.Decode(HealthHintUtf8);
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -165,7 +171,7 @@ namespace CastMirror.Services
     public delegate void DevicesCallback(int count, IntPtr userData);
 
     // [In] is load-bearing: without it a non-blittable ref value type defaults
-    // to [In, Out] and the marshaller copies the whole 344-byte struct (plus the
+    // to [In, Out] and the marshaller copies the whole 512-byte struct (plus the
     // three UTF-8 buffers) BACK into the native buffer after every tick. The core
     // passes a writable stack local today, but a const in .rdata would fault.
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -184,7 +190,7 @@ namespace CastMirror.Services
         /// <see cref="castmirror_abi_version"/> in the loaded castcore.dll; the
         /// guard below enforces it. Bump together with CASTMIRROR_ABI_VERSION.
         /// </summary>
-        public const uint ExpectedAbiVersion = 2;
+        public const uint ExpectedAbiVersion = 3;
 
         /// <summary>
         /// Verifies the native ABI before any call crosses the boundary.
@@ -199,12 +205,14 @@ namespace CastMirror.Services
         /// </remarks>
         static CastCoreBridge()
         {
-            VerifyLayout("CastMirrorStreamStats", Marshal.SizeOf<CastMirrorStreamStats>(), 344,
+            VerifyLayout("CastMirrorStreamStats", Marshal.SizeOf<CastMirrorStreamStats>(), 512,
                 (nameof(CastMirrorStreamStats.BitrateKbps), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.BitrateKbps)).ToInt32(), 0),
                 (nameof(CastMirrorStreamStats.FramesSent), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.FramesSent)).ToInt32(), 48),
                 (nameof(CastMirrorStreamStats.AdaptiveEnabled), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.AdaptiveEnabled)).ToInt32(), 84),
                 (nameof(CastMirrorStreamStats.EncoderNameUtf8), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.EncoderNameUtf8)).ToInt32(), 88),
-                (nameof(CastMirrorStreamStats.DisplayNameUtf8), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.DisplayNameUtf8)).ToInt32(), 216));
+                (nameof(CastMirrorStreamStats.DisplayNameUtf8), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.DisplayNameUtf8)).ToInt32(), 216),
+                (nameof(CastMirrorStreamStats.RecoveryAttempt), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.RecoveryAttempt)).ToInt32(), 344),
+                (nameof(CastMirrorStreamStats.HealthHintUtf8), Marshal.OffsetOf<CastMirrorStreamStats>(nameof(CastMirrorStreamStats.HealthHintUtf8)).ToInt32(), 352));
             VerifyLayout("CastMirrorDeviceInfo", Marshal.SizeOf<CastMirrorDeviceInfo>(), 450,
                 (nameof(CastMirrorDeviceInfo.IdUtf8), Marshal.OffsetOf<CastMirrorDeviceInfo>(nameof(CastMirrorDeviceInfo.IdUtf8)).ToInt32(), 0),
                 (nameof(CastMirrorDeviceInfo.Port), Marshal.OffsetOf<CastMirrorDeviceInfo>(nameof(CastMirrorDeviceInfo.Port)).ToInt32(), 320),

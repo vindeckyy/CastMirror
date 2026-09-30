@@ -334,6 +334,21 @@ namespace CastMirror.ViewModels
             private set { if (_statsLossText == value) return; _statsLossText = value; OnPropertyChanged(); }
         }
 
+        private string _healthHint = string.Empty;
+        /// <summary>Plain-language advice from the engine ("Wi-Fi is dropping packets..."), empty when healthy.</summary>
+        public string HealthHint
+        {
+            get => _healthHint;
+            private set
+            {
+                if (_healthHint == value) return;
+                _healthHint = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasHealthHint));
+            }
+        }
+        public bool HasHealthHint => !string.IsNullOrEmpty(_healthHint);
+
         private string _statsQualityText = string.Empty;
         public string StatsQualityText
         {
@@ -913,6 +928,10 @@ namespace CastMirror.ViewModels
                 ? $"{stats.Width}x{stats.Height}@{framerate} - {encoder}"
                 : encoder;
 
+            HealthHint = stats.RecoveryAttempt > 0
+                ? $"Connection lost. Retrying for {stats.RecoveryElapsedSeconds} s."
+                : stats.HealthHint;
+
             PushHistory(_fpsHistory, stats.CurrentFps);
             PushHistory(_bitrateHistory, stats.BitrateKbps / 1000.0);
             PushHistory(_rttHistory, stats.RoundTripTimeMs);
@@ -930,6 +949,7 @@ namespace CastMirror.ViewModels
             StatsLatencyText = "RTT: --";
             StatsLossText = "Loss: --";
             StatsQualityText = string.Empty;
+            HealthHint = string.Empty;
 
             _fpsHistory.Clear();
             _bitrateHistory.Clear();

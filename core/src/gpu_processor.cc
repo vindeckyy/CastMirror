@@ -18,6 +18,27 @@ extern "C" {
 
 namespace castcore {
 
+namespace {
+
+// swscale converts RGB to YUV with BT.601 coefficients unless told otherwise. A TV
+// decodes HD H.264 as BT.709, so a 601 conversion shifts every colour (reds turn
+// orange-ish, greens go yellow). Use 709 limited range, which is also what the
+// encoders are told to signal.
+void UseBt709Limited(::SwsContext* ctx) {
+  int* inv_table = nullptr;
+  int* table = nullptr;
+  int src_range = 0, dst_range = 0, brightness = 0, contrast = 0, saturation = 0;
+  if (sws_getColorspaceDetails(ctx, &inv_table, &src_range, &table, &dst_range,
+                               &brightness, &contrast, &saturation) < 0) {
+    return;  // keep the default rather than fail the whole pipeline
+  }
+  sws_setColorspaceDetails(ctx, inv_table, /*srcRange=*/1,
+                           sws_getCoefficients(SWS_CS_ITU709), /*dstRange=*/0,
+                           brightness, contrast, saturation);
+}
+
+}  // namespace
+
 GpuProcessor::GpuProcessor() = default;
 
 GpuProcessor::~GpuProcessor() {
@@ -62,6 +83,7 @@ bool GpuProcessor::Initialize(int src_width, int src_height, int dst_width, int 
     LOG_ERROR << "Failed to allocate SwsContext (YUV420P)";
     return false;
   }
+  UseBt709Limited(ctx);
   ::SwsContext* ctx_nv12 = sws_getContext(
       src_width, src_height, AV_PIX_FMT_BGRA,
       fit_w, fit_h, AV_PIX_FMT_NV12,
@@ -71,6 +93,7 @@ bool GpuProcessor::Initialize(int src_width, int src_height, int dst_width, int 
     LOG_ERROR << "Failed to allocate SwsContext (NV12)";
     return false;
   }
+  UseBt709Limited(ctx_nv12);
   // Phase 1.2: NV12 DIRECT (DMA-BUF zero-copy) – when source is already NV12
   // from PipeWire DMA-BUF we avoid the BGRA shadow copy and scale NV12->NV12
   // with 0 extra GPU copies, letterboxing directly into the encoder's NV12 planes.

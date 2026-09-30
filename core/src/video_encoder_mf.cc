@@ -58,6 +58,11 @@ bool MediaFoundationVideoEncoder::SetOutputType() {
   MFSetAttributeRatio(mt.Get(), MF_MT_FRAME_RATE, config_.framerate, 1);
   MFSetAttributeRatio(mt.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
   mt->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+  // The bitstream is BT.709 limited range, matching the RGB-to-YUV conversion.
+  mt->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709);
+  mt->SetUINT32(MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709);
+  mt->SetUINT32(MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709);
+  mt->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235);
 
   return SUCCEEDED(mft_->SetOutputType(output_stream_id_, mt.Get(), 0));
 }
@@ -74,6 +79,10 @@ bool MediaFoundationVideoEncoder::SetInputType() {
     MFSetAttributeRatio(mt.Get(), MF_MT_FRAME_RATE, config_.framerate, 1);
     MFSetAttributeRatio(mt.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
     mt->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+    mt->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709);
+    mt->SetUINT32(MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709);
+    mt->SetUINT32(MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709);
+    mt->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235);
 
     if (SUCCEEDED(mft_->SetInputType(input_stream_id_, mt.Get(), 0))) {
       input_subtype_ = fmt;

@@ -241,6 +241,12 @@
                                TextWrapping="Wrap"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                AutomationProperties.LiveSetting="Polite"/>
+                    <TextBlock Text="{x:Bind ViewModel.HealthHint, Mode=OneWay}"
+                               Visibility="{x:Bind ViewModel.HasHealthHint, Mode=OneWay}"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                               AutomationProperties.LiveSetting="Polite"/>
                 </StackPanel>
             </ScrollViewer>
         </Grid>

@@ -134,6 +134,14 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
   preset_ = options.preset;
   enable_audio_ = options.enable_audio;
   video_codec_ = options.video_codec;
+  if (video_codec_ != VideoCodec::kH264 && video_codec_ != VideoCodec::kVP8) {
+    // Cast mirroring only carries h264 and vp8, and the encoder factory hands back
+    // H.264 for anything else. Offer what will actually be sent, or the receiver is
+    // told to expect a codec that never arrives.
+    LOG_WARN << "Video codec " << VideoCodecToString(video_codec_)
+             << " cannot be mirrored; using h264";
+    video_codec_ = VideoCodec::kH264;
+  }
   bitrate_override_kbps_ = options.video_bitrate_kbps;
   stop_requested_ = false;
   fail_requested_ = false;

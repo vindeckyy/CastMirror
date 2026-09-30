@@ -85,7 +85,7 @@ TEST(CApiTest, DisplayAndWindowEnumeration) {
 // in the same commit as the struct change.
 TEST(CApiTest, AbiVersionMatchesTheManagedClient) {
   EXPECT_EQ(castmirror_abi_version(), CASTMIRROR_ABI_VERSION);
-  EXPECT_EQ(castmirror_abi_version(), 2u);
+  EXPECT_EQ(castmirror_abi_version(), 3u);
 }
 
 TEST(CApiTest, LastErrorBufferContract) {
