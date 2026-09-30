@@ -101,15 +101,24 @@ class CastSession {
   uint32_t bitrate_override_kbps_ = 0;
 
   std::unique_ptr<CastChannel> cast_channel_;
-  std::unique_ptr<CastTransport> transport_;
+  // The send-path objects are shared_ptr so the encode/capture/adaptation
+  // threads can take a snapshot under pipeline_ptr_mutex_ and keep using it
+  // even if StopMediaPipeline() resets the members meanwhile.
+  std::shared_ptr<CastTransport> transport_;
   std::unique_ptr<IDisplayCapture> display_capture_;
   std::unique_ptr<IAudioCapture> audio_capture_;
   std::unique_ptr<IVideoEncoder> video_encoder_;
   std::unique_ptr<IAudioEncoder> audio_encoder_;
-  std::unique_ptr<FrameCrypto> video_crypto_;
-  std::unique_ptr<FrameCrypto> audio_crypto_;
-  std::unique_ptr<RtpPacketizer> video_packetizer_;
-  std::unique_ptr<RtpPacketizer> audio_packetizer_;
+  std::shared_ptr<FrameCrypto> video_crypto_;
+  std::shared_ptr<FrameCrypto> audio_crypto_;
+  std::shared_ptr<RtpPacketizer> video_packetizer_;
+  std::shared_ptr<RtpPacketizer> audio_packetizer_;
+  mutable std::mutex pipeline_ptr_mutex_;
+  // Serialises the audio encoder and packetizer: the capture thread and the
+  // adaptation thread (silence keepalive) both feed them, and the UI retunes
+  // the bitrate.
+  std::mutex audio_mutex_;
+  std::shared_ptr<CastTransport> Transport() const;
   AdaptiveController adaptive_controller_;
   SessionRecovery recovery_;
 

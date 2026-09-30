@@ -368,22 +368,25 @@ bool CastSession::StartStreamingMedia() {
   adaptive_controller_.ResetFeedbackWindow();
   playout_delay_ms_.store(adaptive_controller_.GetPlayoutDelayMs());
 
-  video_crypto_ = std::make_unique<FrameCrypto>(video_keys_.aes_key, video_keys_.aes_iv_mask);
+  video_crypto_ = std::make_shared<FrameCrypto>(video_keys_.aes_key, video_keys_.aes_iv_mask);
   if (enable_audio_) {
-    audio_crypto_ = std::make_unique<FrameCrypto>(audio_keys_.aes_key, audio_keys_.aes_iv_mask);
+    audio_crypto_ = std::make_shared<FrameCrypto>(audio_keys_.aes_key, audio_keys_.aes_iv_mask);
   }
 
-  video_packetizer_ = std::make_unique<RtpPacketizer>(
+  video_packetizer_ = std::make_shared<RtpPacketizer>(
       negotiated_params_.video_stream.rtp_payload_type,
       negotiated_params_.video_stream.sender_ssrc);
 
   if (enable_audio_) {
-    audio_packetizer_ = std::make_unique<RtpPacketizer>(
+    audio_packetizer_ = std::make_shared<RtpPacketizer>(
         negotiated_params_.audio_stream.rtp_payload_type,
         negotiated_params_.audio_stream.sender_ssrc);
   }
 
-  transport_ = std::make_unique<CastTransport>();
+  {
+    std::lock_guard<std::mutex> ptr_lock(pipeline_ptr_mutex_);
+    transport_ = std::make_shared<CastTransport>();
+  }
   transport_->SetPliCallback([this] {
     std::lock_guard<std::mutex> elock(video_encoder_mutex_);
     if (video_encoder_) {
@@ -573,7 +576,16 @@ void CastSession::VideoEncodeLoop() {
 }
 
 void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
-  if (!is_streaming_.load() || !video_crypto_ || !video_packetizer_ || !transport_) {
+  std::shared_ptr<FrameCrypto> crypto;
+  std::shared_ptr<RtpPacketizer> packetizer;
+  std::shared_ptr<CastTransport> transport;
+  {
+    std::lock_guard<std::mutex> ptr_lock(pipeline_ptr_mutex_);
+    crypto = video_crypto_;
+    packetizer = video_packetizer_;
+    transport = transport_;
+  }
+  if (!is_streaming_.load() || !crypto || !packetizer || !transport) {
     return;
   }
   if (is_frozen_.load()) {
@@ -611,10 +623,6 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     }
   }
 
-  if (!video_crypto_ || !video_packetizer_ || !transport_) {
-    return;
-  }
-
   // Synchronize adaptive playout delay target with video frame emission
   // Use the latched delay (updated once per adaptation tick) so audio and
   // video never advertise different latencies during an adaptation step,
@@ -624,18 +632,18 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     raw_frame.playout_delay = std::chrono::milliseconds(adapted_delay_ms);
   }
 
-  std::vector<uint8_t> encrypted_payload = video_crypto_->Encrypt(raw_frame.frame_id, raw_frame.data);
+  std::vector<uint8_t> encrypted_payload = crypto->Encrypt(raw_frame.frame_id, raw_frame.data);
   raw_frame.data = std::move(encrypted_payload);
 
   // rtp stage
-  auto packets = video_packetizer_->PacketizeFrame(raw_frame);
+  auto packets = packetizer->PacketizeFrame(raw_frame);
   uint32_t udp_bytes = 0;
   for (const auto& pkt : packets) {
     udp_bytes += static_cast<uint32_t>(pkt.data.size());
   }
 
   // udp stage
-  bool sent = transport_->SendPackets(packets);
+  bool sent = transport->SendPackets(packets);
   if (sent) {
     last_video_send_ms_.store(SteadyNowMs());
   }
@@ -643,7 +651,7 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
   // Emit JSON sidecar breadcrumb with required fields: frame_id, encode_ms, udp_bytes, rtt_ms, nack_count
   // Pipeline string captures all stages
   if (Logger::Instance().IsVerboseJsonEnabled()) {
-    StreamStats st = transport_ ? transport_->GetStats() : StreamStats{};
+    StreamStats st = transport->GetStats();
     // Use steady duration for pipeline if needed, but spec requires encode_ms
     Logger::Instance().LogBreadcrumb(raw_frame.frame_id, encode_ms, udp_bytes, st.round_trip_time_ms, st.nacks_received);
     // Also emit detailed extended breadcrumb for debugging (same file, extra context)
@@ -659,11 +667,24 @@ void CastSession::ProcessAudioFrame(const CapturedAudioFrame& af) {
 }
 
 void CastSession::ProcessAudioFrameInternal(const CapturedAudioFrame& af, bool allow_mute_check) {
-  if (!is_streaming_.load() || !audio_encoder_ || !audio_crypto_ || !audio_packetizer_ || !transport_) {
+  if (allow_mute_check && is_audio_muted_.load() && is_streaming_.load()) {
+    InjectSilenceAudioFrame();
     return;
   }
-  if (allow_mute_check && is_audio_muted_.load()) {
-    InjectSilenceAudioFrame();
+  std::shared_ptr<FrameCrypto> crypto;
+  std::shared_ptr<RtpPacketizer> packetizer;
+  std::shared_ptr<CastTransport> transport;
+  {
+    std::lock_guard<std::mutex> ptr_lock(pipeline_ptr_mutex_);
+    crypto = audio_crypto_;
+    packetizer = audio_packetizer_;
+    transport = transport_;
+  }
+  if (!is_streaming_.load() || !crypto || !packetizer || !transport) {
+    return;
+  }
+  std::lock_guard<std::mutex> audio_lock(audio_mutex_);
+  if (!audio_encoder_) {
     return;
   }
 
@@ -680,11 +701,11 @@ void CastSession::ProcessAudioFrameInternal(const CapturedAudioFrame& af, bool a
     raw_frame.playout_delay = std::chrono::milliseconds(adapted_delay_ms);
   }
 
-  std::vector<uint8_t> encrypted_payload = audio_crypto_->Encrypt(raw_frame.frame_id, raw_frame.data);
+  std::vector<uint8_t> encrypted_payload = crypto->Encrypt(raw_frame.frame_id, raw_frame.data);
   raw_frame.data = std::move(encrypted_payload);
 
-  auto packets = audio_packetizer_->PacketizeFrame(raw_frame);
-  if (transport_->SendPackets(packets)) {
+  auto packets = packetizer->PacketizeFrame(raw_frame);
+  if (transport->SendPackets(packets)) {
     last_audio_send_ms_.store(SteadyNowMs());
   }
 }
@@ -975,11 +996,13 @@ void CastSession::StopMediaPipeline() {
   if (audio_capture_) {
     audio_capture_->Stop();
   }
-  if (transport_) {
-    transport_->Stop();
+  if (auto transport = Transport()) {
+    transport->Stop();
   }
 
   std::lock_guard<std::mutex> elock(video_encoder_mutex_);
+  std::lock_guard<std::mutex> audio_lock(audio_mutex_);
+  std::lock_guard<std::mutex> ptr_lock(pipeline_ptr_mutex_);
   video_encoder_.reset();
   audio_encoder_.reset();
   video_crypto_.reset();
@@ -1078,8 +1101,11 @@ void CastSession::SetLiveAudioBitrateBps(uint32_t bps) {
   }
   std::lock_guard<std::mutex> lock(params_mutex_);
   options_.audio_bitrate_bps = bps;
-  if (!starting_.load() && audio_encoder_) {
-    audio_encoder_->SetBitrate(static_cast<int>(bps));
+  if (!starting_.load()) {
+    std::lock_guard<std::mutex> audio_lock(audio_mutex_);
+    if (audio_encoder_) {
+      audio_encoder_->SetBitrate(static_cast<int>(bps));
+    }
   }
 }
 
@@ -1312,6 +1338,11 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
   } catch (...) {}
 }
 
+std::shared_ptr<CastTransport> CastSession::Transport() const {
+  std::lock_guard<std::mutex> lock(pipeline_ptr_mutex_);
+  return transport_;
+}
+
 StreamStats CastSession::GetStats() const {
   std::lock_guard<std::mutex> lock(params_mutex_);
   StreamStats s = current_stats_;
@@ -1325,8 +1356,8 @@ StreamStats CastSession::GetStats() const {
   s.video_frames_dropped_capture = video_frames_dropped_capture_.load();
   s.video_queue_overruns = video_queue_overruns_.load();
   s.target_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
-  if (transport_) {
-    StreamStats t_stats = transport_->GetStats();
+  if (auto transport = Transport()) {
+    StreamStats t_stats = transport->GetStats();
     s.current_fps = t_stats.current_fps > 0 ? t_stats.current_fps : current_stats_.current_framerate;
     s.packets_sent = t_stats.packets_sent;
     s.frames_sent = t_stats.frames_sent;
