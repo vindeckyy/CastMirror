@@ -1090,6 +1090,25 @@ namespace CastMirror.ViewModels
             }
         }
 
+        public void ApplyGlobalHotkeys(bool enabled)
+        {
+            Settings.GlobalHotkeys = enabled;
+            PersistSettings();
+        }
+
+        /// <summary>Shortcut action: start when idle, stop when a session is active.</summary>
+        public void HotkeyToggleCast() => ToggleCast();
+
+        public void HotkeyToggleFreeze()
+        {
+            if (IsStreaming) FreezeStream = !FreezeStream;
+        }
+
+        public void HotkeyToggleMute()
+        {
+            if (IsStreaming) MuteTvAudio = !MuteTvAudio;
+        }
+
         public void ApplyReconnectWindow(int seconds)
         {
             Settings.ReconnectWindowSeconds = seconds;

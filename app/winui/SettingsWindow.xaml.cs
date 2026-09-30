@@ -26,16 +26,19 @@ namespace CastMirror
 
         private readonly MainViewModel _viewModel;
         private readonly Action _desktopIntegrationChanged;
+        private readonly Func<System.Collections.Generic.IReadOnlyList<string>> _applyHotkeys;
 
         // True until the first LoadFromSettings() completes: XAML load coerces
         // slider values and fires ValueChanged while later-named elements do not
         // exist yet, so handlers must not touch controls or save settings then.
         private bool _loading = true;
 
-        public SettingsWindow(MainViewModel viewModel, Action desktopIntegrationChanged)
+        public SettingsWindow(MainViewModel viewModel, Action desktopIntegrationChanged,
+                              Func<System.Collections.Generic.IReadOnlyList<string>> applyHotkeys)
         {
             _viewModel = viewModel;
             _desktopIntegrationChanged = desktopIntegrationChanged;
+            _applyHotkeys = applyHotkeys;
             InitializeComponent();
 
             // Logical (DIP) size, converted for the monitor this window opens
@@ -125,6 +128,7 @@ namespace CastMirror
                 TraySwitch.IsOn = settings.EnableTrayOnStartup;
                 CloseToTraySwitch.IsOn = settings.CloseToTray;
                 AutostartSwitch.IsOn = AutostartService.IsEnabled;
+                HotkeySwitch.IsOn = settings.GlobalHotkeys;
 
                 NotifySwitch.IsOn = settings.NotifyOnEvents && NotificationService.IsSupported;
                 NotifySwitch.IsEnabled = NotificationService.IsSupported;
@@ -321,6 +325,19 @@ namespace CastMirror
             _viewModel.ApplyCloseToTray(CloseToTraySwitch.IsOn);
             ClearError();
             _desktopIntegrationChanged?.Invoke();
+        }
+
+        private void OnHotkeysToggled(object sender, RoutedEventArgs e)
+        {
+            if (_loading) return;
+            _viewModel.ApplyGlobalHotkeys(HotkeySwitch.IsOn);
+            var taken = _applyHotkeys();
+            if (taken.Count > 0)
+            {
+                ShowError($"{string.Join(", ", taken)} is already used by another app. The other shortcuts still work.");
+                return;
+            }
+            ClearError();
         }
 
         private void OnAutostartToggled(object sender, RoutedEventArgs e)

@@ -311,6 +311,7 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("adaptive_resolution_enabled")) ConfigReadBool(j, "adaptive_resolution_enabled", &config_.adaptive_resolution_enabled);
     if (j.contains("verify_device_cert")) ConfigReadBool(j, "verify_device_cert", &config_.verify_device_cert);
     if (j.contains("latency_hud_enabled")) ConfigReadBool(j, "latency_hud_enabled", &config_.latency_hud_enabled);
+    if (j.contains("global_hotkeys")) ConfigReadBool(j, "global_hotkeys", &config_.global_hotkeys);
     if (j.contains("show_cursor")) ConfigReadBool(j, "show_cursor", &config_.show_cursor);
     if (j.contains("reconnect_window_s")) ConfigReadInt(j, "reconnect_window_s", &config_.reconnect_window_s);
     if (j.contains("ui_theme")) ConfigReadString(j, "ui_theme", &config_.ui_theme);
@@ -396,6 +397,7 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["verify_device_cert"] = config_.verify_device_cert;
     j["latency_hud_enabled"] = config_.latency_hud_enabled;
     j["show_cursor"] = config_.show_cursor;
+    j["global_hotkeys"] = config_.global_hotkeys;
     j["reconnect_window_s"] = config_.reconnect_window_s;
     j["ui_theme"] = config_.ui_theme;
 

@@ -130,6 +130,7 @@ nlohmann::json BuildConfigJson() {
   j["target_delay_ms"] = cfg.target_delay_ms;
   j["latency_hud_enabled"] = cfg.latency_hud_enabled;
   j["show_cursor"] = cfg.show_cursor;
+  j["global_hotkeys"] = cfg.global_hotkeys;
   j["reconnect_window_s"] = cfg.reconnect_window_s;
   j["adaptive_enabled"] = cfg.adaptive_enabled;
   j["adaptive_resolution_enabled"] = cfg.adaptive_resolution_enabled;
@@ -227,6 +228,7 @@ void MergeConfigJson(const nlohmann::json& j, castcore::AppConfig& cfg) {
   get_int("target_delay_ms", &cfg.target_delay_ms);
   get_bool("latency_hud_enabled", &cfg.latency_hud_enabled);
   get_bool("show_cursor", &cfg.show_cursor);
+  get_bool("global_hotkeys", &cfg.global_hotkeys);
   get_int("reconnect_window_s", &cfg.reconnect_window_s);
   get_bool("adaptive_enabled", &cfg.adaptive_enabled);
   get_bool("adaptive_resolution_enabled", &cfg.adaptive_resolution_enabled);

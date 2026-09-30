@@ -19,10 +19,23 @@ namespace CastMirror
         private LogsWindow? _logsWindow;
         private TrayIconService? _tray;
         private bool _exiting;
+        private HotkeyService? _hotkeys;
 
         // Below this the two-column layout has nowhere to go.
         private const int MinWidthDip = 760;
         private const int MinHeightDip = 560;
+
+        /// <summary>Registers or releases the global shortcuts to match the setting; returns any that were taken.</summary>
+        public System.Collections.Generic.IReadOnlyList<string> ApplyHotkeySetting()
+        {
+            if (_hotkeys == null) return Array.Empty<string>();
+            if (!ViewModel.Settings.GlobalHotkeys)
+            {
+                _hotkeys.Disable();
+                return Array.Empty<string>();
+            }
+            return _hotkeys.Enable();
+        }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
@@ -222,6 +235,10 @@ namespace CastMirror
             // nothing, which matters most when the window is hidden in the tray.
             SingleInstance.ListenForActivation(() => DispatcherQueue.TryEnqueue(RestoreWindow));
 
+            _hotkeys = new HotkeyService(WindowScaler.HandleOf(AppWindow),
+                ViewModel.HotkeyToggleCast, ViewModel.HotkeyToggleFreeze, ViewModel.HotkeyToggleMute);
+            ApplyHotkeySetting();
+
             AppWindow.Closing += OnWindowClosing;
             Closed += OnWindowClosed;
         }
@@ -290,7 +307,7 @@ namespace CastMirror
         {
             if (_settingsWindow == null)
             {
-                _settingsWindow = new SettingsWindow(ViewModel, SyncTrayIcon);
+                _settingsWindow = new SettingsWindow(ViewModel, SyncTrayIcon, ApplyHotkeySetting);
                 _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             }
 
@@ -564,6 +581,8 @@ namespace CastMirror
             ViewModel.Shutdown();
             _tray?.Dispose();
             _tray = null;
+            _hotkeys?.Dispose();
+            _hotkeys = null;
             NotificationService.Shutdown();
         }
 

@@ -177,6 +177,12 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Starts CastMirror hidden in the tray, so your TV is ready to cast to. Needs the tray icon; without it the window opens."/>
 
+                        <ToggleSwitch x:Name="HotkeySwitch" Header="Global shortcuts"
+                                      OnContent="On" OffContent="Off" Toggled="OnHotkeysToggled"/>
+                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Text="Work from any app, even when the window is hidden. Ctrl+Alt+C starts or stops the cast, Ctrl+Alt+F freezes the picture, Ctrl+Alt+M mutes the TV."/>
+
                         <ToggleSwitch x:Name="NotifySwitch" Header="Desktop notifications"
                                       OnContent="On" OffContent="Off" Toggled="OnNotifyToggled"/>
                         <TextBlock x:Name="NotifyHelpText" Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
