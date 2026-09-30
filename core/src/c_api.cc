@@ -129,6 +129,7 @@ nlohmann::json BuildConfigJson() {
   j["silence_host_speakers"] = cfg.silence_host_speakers;
   j["target_delay_ms"] = cfg.target_delay_ms;
   j["latency_hud_enabled"] = cfg.latency_hud_enabled;
+  j["show_cursor"] = cfg.show_cursor;
   j["adaptive_enabled"] = cfg.adaptive_enabled;
   j["adaptive_resolution_enabled"] = cfg.adaptive_resolution_enabled;
   j["subnet_scan_enabled"] = cfg.subnet_scan_enabled;
@@ -218,6 +219,7 @@ void MergeConfigJson(const nlohmann::json& j, castcore::AppConfig& cfg) {
   get_bool("silence_host_speakers", &cfg.silence_host_speakers);
   get_int("target_delay_ms", &cfg.target_delay_ms);
   get_bool("latency_hud_enabled", &cfg.latency_hud_enabled);
+  get_bool("show_cursor", &cfg.show_cursor);
   get_bool("adaptive_enabled", &cfg.adaptive_enabled);
   get_bool("adaptive_resolution_enabled", &cfg.adaptive_resolution_enabled);
   get_bool("subnet_scan_enabled", &cfg.subnet_scan_enabled);

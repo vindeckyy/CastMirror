@@ -66,6 +66,7 @@ struct AppConfig {
   bool adaptive_resolution_enabled = true;
   bool verify_device_cert = true;
   bool latency_hud_enabled = false;
+  bool show_cursor = true;  // draw the mouse pointer into the mirrored picture
   // UI color scheme preference ("", "light", "dark"). Empty means "follow the
   // system". Only the Windows (WinUI) front-end reads it today; persisted here
   // so settings stay in a single config file.

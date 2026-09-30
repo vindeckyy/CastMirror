@@ -315,6 +315,7 @@ bool CastEngine::StartCastingLastDevice() {
   options.capture_fps = cfg.capture_fps;
   options.target_delay_ms = cfg.target_delay_ms;
   options.silence_host_speakers = cfg.silence_host_speakers;
+  options.show_cursor = cfg.show_cursor;
   options.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
   options.adaptive_enabled = cfg.adaptive_enabled;
 

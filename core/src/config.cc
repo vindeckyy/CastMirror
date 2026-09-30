@@ -124,6 +124,7 @@ SessionOptions BuildSessionOptions(const AppConfig& cfg, const SessionOverrides&
     opts.capture_fps = *overrides.capture_fps;
   }
   opts.silence_host_speakers = cfg.silence_host_speakers;
+  opts.show_cursor = cfg.show_cursor;
   opts.adaptive_enabled = cfg.adaptive_enabled;
   // Game keeps the resolution fixed: a mid-game resolution change stalls the
   // picture for the keyframe that follows it.
@@ -308,6 +309,7 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("adaptive_resolution_enabled")) ConfigReadBool(j, "adaptive_resolution_enabled", &config_.adaptive_resolution_enabled);
     if (j.contains("verify_device_cert")) ConfigReadBool(j, "verify_device_cert", &config_.verify_device_cert);
     if (j.contains("latency_hud_enabled")) ConfigReadBool(j, "latency_hud_enabled", &config_.latency_hud_enabled);
+    if (j.contains("show_cursor")) ConfigReadBool(j, "show_cursor", &config_.show_cursor);
     if (j.contains("ui_theme")) ConfigReadString(j, "ui_theme", &config_.ui_theme);
 
     config_.Validate();
@@ -390,6 +392,7 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["adaptive_resolution_enabled"] = config_.adaptive_resolution_enabled;
     j["verify_device_cert"] = config_.verify_device_cert;
     j["latency_hud_enabled"] = config_.latency_hud_enabled;
+    j["show_cursor"] = config_.show_cursor;
     j["ui_theme"] = config_.ui_theme;
 
     // Atomic write: write to tmp + fsync + rename, backup previous
