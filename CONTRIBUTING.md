@@ -27,12 +27,7 @@ The Windows app is the primary product. Linux builds get fixes, not new features
 - **User-facing text** is plain and specific. Say what happened and what to do. No filler, no "seamless", no exclamation marks. Read new strings aloud before you commit them.
 - **Accessibility.** Give controls an accessible name, mark status text that changes as a live region, and check the window with Tab only.
 
-Smoke-test the real app after UI changes. This starts the exe, opens Settings and Logs, and fails if the error log grows:
-
-```powershell
-$env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
-Start-Process app\winui\bin\x64\Debug\net8.0-windows10.0.22621.0\win-x64\CastMirror.exe
-```
+Smoke-test the real app after UI changes. `scripts\smoke_winui.ps1` starts the exe, opens Settings, Logs and About through UI Automation, checks that a second launch wakes the first, and fails if the error log gets a new exception. It needs an interactive desktop, so it is a local check, not a CI job.
 
 ## Code style
 
