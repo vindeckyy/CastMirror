@@ -13,7 +13,7 @@ struct ProcessedVideoFrame {
   int width = 0;
   int height = 0;
   std::vector<uint8_t> y_plane;
-  std::vector<uint8_t> uv_plane; // NV12 or U+V for YUV420p
+  std::vector<uint8_t> uv_plane;  // NV12 or U+V for YUV420p
   int y_stride = 0;
   int uv_stride = 0;
   std::chrono::steady_clock::time_point timestamp;
@@ -34,22 +34,17 @@ class GpuProcessor {
   // Direct-write variants: the caller owns the destination planes (typical
   // case: an AVFrame's linesized planes) and must size them for
   // GetDstWidth()/GetDstHeight(). No temporary vectors, no extra copies.
-  bool ConvertBgraToYuv420p(const CapturedVideoFrame& src,
-                            uint8_t* dst_y, int y_stride,
-                            uint8_t* dst_u, int u_stride,
-                            uint8_t* dst_v, int v_stride);
+  bool ConvertBgraToYuv420p(const CapturedVideoFrame& src, uint8_t* dst_y, int y_stride,
+                            uint8_t* dst_u, int u_stride, uint8_t* dst_v, int v_stride);
 
-  bool ConvertBgraToNv12(const CapturedVideoFrame& src,
-                         uint8_t* dst_y, int y_stride,
+  bool ConvertBgraToNv12(const CapturedVideoFrame& src, uint8_t* dst_y, int y_stride,
                          uint8_t* dst_uv, int uv_stride);
 
   // Convenience wrapper around the pointer variant (allocates/reuses the
   // vectors at the exact letterbox strides).
-  bool ConvertBgraToYuv420p(const CapturedVideoFrame& src,
-                            std::vector<uint8_t>& dst_y,
-                            std::vector<uint8_t>& dst_u,
-                            std::vector<uint8_t>& dst_v,
-                            int& y_stride, int& u_stride, int& v_stride);
+  bool ConvertBgraToYuv420p(const CapturedVideoFrame& src, std::vector<uint8_t>& dst_y,
+                            std::vector<uint8_t>& dst_u, std::vector<uint8_t>& dst_v, int& y_stride,
+                            int& u_stride, int& v_stride);
 
   int GetDstWidth() const { return dst_width_; }
   int GetDstHeight() const { return dst_height_; }
@@ -68,11 +63,12 @@ class GpuProcessor {
   int fit_w_ = 0;
   int fit_h_ = 0;
 
-  ::SwsContext* sws_ctx_ = nullptr;       // BGRA -> YUV420P at fit rect
+  ::SwsContext* sws_ctx_ = nullptr;  // BGRA -> YUV420P at fit rect
   ::SwsContext* sws_ctx_nv12_ = nullptr;  // BGRA -> NV12 at fit rect
-  ::SwsContext* sws_nv12_direct_ = nullptr; // NV12 -> NV12 direct (DMA-BUF zero-copy, 0 extra GPU copies)
+  ::SwsContext* sws_nv12_direct_ =
+      nullptr;  // NV12 -> NV12 direct (DMA-BUF zero-copy, 0 extra GPU copies)
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_GPU_PROCESSOR_H_
+#endif  // CASTCORE_GPU_PROCESSOR_H_

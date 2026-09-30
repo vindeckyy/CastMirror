@@ -226,25 +226,39 @@ bool ConfigStore::Load(const std::string& custom_path) {
     nlohmann::json j;
     file >> j;
 
-    if (j.contains("last_device_id")) ConfigReadString(j, "last_device_id", &config_.last_device_id);
-    if (j.contains("last_device_name")) ConfigReadString(j, "last_device_name", &config_.last_device_name);
-    if (j.contains("last_device_ip")) ConfigReadString(j, "last_device_ip", &config_.last_device_ip);
-    if (j.contains("last_display_id")) ConfigReadInt(j, "last_display_id", &config_.last_display_id);
-    if (j.contains("last_source_kind")) ConfigReadString(j, "last_source_kind", &config_.last_source_kind);
+    if (j.contains("last_device_id"))
+      ConfigReadString(j, "last_device_id", &config_.last_device_id);
+    if (j.contains("last_device_name"))
+      ConfigReadString(j, "last_device_name", &config_.last_device_name);
+    if (j.contains("last_device_ip"))
+      ConfigReadString(j, "last_device_ip", &config_.last_device_ip);
+    if (j.contains("last_display_id"))
+      ConfigReadInt(j, "last_display_id", &config_.last_display_id);
+    if (j.contains("last_source_kind"))
+      ConfigReadString(j, "last_source_kind", &config_.last_source_kind);
     if (j.contains("last_source_id")) ConfigReadInt(j, "last_source_id", &config_.last_source_id);
-    if (j.contains("last_source_name")) ConfigReadString(j, "last_source_name", &config_.last_source_name);
+    if (j.contains("last_source_name"))
+      ConfigReadString(j, "last_source_name", &config_.last_source_name);
     if (j.contains("audio_enabled")) ConfigReadBool(j, "audio_enabled", &config_.audio_enabled);
     if (j.contains("quality_preset") && j["quality_preset"].is_string()) {
       config_.quality_preset = QualityPresetFromString(j["quality_preset"].get<std::string>());
     }
-    if (j.contains("target_delay_ms")) ConfigReadInt(j, "target_delay_ms", &config_.target_delay_ms);
-    if (j.contains("max_bitrate_kbps")) ConfigReadU32(j, "max_bitrate_kbps", &config_.max_bitrate_kbps);
-    if (j.contains("bitrate_kbps_auto")) ConfigReadU32(j, "bitrate_kbps_auto", &config_.bitrate_kbps_auto);
-    if (j.contains("bitrate_kbps_high")) ConfigReadU32(j, "bitrate_kbps_high", &config_.bitrate_kbps_high);
-    if (j.contains("bitrate_kbps_balanced")) ConfigReadU32(j, "bitrate_kbps_balanced", &config_.bitrate_kbps_balanced);
-    if (j.contains("bitrate_kbps_smooth")) ConfigReadU32(j, "bitrate_kbps_smooth", &config_.bitrate_kbps_smooth);
-    if (j.contains("bitrate_kbps_game")) ConfigReadU32(j, "bitrate_kbps_game", &config_.bitrate_kbps_game);
-    if (j.contains("bitrate_kbps_cinema")) ConfigReadU32(j, "bitrate_kbps_cinema", &config_.bitrate_kbps_cinema);
+    if (j.contains("target_delay_ms"))
+      ConfigReadInt(j, "target_delay_ms", &config_.target_delay_ms);
+    if (j.contains("max_bitrate_kbps"))
+      ConfigReadU32(j, "max_bitrate_kbps", &config_.max_bitrate_kbps);
+    if (j.contains("bitrate_kbps_auto"))
+      ConfigReadU32(j, "bitrate_kbps_auto", &config_.bitrate_kbps_auto);
+    if (j.contains("bitrate_kbps_high"))
+      ConfigReadU32(j, "bitrate_kbps_high", &config_.bitrate_kbps_high);
+    if (j.contains("bitrate_kbps_balanced"))
+      ConfigReadU32(j, "bitrate_kbps_balanced", &config_.bitrate_kbps_balanced);
+    if (j.contains("bitrate_kbps_smooth"))
+      ConfigReadU32(j, "bitrate_kbps_smooth", &config_.bitrate_kbps_smooth);
+    if (j.contains("bitrate_kbps_game"))
+      ConfigReadU32(j, "bitrate_kbps_game", &config_.bitrate_kbps_game);
+    if (j.contains("bitrate_kbps_cinema"))
+      ConfigReadU32(j, "bitrate_kbps_cinema", &config_.bitrate_kbps_cinema);
 
     if (j.contains("device_profiles") && j["device_profiles"].is_object()) {
       config_.device_profiles.clear();
@@ -254,35 +268,52 @@ bool ConfigStore::Load(const std::string& custom_path) {
           continue;
         }
         DeviceProfile prof;
-        if (prof_j.contains("target_width")) ConfigReadInt(prof_j, "target_width", &prof.target_width);
-        if (prof_j.contains("target_height")) ConfigReadInt(prof_j, "target_height", &prof.target_height);
+        if (prof_j.contains("target_width"))
+          ConfigReadInt(prof_j, "target_width", &prof.target_width);
+        if (prof_j.contains("target_height"))
+          ConfigReadInt(prof_j, "target_height", &prof.target_height);
         if (prof_j.contains("target_fps")) ConfigReadInt(prof_j, "target_fps", &prof.target_fps);
-        if (prof_j.contains("bitrate_kbps")) ConfigReadU32(prof_j, "bitrate_kbps", &prof.bitrate_kbps);
-        if (prof_j.contains("target_delay_ms")) ConfigReadInt(prof_j, "target_delay_ms", &prof.target_delay_ms);
+        if (prof_j.contains("bitrate_kbps"))
+          ConfigReadU32(prof_j, "bitrate_kbps", &prof.bitrate_kbps);
+        if (prof_j.contains("target_delay_ms"))
+          ConfigReadInt(prof_j, "target_delay_ms", &prof.target_delay_ms);
         if (prof_j.contains("preset") && prof_j["preset"].is_string()) {
           prof.preset = QualityPresetFromString(prof_j["preset"].get<std::string>());
         }
         config_.device_profiles[dev_id] = prof;
       }
     }
-    if (j.contains("enable_tray_on_startup")) ConfigReadBool(j, "enable_tray_on_startup", &config_.enable_tray_on_startup);
-    if (j.contains("low_latency_mode")) ConfigReadBool(j, "low_latency_mode", &config_.low_latency_mode);
-    if (j.contains("capture_border_hint")) ConfigReadBool(j, "capture_border_hint", &config_.capture_border_hint);
+    if (j.contains("enable_tray_on_startup"))
+      ConfigReadBool(j, "enable_tray_on_startup", &config_.enable_tray_on_startup);
+    if (j.contains("low_latency_mode"))
+      ConfigReadBool(j, "low_latency_mode", &config_.low_latency_mode);
+    if (j.contains("capture_border_hint"))
+      ConfigReadBool(j, "capture_border_hint", &config_.capture_border_hint);
     if (j.contains("capture_fps")) ConfigReadInt(j, "capture_fps", &config_.capture_fps);
-    if (j.contains("audio_bitrate_bps")) ConfigReadU32(j, "audio_bitrate_bps", &config_.audio_bitrate_bps);
-    if (j.contains("silence_host_speakers")) ConfigReadBool(j, "silence_host_speakers", &config_.silence_host_speakers);
-    if (j.contains("adaptive_enabled")) ConfigReadBool(j, "adaptive_enabled", &config_.adaptive_enabled);
-    if (j.contains("subnet_scan_enabled")) ConfigReadBool(j, "subnet_scan_enabled", &config_.subnet_scan_enabled);
-    if (j.contains("portal_restore_token")) ConfigReadString(j, "portal_restore_token", &config_.portal_restore_token);
-    if (j.contains("first_run_complete")) ConfigReadBool(j, "first_run_complete", &config_.first_run_complete);
+    if (j.contains("audio_bitrate_bps"))
+      ConfigReadU32(j, "audio_bitrate_bps", &config_.audio_bitrate_bps);
+    if (j.contains("silence_host_speakers"))
+      ConfigReadBool(j, "silence_host_speakers", &config_.silence_host_speakers);
+    if (j.contains("adaptive_enabled"))
+      ConfigReadBool(j, "adaptive_enabled", &config_.adaptive_enabled);
+    if (j.contains("subnet_scan_enabled"))
+      ConfigReadBool(j, "subnet_scan_enabled", &config_.subnet_scan_enabled);
+    if (j.contains("portal_restore_token"))
+      ConfigReadString(j, "portal_restore_token", &config_.portal_restore_token);
+    if (j.contains("first_run_complete"))
+      ConfigReadBool(j, "first_run_complete", &config_.first_run_complete);
     if (j.contains("window_width")) ConfigReadInt(j, "window_width", &config_.window_width);
     if (j.contains("window_height")) ConfigReadInt(j, "window_height", &config_.window_height);
-    if (j.contains("notify_on_events")) ConfigReadBool(j, "notify_on_events", &config_.notify_on_events);
-    if (j.contains("force_software_encode")) ConfigReadBool(j, "force_software_encode", &config_.force_software_encode);
-    if (j.contains("force_x11_capture")) ConfigReadBool(j, "force_x11_capture", &config_.force_x11_capture);
+    if (j.contains("notify_on_events"))
+      ConfigReadBool(j, "notify_on_events", &config_.notify_on_events);
+    if (j.contains("force_software_encode"))
+      ConfigReadBool(j, "force_software_encode", &config_.force_software_encode);
+    if (j.contains("force_x11_capture"))
+      ConfigReadBool(j, "force_x11_capture", &config_.force_x11_capture);
     if (j.contains("close_to_tray")) ConfigReadBool(j, "close_to_tray", &config_.close_to_tray);
 
-    if (j.contains("schema_version")) ConfigReadInt(j, "schema_version", &config_.schema_version);
+    if (j.contains("schema_version"))
+      ConfigReadInt(j, "schema_version", &config_.schema_version);
     else {
       // Migrate v1 -> v2: map old max_bitrate_kbps -> bitrate_kbps_auto if auto is empty
       if (j.contains("max_bitrate_kbps") && !j.contains("bitrate_kbps_auto") &&
@@ -296,26 +327,35 @@ bool ConfigStore::Load(const std::string& custom_path) {
       config_.schema_version = 2;
     }
     // Migrate v2 -> v3: if no explicit source fields, derive from last_display_id.
-    if (config_.schema_version < 3 &&
-        !j.contains("last_source_kind") && !j.contains("last_source_id")) {
+    if (config_.schema_version < 3 && !j.contains("last_source_kind") &&
+        !j.contains("last_source_id")) {
       config_.last_source_kind = "monitor";
       config_.last_source_id = config_.last_display_id;
       config_.last_source_name.clear();
     }
     config_.schema_version = 3;
-    if (j.contains("verbose_json_logging")) ConfigReadBool(j, "verbose_json_logging", &config_.verbose_json_logging);
-    if (j.contains("verbose_json")) ConfigReadBool(j, "verbose_json", &config_.verbose_json_logging);
+    if (j.contains("verbose_json_logging"))
+      ConfigReadBool(j, "verbose_json_logging", &config_.verbose_json_logging);
+    if (j.contains("verbose_json"))
+      ConfigReadBool(j, "verbose_json", &config_.verbose_json_logging);
     if (j.contains("verboseJson")) ConfigReadBool(j, "verboseJson", &config_.verbose_json_logging);
     // Env override is handled by Logger, but also respect config flag
-    if (j.contains("launch_timeout_s")) ConfigReadInt(j, "launch_timeout_s", &config_.launch_timeout_s);
-    if (j.contains("answer_timeout_s")) ConfigReadInt(j, "answer_timeout_s", &config_.answer_timeout_s);
-    if (j.contains("adaptive_resolution_enabled")) ConfigReadBool(j, "adaptive_resolution_enabled", &config_.adaptive_resolution_enabled);
-    if (j.contains("verify_device_cert")) ConfigReadBool(j, "verify_device_cert", &config_.verify_device_cert);
-    if (j.contains("latency_hud_enabled")) ConfigReadBool(j, "latency_hud_enabled", &config_.latency_hud_enabled);
+    if (j.contains("launch_timeout_s"))
+      ConfigReadInt(j, "launch_timeout_s", &config_.launch_timeout_s);
+    if (j.contains("answer_timeout_s"))
+      ConfigReadInt(j, "answer_timeout_s", &config_.answer_timeout_s);
+    if (j.contains("adaptive_resolution_enabled"))
+      ConfigReadBool(j, "adaptive_resolution_enabled", &config_.adaptive_resolution_enabled);
+    if (j.contains("verify_device_cert"))
+      ConfigReadBool(j, "verify_device_cert", &config_.verify_device_cert);
+    if (j.contains("latency_hud_enabled"))
+      ConfigReadBool(j, "latency_hud_enabled", &config_.latency_hud_enabled);
     if (j.contains("global_hotkeys")) ConfigReadBool(j, "global_hotkeys", &config_.global_hotkeys);
     if (j.contains("show_cursor")) ConfigReadBool(j, "show_cursor", &config_.show_cursor);
-    if (j.contains("audio_process_name")) ConfigReadString(j, "audio_process_name", &config_.audio_process_name);
-    if (j.contains("reconnect_window_s")) ConfigReadInt(j, "reconnect_window_s", &config_.reconnect_window_s);
+    if (j.contains("audio_process_name"))
+      ConfigReadString(j, "audio_process_name", &config_.audio_process_name);
+    if (j.contains("reconnect_window_s"))
+      ConfigReadInt(j, "reconnect_window_s", &config_.reconnect_window_s);
     if (j.contains("ui_theme")) ConfigReadString(j, "ui_theme", &config_.ui_theme);
 
     config_.Validate();
@@ -443,4 +483,4 @@ bool ConfigStore::Save(const std::string& custom_path) {
   }
 }
 
-} // namespace castcore
+}  // namespace castcore

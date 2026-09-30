@@ -223,13 +223,19 @@ bool DisplayCaptureWgc::CreateDuplication() {
 
   // The D3D11 device must be created on the same adapter that owns the output,
   // otherwise DuplicateOutput fails with E_INVALIDARG.
-  HRESULT hr = D3D11CreateDevice(
-      entry.adapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr,
-      D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
-      D3D11_SDK_VERSION, &d3d_device_, nullptr, &d3d_context_);
+  HRESULT hr = D3D11CreateDevice(entry.adapter.Get(),
+                                 D3D_DRIVER_TYPE_UNKNOWN,
+                                 nullptr,
+                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                 nullptr,
+                                 0,
+                                 D3D11_SDK_VERSION,
+                                 &d3d_device_,
+                                 nullptr,
+                                 &d3d_context_);
   if (FAILED(hr)) {
-    LOG_ERROR << "Failed to create D3D11 device on adapter for output " << idx
-              << ": hr=0x" << std::hex << hr << std::dec;
+    LOG_ERROR << "Failed to create D3D11 device on adapter for output " << idx << ": hr=0x"
+              << std::hex << hr << std::dec;
     return false;
   }
 
@@ -241,17 +247,18 @@ bool DisplayCaptureWgc::CreateDuplication() {
 
   hr = output1->DuplicateOutput(d3d_device_.Get(), &desk_dupl_);
   if (FAILED(hr)) {
-    LOG_ERROR << "DuplicateOutput failed on output " << idx << ": hr=0x"
-              << std::hex << hr << std::dec;
+    LOG_ERROR << "DuplicateOutput failed on output " << idx << ": hr=0x" << std::hex << hr
+              << std::dec;
     return false;
   }
 
   output_rect_ = entry.desc.DesktopCoordinates;
-  char dev_name[64];
-  WideCharToMultiByte(CP_UTF8, 0, entry.desc.DeviceName, -1, dev_name, sizeof(dev_name), nullptr, nullptr);
+  char dev_name[128] = {};
+  WideCharToMultiByte(
+      CP_UTF8, 0, entry.desc.DeviceName, -1, dev_name, sizeof(dev_name), nullptr, nullptr);
   LOG_INFO << "Duplicating DXGI output " << idx << " (" << dev_name << ") rect ("
-           << output_rect_.left << "," << output_rect_.top << ")-("
-           << output_rect_.right << "," << output_rect_.bottom << ")";
+           << output_rect_.left << "," << output_rect_.top << ")-(" << output_rect_.right << ","
+           << output_rect_.bottom << ")";
   return true;
 }
 
@@ -330,10 +337,12 @@ std::vector<DisplayInfo> DisplayCaptureWgc::EnumerateDisplays() {
     if (info.refresh_rate <= 0) info.refresh_rate = 60;
 
     char name_buf[128];
-    char dev_name[64];
-    WideCharToMultiByte(CP_UTF8, 0, desc.DeviceName, -1, dev_name, sizeof(dev_name), nullptr, nullptr);
-    std::snprintf(name_buf, sizeof(name_buf), "Display %d (%dx%d)",
-                  static_cast<int>(i) + 1, info.width, info.height);
+    std::snprintf(name_buf,
+                  sizeof(name_buf),
+                  "Display %d (%dx%d)",
+                  static_cast<int>(i) + 1,
+                  info.width,
+                  info.height);
     info.name = name_buf;
     displays.push_back(info);
   }
@@ -348,8 +357,7 @@ std::vector<DisplayInfo> DisplayCaptureWgc::EnumerateDisplays() {
                << ". A process without an interactive desktop or GPU access (service or "
                   "session-0 logon, remote session, headless VM) has no capturable output.";
     } else if (!outputs.empty()) {
-      LOG_WARN << "DXGI reported " << outputs.size()
-               << " output(s), none attached to a desktop";
+      LOG_WARN << "DXGI reported " << outputs.size() << " output(s), none attached to a desktop";
     } else {
       LOG_WARN << "DXGI reported no outputs; this machine has no attached display";
     }
@@ -374,30 +382,37 @@ std::vector<WindowInfo> DisplayCaptureWgc::EnumerateWindows() {
     std::vector<WindowInfo>* list;
   } ctx{&windows};
 
-  EnumWindows([](HWND hwnd, LPARAM lparam) -> BOOL {
-    if (!IsWindowVisible(hwnd)) return TRUE;
-    auto* c = reinterpret_cast<EnumContext*>(lparam);
-    wchar_t title[256];
-    if (GetWindowTextW(hwnd, title, 256) > 0) {
-      RECT r;
-      GetWindowRect(hwnd, &r);
-      int w = r.right - r.left;
-      int h = r.bottom - r.top;
-      if (w > kMinShareableWindowPx && h > kMinShareableWindowPx) {
-        WindowInfo wi;
-        wi.id = static_cast<int>(reinterpret_cast<intptr_t>(hwnd));
-        char title_utf8[512];
-        WideCharToMultiByte(CP_UTF8, 0, title, -1, title_utf8, sizeof(title_utf8), nullptr, nullptr);
-        wi.title = title_utf8;
-        wi.x = r.left;
-        wi.y = r.top;
-        wi.width = w;
-        wi.height = h;
-        c->list->push_back(wi);
-      }
-    }
-    return TRUE;
-  }, reinterpret_cast<LPARAM>(&ctx));
+  EnumWindows(
+      [](HWND hwnd, LPARAM lparam) -> BOOL {
+        if (!IsWindowVisible(hwnd)) return TRUE;
+        auto* c = reinterpret_cast<EnumContext*>(lparam);
+        wchar_t title[256];
+        if (GetWindowTextW(hwnd, title, 256) > 0) {
+          RECT r;
+          GetWindowRect(hwnd, &r);
+          int w = r.right - r.left;
+          int h = r.bottom - r.top;
+          if (w > kMinShareableWindowPx && h > kMinShareableWindowPx) {
+            WindowInfo wi;
+            wi.id = static_cast<int>(reinterpret_cast<intptr_t>(hwnd));
+            // 255 UTF-16 units can need up to 3 bytes each in UTF-8; a smaller buffer makes the
+            // conversion fail and leaves it unterminated.
+            char title_utf8[1024] = {};
+            if (WideCharToMultiByte(CP_UTF8, 0, title, -1, title_utf8, sizeof(title_utf8),
+                                    nullptr, nullptr) <= 0) {
+              return TRUE;
+            }
+            wi.title = title_utf8;
+            wi.x = r.left;
+            wi.y = r.top;
+            wi.width = w;
+            wi.height = h;
+            c->list->push_back(wi);
+          }
+        }
+        return TRUE;
+      },
+      reinterpret_cast<LPARAM>(&ctx));
 #endif
   return windows;
 }
@@ -471,8 +486,8 @@ void DisplayCaptureWgc::DestroyCursorDib() {
   cursor_dib_w_ = cursor_dib_h_ = 0;
 }
 
-void DisplayCaptureWgc::CompositeCursor(std::vector<uint8_t>* bgra, int w, int h,
-                                        int origin_x, int origin_y) {
+void DisplayCaptureWgc::CompositeCursor(std::vector<uint8_t>* bgra, int w, int h, int origin_x,
+                                        int origin_y) {
   CURSORINFO ci{};
   ci.cbSize = sizeof(ci);
   if (!GetCursorInfo(&ci) || !(ci.flags & CURSOR_SHOWING) || !ci.hCursor) return;
@@ -527,19 +542,19 @@ void DisplayCaptureWgc::CompositeCursor(std::vector<uint8_t>* bgra, int w, int h
   // doing arithmetic on void* (a GCC extension that warns under -Wpointer-arith).
   BYTE* const dib = static_cast<BYTE*>(cursor_bits_);
   for (int row = 0; row < copy_h; ++row) {
-    std::memcpy(dib + (local_y + row) * dib_stride + local_x * 4,
-                bgra->data() + static_cast<size_t>(y0 + row) * frame_stride +
-                    static_cast<size_t>(x0) * 4,
-                static_cast<size_t>(copy_w) * 4);
+    std::memcpy(
+        dib + (local_y + row) * dib_stride + local_x * 4,
+        bgra->data() + static_cast<size_t>(y0 + row) * frame_stride + static_cast<size_t>(x0) * 4,
+        static_cast<size_t>(copy_w) * 4);
   }
 
   DrawIconEx(cursor_dc_, local_x, local_y, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
 
   for (int row = 0; row < copy_h; ++row) {
-    std::memcpy(bgra->data() + static_cast<size_t>(y0 + row) * frame_stride +
-                    static_cast<size_t>(x0) * 4,
-                dib + (local_y + row) * dib_stride + local_x * 4,
-                static_cast<size_t>(copy_w) * 4);
+    std::memcpy(
+        bgra->data() + static_cast<size_t>(y0 + row) * frame_stride + static_cast<size_t>(x0) * 4,
+        dib + (local_y + row) * dib_stride + local_x * 4,
+        static_cast<size_t>(copy_w) * 4);
   }
 }
 #endif
@@ -549,63 +564,62 @@ void DisplayCaptureWgc::CompositeCursor(std::vector<uint8_t>* bgra, int w, int h
 // first when they are enabled. Shared by the desktop-duplication loop and the window loop.
 void DisplayCaptureWgc::EmitPacedFrame(const FramePacer::Decision& emit) {
   if (!(emit.emit && emit.frame != nullptr)) return;
-    const AppConfig& cfg = ConfigStore::Instance().Get();
-    const bool want_cursor = show_cursor_;
-    const bool draw_overlays = (want_cursor || cfg.latency_hud_enabled) && !emit.frame->data.empty();
-    CapturedVideoFrame overlay_copy;
-    const CapturedVideoFrame* frame = emit.frame;
+  const AppConfig& cfg = ConfigStore::Instance().Get();
+  const bool want_cursor = show_cursor_;
+  const bool draw_overlays = (want_cursor || cfg.latency_hud_enabled) && !emit.frame->data.empty();
+  CapturedVideoFrame overlay_copy;
+  const CapturedVideoFrame* frame = emit.frame;
 
-    // Cursor-only overlay on a re-send whose cursor has not moved since the
-    // cached composite: the result would be byte-identical to the frame the
-    // callback already received, so reuse it instead of copying the whole
-    // frame again. A fresh capture, a moved/hidden cursor, a toggled setting
-    // or a different crop all fall through to the normal composite path.
-    CURSORINFO cursor_state{};
-    const bool cursor_visible =
-        want_cursor && GetCursorInfo(&cursor_state) && (cursor_state.flags & CURSOR_SHOWING) != 0;
-    const bool can_reuse = draw_overlays && !cfg.latency_hud_enabled && !emit.fresh &&
-                           overlay_cache_valid_ && cursor_visible &&
-                           overlay_cursor_pos_.x == cursor_state.ptScreenPos.x &&
-                           overlay_cursor_pos_.y == cursor_state.ptScreenPos.y &&
-                           overlay_cache_.width == emit.frame->width &&
-                           overlay_cache_.height == emit.frame->height;
+  // Cursor-only overlay on a re-send whose cursor has not moved since the
+  // cached composite: the result would be byte-identical to the frame the
+  // callback already received, so reuse it instead of copying the whole
+  // frame again. A fresh capture, a moved/hidden cursor, a toggled setting
+  // or a different crop all fall through to the normal composite path.
+  CURSORINFO cursor_state{};
+  const bool cursor_visible =
+      want_cursor && GetCursorInfo(&cursor_state) && (cursor_state.flags & CURSOR_SHOWING) != 0;
+  const bool can_reuse =
+      draw_overlays && !cfg.latency_hud_enabled && !emit.fresh && overlay_cache_valid_ &&
+      cursor_visible && overlay_cursor_pos_.x == cursor_state.ptScreenPos.x &&
+      overlay_cursor_pos_.y == cursor_state.ptScreenPos.y &&
+      overlay_cache_.width == emit.frame->width && overlay_cache_.height == emit.frame->height;
 
-    if (can_reuse) {
-      frame = &overlay_cache_;
-    } else if (draw_overlays) {
-      overlay_copy = *emit.frame;
-      if (want_cursor) {
-        CompositeCursor(&overlay_copy.data, overlay_copy.width, overlay_copy.height, emit.crop_x,
-                        emit.crop_y);
-        if (cursor_visible) {
-          overlay_cursor_pos_ = cursor_state.ptScreenPos;
-          // Keep this composite for the next unchanged re-send. Only the
-          // cursor is drawn, so the bytes stay valid for identical pixels.
-          overlay_cache_ = overlay_copy;
-          overlay_cache_valid_ = true;
-        } else {
-          overlay_cache_valid_ = false;
-        }
+  if (can_reuse) {
+    frame = &overlay_cache_;
+  } else if (draw_overlays) {
+    overlay_copy = *emit.frame;
+    if (want_cursor) {
+      CompositeCursor(
+          &overlay_copy.data, overlay_copy.width, overlay_copy.height, emit.crop_x, emit.crop_y);
+      if (cursor_visible) {
+        overlay_cursor_pos_ = cursor_state.ptScreenPos;
+        // Keep this composite for the next unchanged re-send. Only the
+        // cursor is drawn, so the bytes stay valid for identical pixels.
+        overlay_cache_ = overlay_copy;
+        overlay_cache_valid_ = true;
       } else {
-        // HUD path: content changes every tick, so nothing is cacheable.
         overlay_cache_valid_ = false;
       }
-      if (cfg.latency_hud_enabled) {
-        LatencyHud::Render(overlay_copy);
-      }
-      frame = &overlay_copy;
     } else {
-      // No overlay at all: drop any stale cache so toggling the cursor back
-      // on cannot serve a composite from before the setting changed.
+      // HUD path: content changes every tick, so nothing is cacheable.
       overlay_cache_valid_ = false;
     }
-
-    FrameCallback cb;
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      cb = callback_;
+    if (cfg.latency_hud_enabled) {
+      LatencyHud::Render(overlay_copy);
     }
-    if (cb) cb(*frame);
+    frame = &overlay_copy;
+  } else {
+    // No overlay at all: drop any stale cache so toggling the cursor back
+    // on cannot serve a composite from before the setting changed.
+    overlay_cache_valid_ = false;
+  }
+
+  FrameCallback cb;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    cb = callback_;
+  }
+  if (cb) cb(*frame);
 }
 
 #endif
@@ -613,8 +627,8 @@ void DisplayCaptureWgc::EmitPacedFrame(const FramePacer::Decision& emit) {
 // Window capture through Windows.Graphics.Capture. It has no desktop-duplication
 // step: frames come from the window itself, and the pacer keeps the cadence steady
 // while the window is idle.
-void DisplayCaptureWgc::WindowCaptureLoop() {
 #if defined(_WIN32)
+void DisplayCaptureWgc::WindowCaptureLoop() {
   timeBeginPeriod(1);
   struct TimerPeriodGuard {
     ~TimerPeriodGuard() { timeEndPeriod(1); }
@@ -623,7 +637,9 @@ void DisplayCaptureWgc::WindowCaptureLoop() {
   const HRESULT com_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   struct ComGuard {
     bool owned;
-    ~ComGuard() { if (owned) CoUninitialize(); }
+    ~ComGuard() {
+      if (owned) CoUninitialize();
+    }
   } com_guard{SUCCEEDED(com_hr)};
 
   FramePacer pacer;
@@ -672,8 +688,8 @@ void DisplayCaptureWgc::WindowCaptureLoop() {
     }
   }
   running_ = false;
-#endif
 }
+#endif
 
 void DisplayCaptureWgc::CaptureLoop() {
 #if defined(_WIN32)
@@ -791,7 +807,8 @@ void DisplayCaptureWgc::CaptureLoop() {
 
     DXGI_OUTDUPL_FRAME_INFO frame_info{};
     Microsoft::WRL::ComPtr<IDXGIResource> desktop_res;
-    HRESULT hr = desk_dupl_->AcquireNextFrame(static_cast<UINT>(wait_ms), &frame_info, &desktop_res);
+    HRESULT hr =
+        desk_dupl_->AcquireNextFrame(static_cast<UINT>(wait_ms), &frame_info, &desktop_res);
     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
       // Desktop unchanged: the cadence emit block re-sends the last frame.
       continue;
@@ -800,8 +817,7 @@ void DisplayCaptureWgc::CaptureLoop() {
       // Mode change / desktop switch / TDR: drop the duplication and let the
       // retry guard below rebuild it. One recreate site means one failure
       // budget and one place that guarantees a live pointer before the acquire.
-      LOG_WARN << "DXGI duplication lost (hr=0x" << std::hex << hr << std::dec
-               << "); re-creating";
+      LOG_WARN << "DXGI duplication lost (hr=0x" << std::hex << hr << std::dec << "); re-creating";
       desk_dupl_.Reset();
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
       continue;
@@ -818,8 +834,7 @@ void DisplayCaptureWgc::CaptureLoop() {
     // fall back to now.
     auto frame_ts = frame_start;
     if (frame_info.AccumulatedFrames > 0 && frame_info.LastPresentTime.QuadPart != 0) {
-      frame_ts = QpcTicksToSteadyClock(
-          static_cast<uint64_t>(frame_info.LastPresentTime.QuadPart));
+      frame_ts = QpcTicksToSteadyClock(static_cast<uint64_t>(frame_info.LastPresentTime.QuadPart));
     }
 
     // Periodic diagnostic: how old is the desktop image when we acquire it?
@@ -828,13 +843,12 @@ void DisplayCaptureWgc::CaptureLoop() {
     {
       const auto now = std::chrono::steady_clock::now();
       age_sum_ms_ +=
-          std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(
-              now - frame_ts)
+          std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(now - frame_ts)
               .count();
       ++age_count_;
       if (now - last_age_log_ >= std::chrono::seconds(5) && age_count_ > 0) {
-        LOG_DEBUG << "DXGI frame present age avg: " << (age_sum_ms_ / age_count_)
-                  << " ms (" << age_count_ << " frames)";
+        LOG_DEBUG << "DXGI frame present age avg: " << (age_sum_ms_ / age_count_) << " ms ("
+                  << age_count_ << " frames)";
         last_age_log_ = now;
         age_sum_ms_ = 0.0;
         age_count_ = 0;
@@ -857,15 +871,10 @@ void DisplayCaptureWgc::CaptureLoop() {
     size_t source_bytes_per_pixel = 4;
     switch (desc.Format) {
       case DXGI_FORMAT_B8G8R8A8_UNORM:
-      case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
-        break;
+      case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: break;
       case DXGI_FORMAT_R8G8B8A8_UNORM:
-      case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
-        source_format = SourcePixelFormat::kRgba8;
-        break;
-      case DXGI_FORMAT_R10G10B10A2_UNORM:
-        source_format = SourcePixelFormat::kRgb10A2;
-        break;
+      case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: source_format = SourcePixelFormat::kRgba8; break;
+      case DXGI_FORMAT_R10G10B10A2_UNORM: source_format = SourcePixelFormat::kRgb10A2; break;
       case DXGI_FORMAT_R16G16B16A16_FLOAT:
         source_format = SourcePixelFormat::kRgbaF16;
         source_bytes_per_pixel = 8;
@@ -879,7 +888,8 @@ void DisplayCaptureWgc::CaptureLoop() {
     }
     if (source_format != last_logged_format_) {
       LOG_INFO << "Desktop surface format " << static_cast<int>(desc.Format)
-               << (source_format == SourcePixelFormat::kRgbaF16 ? " (HDR, tone-mapped to SDR)" : "");
+               << (source_format == SourcePixelFormat::kRgbaF16 ? " (HDR, tone-mapped to SDR)"
+                                                                : "");
       last_logged_format_ = source_format;
     }
 
@@ -934,8 +944,13 @@ void DisplayCaptureWgc::CaptureLoop() {
         const uint8_t* src = static_cast<const uint8_t*>(mapped.pData) +
                              static_cast<size_t>(cy) * mapped.RowPitch +
                              static_cast<size_t>(cx) * source_bytes_per_pixel;
-        ConvertToBgra8(src, mapped.RowPitch, source_format, cw, ch,
-                       vf.data.data(), static_cast<size_t>(vf.stride));
+        ConvertToBgra8(src,
+                       mapped.RowPitch,
+                       source_format,
+                       cw,
+                       ch,
+                       vf.data.data(),
+                       static_cast<size_t>(vf.stride));
 
         d3d_context_->Unmap(staging_tex_.Get(), 0);
 

@@ -19,9 +19,7 @@ struct CssLoadState {
   bool had_error = false;
 };
 
-void OnCssParsingError(GtkCssProvider* /*provider*/,
-                       GtkCssSection* /*section*/,
-                       GError* error,
+void OnCssParsingError(GtkCssProvider* /*provider*/, GtkCssSection* /*section*/, GError* error,
                        gpointer user_data) {
   auto* state = static_cast<CssLoadState*>(user_data);
   if (state) {
@@ -84,9 +82,7 @@ void ApplyApplicationTheme(GdkDisplay* display) {
   g_signal_handler_disconnect(provider, parse_id);
 
   gtk_style_context_add_provider_for_display(
-      display,
-      GTK_STYLE_PROVIDER(provider),
-      GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+      display, GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
   g_object_unref(provider);
 }
 

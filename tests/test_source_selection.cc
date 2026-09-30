@@ -29,9 +29,13 @@ class FrameWatcher {
   }
   bool WaitFirstFrame(int timeout_ms, CapturedVideoFrame* out) {
     std::unique_lock<std::mutex> lock(mutex_);
-    return cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-                        [this] { return got_; }) && ([&] { *out = last_; return true; }());
+    return cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] { return got_; }) &&
+           ([&] {
+             *out = last_;
+             return true;
+           }());
   }
+
  private:
   std::mutex mutex_;
   std::condition_variable cv_;
@@ -88,8 +92,7 @@ TEST(SourceSelectionTest, SyntheticWindowSourceHonorsGeometry) {
   auto windows = cap->EnumerateWindows();
   ASSERT_EQ(windows.size(), 1u);
 
-  CaptureSource src{CaptureSourceKind::kWindow, windows[0].id, windows[0].title,
-                    0, 0, 320, 240};
+  CaptureSource src{CaptureSourceKind::kWindow, windows[0].id, windows[0].title, 0, 0, 320, 240};
   FrameWatcher watcher;
   cap->SetFrameCallback(watcher.Callback());
   ASSERT_TRUE(cap->Start(src, 10));

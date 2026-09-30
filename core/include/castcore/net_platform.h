@@ -14,9 +14,9 @@ bool EnsureSocketInit();
 
 // A local IPv4 interface suitable for multicast / LAN traffic.
 struct IPv4Interface {
-  std::string address;    // dotted-quad interface address, e.g. "192.168.1.10"
-  std::string netmask;    // dotted-quad netmask, e.g. "255.255.255.0"
-  uint32_t prefix_len = 0; // CIDR prefix length (24 for the example above)
+  std::string address;  // dotted-quad interface address, e.g. "192.168.1.10"
+  std::string netmask;  // dotted-quad netmask, e.g. "255.255.255.0"
+  uint32_t prefix_len = 0;  // CIDR prefix length (24 for the example above)
   bool is_loopback = false;
   bool is_up = true;
 };

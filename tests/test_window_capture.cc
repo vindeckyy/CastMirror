@@ -49,22 +49,20 @@ class ColourWindow {
  private:
   static LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
-      case WM_ERASEBKGND:
-        return 1;
+      case WM_ERASEBKGND: return 1;
       case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
         RECT rc;
         GetClientRect(hwnd, &rc);
-        HBRUSH brush = CreateSolidBrush(static_cast<COLORREF>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)));
+        HBRUSH brush =
+            CreateSolidBrush(static_cast<COLORREF>(GetWindowLongPtrW(hwnd, GWLP_USERDATA)));
         FillRect(dc, &rc, brush);
         DeleteObject(brush);
         EndPaint(hwnd, &ps);
         return 0;
       }
-      case WM_DESTROY:
-        PostQuitMessage(0);
-        return 0;
+      case WM_DESTROY: PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(hwnd, msg, wparam, lparam);
   }
@@ -79,8 +77,18 @@ class ColourWindow {
     wc.lpszClassName = cls;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     RegisterClassW(&wc);
-    hwnd_ = CreateWindowExW(topmost ? WS_EX_TOPMOST : 0, cls, L"CastMirror test window", WS_POPUP, x, y, w, h,
-                            nullptr, nullptr, wc.hInstance, nullptr);
+    hwnd_ = CreateWindowExW(topmost ? WS_EX_TOPMOST : 0,
+                            cls,
+                            L"CastMirror test window",
+                            WS_POPUP,
+                            x,
+                            y,
+                            w,
+                            h,
+                            nullptr,
+                            nullptr,
+                            wc.hInstance,
+                            nullptr);
     if (hwnd_) {
       SetWindowLongPtrW(hwnd_, GWLP_USERDATA, static_cast<LONG_PTR>(colour_));
       ShowWindow(hwnd_, SW_SHOWNA);
@@ -117,11 +125,16 @@ struct Capturer {
   bool Start(HWND hwnd) {
     capture->SetFrameCallback([this](const CapturedVideoFrame& f) {
       std::lock_guard<std::mutex> lock(mutex);
-      if (f.source_lost) lost = true;
-      else latest = f;
+      if (f.source_lost)
+        lost = true;
+      else
+        latest = f;
       ++frames;
     });
-    return capture->Start(CaptureSource{CaptureSourceKind::kWindow, static_cast<int>(reinterpret_cast<intptr_t>(hwnd)), "test"}, 30);
+    return capture->Start(
+        CaptureSource{
+            CaptureSourceKind::kWindow, static_cast<int>(reinterpret_cast<intptr_t>(hwnd)), "test"},
+        30);
   }
 
   bool WaitForFrames(int count, std::chrono::milliseconds timeout) {
@@ -140,8 +153,10 @@ struct Capturer {
   bool CentrePixel(uint8_t out[4]) {
     std::lock_guard<std::mutex> lock(mutex);
     if (latest.data.empty()) return false;
-    const size_t offset = (static_cast<size_t>(latest.height / 2) * latest.stride) + (latest.width / 2) * 4;
-    for (int i = 0; i < 4; ++i) out[i] = latest.data[offset + i];
+    const size_t offset =
+        (static_cast<size_t>(latest.height / 2) * latest.stride) + (latest.width / 2) * 4;
+    for (int i = 0; i < 4; ++i)
+      out[i] = latest.data[offset + i];
     return true;
   }
 };
@@ -151,7 +166,8 @@ bool IsColour(const uint8_t bgra[4], int r, int g, int b);
 // Waits for the newest frame's centre to become the given colour. WGC only delivers a
 // frame when the window changes, so right after starting the first frame can be the
 // window as it was a moment ago; a real app repaints and settles almost at once.
-bool WaitForCentre(Capturer& c, int r, int g, int b, std::chrono::milliseconds timeout, uint8_t out[4]) {
+bool WaitForCentre(Capturer& c, int r, int g, int b, std::chrono::milliseconds timeout,
+                   uint8_t out[4]) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   while (std::chrono::steady_clock::now() < deadline) {
     if (c.CentrePixel(out) && IsColour(out, r, g, b)) return true;
@@ -181,7 +197,8 @@ TEST(WindowCaptureTest, CapturesTheWindowsOwnContent) {
   ASSERT_TRUE(c.WaitForFrames(3, 4s));
 
   uint8_t px[4] = {};
-  EXPECT_TRUE(WaitForCentre(c, 255, 0, 0, 3s, px)) << "got BGRA " << int(px[0]) << "," << int(px[1]) << "," << int(px[2]);
+  EXPECT_TRUE(WaitForCentre(c, 255, 0, 0, 3s, px))
+      << "got BGRA " << int(px[0]) << "," << int(px[1]) << "," << int(px[2]);
   {
     std::lock_guard<std::mutex> lock(c.mutex);
     EXPECT_EQ(c.latest.width, 400);
@@ -197,7 +214,8 @@ TEST(WindowCaptureTest, AWindowInFrontDoesNotAppearInThePicture) {
 
   Capturer c;
   if (!c.Start(target.handle())) GTEST_SKIP() << "window capture could not start here";
-  if (c.capture->BackendName() != "windows_graphics_capture") GTEST_SKIP() << "crop fallback in use";
+  if (c.capture->BackendName() != "windows_graphics_capture")
+    GTEST_SKIP() << "crop fallback in use";
   ASSERT_TRUE(c.WaitForFrames(3, 4s));
 
   // Cover the whole target with a topmost window of another colour.
@@ -209,14 +227,18 @@ TEST(WindowCaptureTest, AWindowInFrontDoesNotAppearInThePicture) {
   // z-order. Walk up from the target; the cover has to be on the way.
   bool cover_above = false;
   for (HWND w = GetWindow(target.handle(), GW_HWNDPREV); w; w = GetWindow(w, GW_HWNDPREV)) {
-    if (w == cover.handle()) { cover_above = true; break; }
+    if (w == cover.handle()) {
+      cover_above = true;
+      break;
+    }
   }
-  EXPECT_TRUE(cover_above) << "the covering window is not above the target, so this test proves nothing";
+  EXPECT_TRUE(cover_above)
+      << "the covering window is not above the target, so this test proves nothing";
   uint8_t px[4] = {};
   ASSERT_TRUE(c.WaitForFrames(3, 4s));
   EXPECT_TRUE(WaitForCentre(c, 255, 0, 0, 3s, px))
-      << "the picture shows the window in front instead of the target: BGRA "
-      << int(px[0]) << "," << int(px[1]) << "," << int(px[2]);
+      << "the picture shows the window in front instead of the target: BGRA " << int(px[0]) << ","
+      << int(px[1]) << "," << int(px[2]);
   c.capture->Stop();
 }
 
@@ -240,7 +262,8 @@ TEST(WindowCaptureTest, TheDesktopCropFallbackDoesShowTheWindowInFront) {
   EXPECT_EQ(c.capture->BackendName(), "windows_desktop_duplication");
   ASSERT_TRUE(c.WaitForFrames(3, 4s));
   uint8_t px[4] = {};
-  EXPECT_TRUE(WaitForCentre(c, 0, 255, 0, 3s, px)) << "the crop path is expected to show the covering window";
+  EXPECT_TRUE(WaitForCentre(c, 0, 255, 0, 3s, px))
+      << "the crop path is expected to show the covering window";
   c.capture->Stop();
 }
 
@@ -253,13 +276,16 @@ TEST(WindowCaptureTest, ClosingTheWindowEndsTheCapture) {
 
   window.reset();  // closes and destroys the window
   const auto deadline = std::chrono::steady_clock::now() + 3s;
-  while (!c.lost && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(20ms);
+  while (!c.lost && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(20ms);
   EXPECT_TRUE(c.lost.load()) << "the session must be told the source is gone";
   c.capture->Stop();
 }
 
 #else
 
-TEST(WindowCaptureTest, WindowsOnly) { GTEST_SKIP() << "Windows.Graphics.Capture is Windows-only"; }
+TEST(WindowCaptureTest, WindowsOnly) {
+  GTEST_SKIP() << "Windows.Graphics.Capture is Windows-only";
+}
 
 #endif

@@ -108,7 +108,9 @@ class DefaultDeviceNotifier : public IMMNotificationClient {
   HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD) override { return S_OK; }
   HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override { return S_OK; }
   HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) override { return S_OK; }
-  HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override {
+    return S_OK;
+  }
 
  private:
   std::atomic<bool>* flag_;
@@ -163,9 +165,8 @@ bool WasapiAudioCapture::Start(int sample_rate, int channels) {
     if (worker_thread_.joinable()) worker_thread_.join();
     return false;
   }
-  LOG_INFO << "Started WASAPI Loopback Audio Capture (device " << src_rate_
-           << " Hz/" << src_channels_ << "ch -> " << output_rate_
-           << " Hz/" << output_channels_ << "ch s16)";
+  LOG_INFO << "Started WASAPI Loopback Audio Capture (device " << src_rate_ << " Hz/"
+           << src_channels_ << "ch -> " << output_rate_ << " Hz/" << output_channels_ << "ch s16)";
   return true;
 #endif
 }
@@ -186,12 +187,16 @@ bool WasapiAudioCapture::IsCapturing() const {
 
 #if defined(_WIN32)
 bool WasapiAudioCapture::InitProcessLoopback() {
-  using ActivateFn = HRESULT(WINAPI*)(LPCWSTR, REFIID, PROPVARIANT*,
+  using ActivateFn = HRESULT(WINAPI*)(LPCWSTR,
+                                      REFIID,
+                                      PROPVARIANT*,
                                       IActivateAudioInterfaceCompletionHandler*,
                                       IActivateAudioInterfaceAsyncOperation**);
   HMODULE mmdevapi = LoadLibraryW(L"Mmdevapi.dll");
-  auto activate = mmdevapi ? reinterpret_cast<ActivateFn>(GetProcAddress(mmdevapi, "ActivateAudioInterfaceAsync"))
-                           : nullptr;
+  auto activate =
+      mmdevapi
+          ? reinterpret_cast<ActivateFn>(GetProcAddress(mmdevapi, "ActivateAudioInterfaceAsync"))
+          : nullptr;
   if (!activate) {
     LOG_ERROR << "WASAPI: per-app audio needs Windows 10 version 2004 or later";
     return false;
@@ -211,7 +216,8 @@ bool WasapiAudioCapture::InitProcessLoopback() {
   Microsoft::WRL::ComPtr<IActivateAudioInterfaceCompletionHandler> handler;
   handler.Attach(new ActivationHandler(done));
   Microsoft::WRL::ComPtr<IActivateAudioInterfaceAsyncOperation> operation;
-  HRESULT hr = activate(kVirtualProcessLoopbackDevice, __uuidof(IAudioClient), &variant, handler.Get(), &operation);
+  HRESULT hr = activate(
+      kVirtualProcessLoopbackDevice, __uuidof(IAudioClient), &variant, handler.Get(), &operation);
   if (FAILED(hr) || WaitForSingleObject(done, 5000) != WAIT_OBJECT_0) {
     LOG_ERROR << "WASAPI: process loopback activation failed: hr=0x" << std::hex << hr << std::dec;
     CloseHandle(done);
@@ -221,9 +227,10 @@ bool WasapiAudioCapture::InitProcessLoopback() {
 
   HRESULT activate_hr = E_FAIL;
   Microsoft::WRL::ComPtr<IUnknown> unknown;
-  if (FAILED(operation->GetActivateResult(&activate_hr, &unknown)) || FAILED(activate_hr) || !unknown) {
-    LOG_ERROR << "WASAPI: process " << target_pid_ << " could not be captured: hr=0x"
-              << std::hex << activate_hr << std::dec;
+  if (FAILED(operation->GetActivateResult(&activate_hr, &unknown)) || FAILED(activate_hr) ||
+      !unknown) {
+    LOG_ERROR << "WASAPI: process " << target_pid_ << " could not be captured: hr=0x" << std::hex
+              << activate_hr << std::dec;
     return false;
   }
   Microsoft::WRL::ComPtr<IAudioClient> audio_client;
@@ -241,11 +248,14 @@ bool WasapiAudioCapture::InitProcessLoopback() {
 
   capture_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   if (!capture_event_) return false;
-  hr = audio_client->Initialize(
-      AUDCLNT_SHAREMODE_SHARED,
-      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
-          AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-      0, 0, &format, nullptr);
+  hr = audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                                AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
+                                    AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+                                    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                                0,
+                                0,
+                                &format,
+                                nullptr);
   if (FAILED(hr) || FAILED(audio_client->SetEventHandle(capture_event_))) {
     LOG_ERROR << "WASAPI: process loopback Initialize failed: hr=0x" << std::hex << hr << std::dec;
     CloseHandle(capture_event_);
@@ -273,8 +283,8 @@ bool WasapiAudioCapture::InitOnThread() {
   if (target_pid_ != 0) return InitProcessLoopback();
   HRESULT hr = S_OK;
   if (!enumerator_) {
-    hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                          IID_PPV_ARGS(&enumerator_));
+    hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&enumerator_));
     if (FAILED(hr)) {
       LOG_ERROR << "WASAPI: MMDeviceEnumerator failed: hr=0x" << std::hex << hr << std::dec;
       return false;
@@ -329,9 +339,9 @@ bool WasapiAudioCapture::InitOnThread() {
     CoTaskMemFree(mix);
     return false;
   }
-  LOG_INFO << "WASAPI loopback format: src " << src_rate_ << "Hz/" << src_channels_
-           << "ch/" << mix->wBitsPerSample << (src_is_float_ ? "-bit float" : "-bit int")
-           << " -> out " << output_rate_ << "Hz/" << output_channels_ << "ch s16";
+  LOG_INFO << "WASAPI loopback format: src " << src_rate_ << "Hz/" << src_channels_ << "ch/"
+           << mix->wBitsPerSample << (src_is_float_ ? "-bit float" : "-bit int") << " -> out "
+           << output_rate_ << "Hz/" << output_channels_ << "ch s16";
 
   capture_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   if (!capture_event_) {
@@ -343,10 +353,12 @@ bool WasapiAudioCapture::InitOnThread() {
   // pick the period), so passing a fixed 50 ms would not guarantee the ~10 ms
   // event cadence the capture loop wakes on. Ask for the engine default and
   // log the period it actually chose below.
-  hr = audio_client->Initialize(
-      AUDCLNT_SHAREMODE_SHARED,
-      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-      0, 0, mix, nullptr);
+  hr = audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                                AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                                0,
+                                0,
+                                mix,
+                                nullptr);
   CoTaskMemFree(mix);
   if (FAILED(hr)) {
     LOG_ERROR << "WASAPI: loopback Initialize failed: hr=0x" << std::hex << hr << std::dec;
@@ -451,9 +463,9 @@ void WasapiAudioCapture::LogLevelWindow(std::chrono::steady_clock::time_point no
     return;
   }
   const double elapsed_s = std::max(
-      0.001, std::chrono::duration_cast<std::chrono::duration<double>>(now - last_level_log_).count());
-  LOG_DEBUG << "WASAPI loopback audio peak (last 5s, s16 scale): "
-            << static_cast<int>(peak_window_)
+      0.001,
+      std::chrono::duration_cast<std::chrono::duration<double>>(now - last_level_log_).count());
+  LOG_DEBUG << "WASAPI loopback audio peak (last 5s, s16 scale): " << static_cast<int>(peak_window_)
             << ", buffer age avg: " << (age_sum_ms_ / std::max(1, age_samples_)) << " ms"
             << ", frames/s: " << (frames_window_ / elapsed_s)
             << ", capture buffers/s: " << (buffers_window_ / elapsed_s)
@@ -468,15 +480,14 @@ void WasapiAudioCapture::LogLevelWindow(std::chrono::steady_clock::time_point no
 
 float WasapiAudioCapture::ReadSample(const BYTE* data, size_t index) const {
   switch (src_format_) {
-    case SrcFormat::kFloat32:
-      return reinterpret_cast<const float*>(data)[index];
-    case SrcFormat::kInt16:
-      return reinterpret_cast<const int16_t*>(data)[index] / 32768.0f;
+    case SrcFormat::kFloat32: return reinterpret_cast<const float*>(data)[index];
+    case SrcFormat::kInt16: return reinterpret_cast<const int16_t*>(data)[index] / 32768.0f;
     case SrcFormat::kInt24: {
       const BYTE* b = data + index * 3;
       const int32_t v = static_cast<int32_t>((static_cast<uint32_t>(b[0]) << 8) |
                                              (static_cast<uint32_t>(b[1]) << 16) |
-                                             (static_cast<uint32_t>(b[2]) << 24)) >> 8;
+                                             (static_cast<uint32_t>(b[2]) << 24)) >>
+                        8;
       return static_cast<float>(v) / 8388608.0f;
     }
     case SrcFormat::kInt32:
@@ -491,8 +502,8 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
   buffers_window_++;
   if (silent) {
     // Produce the equivalent output-frame count of silence.
-    int out_frames = static_cast<int>(
-        (static_cast<double>(frames) * output_rate_) / src_rate_ + 0.5);
+    int out_frames =
+        static_cast<int>((static_cast<double>(frames) * output_rate_) / src_rate_ + 0.5);
     EmitSilenceFrames(out_frames, buffer_ts);
     return;
   }
@@ -519,7 +530,10 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
     constexpr float kHeadroom = 0.75f;
     switch (src_channels_) {
       case 1: l = r = s(0); return;
-      case 2: l = s(0); r = s(1); return;
+      case 2:
+        l = s(0);
+        r = s(1);
+        return;
       case 4:  // quad: FL FR BL BR
         l = (s(0) + kMinus3dB * s(2)) * kHeadroom;
         r = (s(1) + kMinus3dB * s(3)) * kHeadroom;
@@ -527,17 +541,26 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
       default:
         l = s(0);
         r = s(1);
-        if (src_channels_ >= 3) { const float c = kMinus3dB * s(2); l += c; r += c; }
-        if (src_channels_ >= 6) { l += kMinus3dB * s(4); r += kMinus3dB * s(5); }
-        if (src_channels_ >= 8) { l += kMinus3dB * s(6); r += kMinus3dB * s(7); }
+        if (src_channels_ >= 3) {
+          const float c = kMinus3dB * s(2);
+          l += c;
+          r += c;
+        }
+        if (src_channels_ >= 6) {
+          l += kMinus3dB * s(4);
+          r += kMinus3dB * s(5);
+        }
+        if (src_channels_ >= 8) {
+          l += kMinus3dB * s(6);
+          r += kMinus3dB * s(7);
+        }
         l *= kHeadroom;
         r *= kHeadroom;
         return;
     }
   };
 
-  if (src_rate_ == output_rate_ && src_channels_ == output_channels_ &&
-      output_channels_ == 2 &&
+  if (src_rate_ == output_rate_ && src_channels_ == output_channels_ && output_channels_ == 2 &&
       (src_format_ == SrcFormat::kInt16 || src_format_ == SrcFormat::kFloat32)) {
     if (src_format_ == SrcFormat::kInt16) {
       // Fast path: device already mixes 48k s16 stereo.
@@ -751,9 +774,8 @@ void WasapiAudioCapture::CaptureThreadMain() {
         // resync); projecting the RTP timeline from it would be wrong, so fall
         // back to "now" like the cursor-only video path does.
         const bool ts_bad = (flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) != 0;
-        auto buffer_ts = (qpc_position != 0 && !ts_bad)
-                             ? QpcTicksToSteadyClock(qpc_position)
-                             : std::chrono::steady_clock::now();
+        auto buffer_ts = (qpc_position != 0 && !ts_bad) ? QpcTicksToSteadyClock(qpc_position)
+                                                        : std::chrono::steady_clock::now();
         if ((flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
           // The engine dropped or reordered frames, so the queued samples no
           // longer continue into this buffer: the projection state
@@ -776,9 +798,8 @@ void WasapiAudioCapture::CaptureThreadMain() {
             // Restamp the partial queue to end where this buffer starts, so
             // the frames that follow project from buffer_ts, not the old
             // anchor.
-            const int64_t queued_us =
-                1000000LL * static_cast<int64_t>(pending_.size()) /
-                (static_cast<int64_t>(output_channels_) * output_rate_);
+            const int64_t queued_us = 1000000LL * static_cast<int64_t>(pending_.size()) /
+                                      (static_cast<int64_t>(output_channels_) * output_rate_);
             pending_start_ts_ = buffer_ts - std::chrono::microseconds(queued_us);
             pending_has_start_ = true;
           }

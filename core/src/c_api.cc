@@ -64,8 +64,7 @@ CastMirrorState ConvertState(castcore::SessionState s) {
   switch (s) {
     case castcore::SessionState::kIdle:
     case castcore::SessionState::kDiscovering:
-    case castcore::SessionState::kReady:
-      return CASTMIRROR_STATE_IDLE;
+    case castcore::SessionState::kReady: return CASTMIRROR_STATE_IDLE;
     case castcore::SessionState::kConnecting: return CASTMIRROR_STATE_CONNECTING;
     case castcore::SessionState::kNegotiating: return CASTMIRROR_STATE_NEGOTIATING;
     case castcore::SessionState::kStreaming: return CASTMIRROR_STATE_STREAMING;
@@ -256,8 +255,8 @@ void MergeConfigJson(const nlohmann::json& j, castcore::AppConfig& cfg) {
 // BuildSessionOptions (config.h) because the CLI and CastEngine::StartCasting
 // need exactly the same one - the three copies used to disagree, and the CLI's
 // copy silently reset the user's audio bitrate and adaptive settings.
-castcore::SessionOptions BuildSessionOptions(int preset, bool audio_enabled,
-                                             int target_fps, uint32_t bitrate_kbps) {
+castcore::SessionOptions BuildSessionOptions(int preset, bool audio_enabled, int target_fps,
+                                             uint32_t bitrate_kbps) {
   castcore::SessionOverrides overrides;
   overrides.preset = static_cast<castcore::QualityPreset>(preset);
   overrides.enable_audio = audio_enabled;
@@ -273,21 +272,22 @@ extern "C" {
 bool castmirror_init(void) {
   bool ok = castcore::CastEngine::Instance().Initialize();
   if (ok) {
-    castcore::CastEngine::Instance().SetOnStateChanged(
-        [](castcore::SessionState old_state, castcore::SessionState state, const std::string& message) {
-          (void)old_state;
-          CastMirrorStateCallback cb = nullptr;
-          void* user_data = nullptr;
-          {
-            std::lock_guard<std::mutex> lock(g_c_state.cb_mutex);
-            cb = g_c_state.state_cb;
-            user_data = g_c_state.state_user_data;
-            if (cb) ++g_c_state.callbacks_in_flight;
-          }
-          if (!cb) return;
-          CallbackInvocationScope invocation;
-          cb(ConvertState(state), message.c_str(), user_data);
-        });
+    castcore::CastEngine::Instance().SetOnStateChanged([](castcore::SessionState old_state,
+                                                          castcore::SessionState state,
+                                                          const std::string& message) {
+      (void)old_state;
+      CastMirrorStateCallback cb = nullptr;
+      void* user_data = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(g_c_state.cb_mutex);
+        cb = g_c_state.state_cb;
+        user_data = g_c_state.state_user_data;
+        if (cb) ++g_c_state.callbacks_in_flight;
+      }
+      if (!cb) return;
+      CallbackInvocationScope invocation;
+      cb(ConvertState(state), message.c_str(), user_data);
+    });
 
     castcore::CastEngine::Instance().SetOnDevicesChanged(
         [](const std::vector<castcore::CastDevice>& devs) {
@@ -307,22 +307,21 @@ bool castmirror_init(void) {
           cb(static_cast<int>(devs.size()), user_data);
         });
 
-    castcore::CastEngine::Instance().SetOnStatsUpdated(
-        [](const castcore::StreamStats& stats) {
-          CastMirrorStatsCallback cb = nullptr;
-          void* user_data = nullptr;
-          {
-            std::lock_guard<std::mutex> lock(g_c_state.cb_mutex);
-            cb = g_c_state.stats_cb;
-            user_data = g_c_state.stats_user_data;
-            if (cb) ++g_c_state.callbacks_in_flight;
-          }
-          if (!cb) return;
-          CastMirrorStreamStats c_stats;
-          ConvertStats(stats, &c_stats);
-          CallbackInvocationScope invocation;
-          cb(&c_stats, user_data);
-        });
+    castcore::CastEngine::Instance().SetOnStatsUpdated([](const castcore::StreamStats& stats) {
+      CastMirrorStatsCallback cb = nullptr;
+      void* user_data = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(g_c_state.cb_mutex);
+        cb = g_c_state.stats_cb;
+        user_data = g_c_state.stats_user_data;
+        if (cb) ++g_c_state.callbacks_in_flight;
+      }
+      if (!cb) return;
+      CastMirrorStreamStats c_stats;
+      ConvertStats(stats, &c_stats);
+      CallbackInvocationScope invocation;
+      cb(&c_stats, user_data);
+    });
 
     // Route the core logger to the client log callback. The std::function is
     // installed once; the client's pointer is swapped under cb_mutex on every
@@ -383,9 +382,8 @@ void castmirror_shutdown(void) {
   // so a client callback that blocks cannot hang teardown forever.
   {
     std::unique_lock<std::mutex> lock(g_c_state.cb_mutex);
-    g_c_state.cb_idle.wait_for(lock, std::chrono::seconds(2), [] {
-      return g_c_state.callbacks_in_flight == 0;
-    });
+    g_c_state.cb_idle.wait_for(
+        lock, std::chrono::seconds(2), [] { return g_c_state.callbacks_in_flight == 0; });
     if (g_c_state.callbacks_in_flight != 0) {
       // The log callback is already detached, so this reaches the core log only.
       LOG_WARN << "castmirror_shutdown: " << g_c_state.callbacks_in_flight
@@ -483,7 +481,8 @@ bool castmirror_window_capture_supported(void) {
   return castcore::CastEngine::Instance().WindowCaptureSupported();
 }
 
-bool castmirror_start_cast(const char* device_id, int display_id, int target_fps, uint32_t bitrate_kbps) {
+bool castmirror_start_cast(const char* device_id, int display_id, int target_fps,
+                           uint32_t bitrate_kbps) {
   if (!device_id) return false;
   const auto& cfg = castcore::ConfigStore::Instance().Get();
   castcore::SessionOptions opts = BuildSessionOptions(
@@ -491,24 +490,19 @@ bool castmirror_start_cast(const char* device_id, int display_id, int target_fps
   return castcore::CastEngine::Instance().StartCasting(device_id, display_id, opts);
 }
 
-bool castmirror_start_cast_ex(const char* device_id,
-                              int source_kind,
-                              int source_id,
-                              int target_fps,
-                              uint32_t bitrate_kbps,
-                              int preset,
-                              bool audio_enabled) {
+bool castmirror_start_cast_ex(const char* device_id, int source_kind, int source_id, int target_fps,
+                              uint32_t bitrate_kbps, int preset, bool audio_enabled) {
   if (!device_id) return false;
   int preset_value = static_cast<int>(castcore::QualityPreset::kAuto);
   if (preset >= static_cast<int>(castcore::QualityPreset::kAuto) &&
       preset <= static_cast<int>(castcore::QualityPreset::kCinema)) {
     preset_value = preset;
   }
-  castcore::SessionOptions opts = BuildSessionOptions(preset_value, audio_enabled, target_fps, bitrate_kbps);
+  castcore::SessionOptions opts =
+      BuildSessionOptions(preset_value, audio_enabled, target_fps, bitrate_kbps);
   castcore::CaptureSource source;
-  source.kind = (source_kind == CASTMIRROR_SOURCE_WINDOW)
-                    ? castcore::CaptureSourceKind::kWindow
-                    : castcore::CaptureSourceKind::kMonitor;
+  source.kind = (source_kind == CASTMIRROR_SOURCE_WINDOW) ? castcore::CaptureSourceKind::kWindow
+                                                          : castcore::CaptureSourceKind::kMonitor;
   source.id = source_id;
   if (source.kind == castcore::CaptureSourceKind::kWindow) {
     // The caller only knows the window id. Fill in the title and geometry so the
@@ -683,8 +677,7 @@ int castmirror_self_test(char* out_buf, int buf_len) {
       }
     }
     result["network"]["ok"] = ok;
-    result["network"]["detail"] =
-        ok ? "UDP sockets available" : "Could not create a UDP socket";
+    result["network"]["detail"] = ok ? "UDP sockets available" : "Could not create a UDP socket";
   }
 
   const std::string json = result.dump();

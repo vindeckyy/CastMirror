@@ -11,19 +11,19 @@
 #include <algorithm>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #define close closesocket
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#define close closesocket
 #else
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #include <sys/select.h>
-  #include <netinet/in.h>
-  #include <netinet/tcp.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #include <poll.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
 #endif
 
 namespace castcore {
@@ -113,7 +113,8 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
 
   // Set TCP_NODELAY and socket timeouts
   int flag = 1;
-  setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
+  setsockopt(
+      socket_fd_, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&flag), sizeof(flag));
 
 #if defined(_WIN32)
   DWORD tv_ms = 6000;
@@ -147,8 +148,9 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   fcntl(socket_fd_, F_SETFL, sock_flags | O_NONBLOCK);
 #endif
 
-  bool connected = connect(socket_fd_, reinterpret_cast<struct sockaddr*>(&server_addr),
-                           sizeof(server_addr)) == 0;
+  bool connected =
+      connect(socket_fd_, reinterpret_cast<struct sockaddr*>(&server_addr), sizeof(server_addr)) ==
+      0;
   if (!connected) {
     const int err = SocketLastError();
 #if defined(_WIN32)
@@ -166,8 +168,9 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
       if (select(static_cast<int>(socket_fd_) + 1, nullptr, &write_fds, nullptr, &connect_tv) > 0) {
         int so_error = 0;
         socklen_t so_len = sizeof(so_error);
-        if (getsockopt(socket_fd_, SOL_SOCKET, SO_ERROR,
-                       reinterpret_cast<char*>(&so_error), &so_len) == 0) {
+        if (getsockopt(
+                socket_fd_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &so_len) ==
+            0) {
           connected = (so_error == 0);
         }
       }
@@ -183,8 +186,8 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
 #endif
 
   if (!connected) {
-    LOG_ERROR << "TCP connection to " << ip_address << ":" << port
-              << " failed or timed out after " << connect_ms << "ms";
+    LOG_ERROR << "TCP connection to " << ip_address << ":" << port << " failed or timed out after "
+              << connect_ms << "ms";
     close(socket_fd_);
     socket_fd_ = -1;
     return false;
@@ -335,10 +338,8 @@ bool CastChannel::SendRawPacket(const uint8_t* data, size_t length) {
   return true;
 }
 
-bool CastChannel::SendCastMessage(const std::string& namespace_,
-                                 const std::string& payload_utf8,
-                                 const std::string& destination_id,
-                                 const std::string& source_id) {
+bool CastChannel::SendCastMessage(const std::string& namespace_, const std::string& payload_utf8,
+                                  const std::string& destination_id, const std::string& source_id) {
   if (!is_connected_.load()) return false;
 
   proto::CastMessage msg;
@@ -446,8 +447,8 @@ bool CastChannel::AuthenticateDevice(int timeout_ms) {
     auth_nonce_ = nonce;
   }
 
-  if (!SendCastMessageBinary(kNamespaceDeviceAuth, serialized,
-                             kPlatformReceiverId, kPlatformSenderId)) {
+  if (!SendCastMessageBinary(
+          kNamespaceDeviceAuth, serialized, kPlatformReceiverId, kPlatformSenderId)) {
     LOG_ERROR << "Failed to send AUTH_CHALLENGE";
     return false;
   }
@@ -559,7 +560,8 @@ bool CastChannel::ConnectVirtual(const std::string& destination_id, const std::s
   return SendCastMessage(kNamespaceConnection, payload.dump(), destination_id, source_id);
 }
 
-bool CastChannel::DisconnectVirtual(const std::string& destination_id, const std::string& source_id) {
+bool CastChannel::DisconnectVirtual(const std::string& destination_id,
+                                    const std::string& source_id) {
   nlohmann::json payload;
   payload["type"] = "CLOSE";
   return SendCastMessage(kNamespaceConnection, payload.dump(), destination_id, source_id);
@@ -586,7 +588,8 @@ int CastChannel::StopApp(const std::string& session_id) {
   payload["sessionId"] = session_id;
   payload["requestId"] = req_id;
 
-  LOG_INFO << "Sending STOP request for session " << session_id << " (requestId: " << req_id << ")...";
+  LOG_INFO << "Sending STOP request for session " << session_id << " (requestId: " << req_id
+           << ")...";
   SendCastMessage(kNamespaceReceiver, payload.dump(), kPlatformReceiverId, kPlatformSenderId);
   return req_id;
 }
@@ -627,7 +630,8 @@ void CastChannel::ReceiveLoop() {
         }
         char err_buf[256];
         ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-        LOG_WARN << "Cast Channel socket disconnected while reading header: ret=" << ret << " err=" << err << " (" << err_buf << ")";
+        LOG_WARN << "Cast Channel socket disconnected while reading header: ret=" << ret
+                 << " err=" << err << " (" << err_buf << ")";
         is_connected_ = false;
         NotifyDisconnected("TLS socket closed");
         return;
@@ -637,8 +641,7 @@ void CastChannel::ReceiveLoop() {
 
     uint32_t msg_len = (static_cast<uint32_t>(len_buf[0]) << 24) |
                        (static_cast<uint32_t>(len_buf[1]) << 16) |
-                       (static_cast<uint32_t>(len_buf[2]) << 8) |
-                       static_cast<uint32_t>(len_buf[3]);
+                       (static_cast<uint32_t>(len_buf[2]) << 8) | static_cast<uint32_t>(len_buf[3]);
 
     // The Cast protocol caps a message at 64 KiB; 1 MiB leaves generous slack
     // while keeping a hostile length prefix from allocating tens of megabytes.
@@ -652,7 +655,8 @@ void CastChannel::ReceiveLoop() {
     std::vector<uint8_t> payload_buf(msg_len);
     size_t body_read = 0;
     while (body_read < msg_len) {
-      int ret = SSL_read(ssl_, payload_buf.data() + body_read, static_cast<int>(msg_len - body_read));
+      int ret =
+          SSL_read(ssl_, payload_buf.data() + body_read, static_cast<int>(msg_len - body_read));
       if (ret <= 0) {
         if (should_stop_.load() || !is_connected_.load()) return;
         int err = SSL_get_error(ssl_, ret);
@@ -688,7 +692,8 @@ void CastChannel::ReceiveLoop() {
                   << " dst=" << msg.destination_id() << " payload=" << RedactSecrets(payload_str);
       } else if (is_binary) {
         LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id()
-                  << " dst=" << msg.destination_id() << " (binary " << payload_str.size() << " bytes)";
+                  << " dst=" << msg.destination_id() << " (binary " << payload_str.size()
+                  << " bytes)";
       }
 
       // Automatically answer PING with PONG
@@ -696,7 +701,8 @@ void CastChannel::ReceiveLoop() {
         try {
           auto j = nlohmann::json::parse(payload_str);
           if (j.contains("type") && j["type"] == "PING") {
-            SendCastMessage(kNamespaceHeartbeat, "{\"type\":\"PONG\"}", msg.source_id(), msg.destination_id());
+            SendCastMessage(
+                kNamespaceHeartbeat, "{\"type\":\"PONG\"}", msg.source_id(), msg.destination_id());
           } else if (j.contains("type") && j["type"] == "PONG") {
             NoteIncomingPong();
           } else {
@@ -734,7 +740,8 @@ void CastChannel::HeartbeatLoop() {
     if (should_stop_.load() || !is_connected_.load()) break;
 
     // 1. Platform keepalive
-    SendCastMessage(kNamespaceHeartbeat, "{\"type\":\"PING\"}", kPlatformReceiverId, kPlatformSenderId);
+    SendCastMessage(
+        kNamespaceHeartbeat, "{\"type\":\"PING\"}", kPlatformReceiverId, kPlatformSenderId);
 
     // 2. Application keepalive
     std::string app_tid;
@@ -784,4 +791,4 @@ void CastChannel::NotifyDisconnected(const std::string& reason) {
   }
 }
 
-} // namespace castcore
+}  // namespace castcore

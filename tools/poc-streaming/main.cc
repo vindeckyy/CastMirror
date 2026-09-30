@@ -30,9 +30,7 @@ int main(int argc, char** argv) {
   RtpPacketizer audio_packetizer(127, 1, 1460);
 
   CastTransport transport;
-  transport.SetPliCallback([] {
-    LOG_INFO << "[RTCP] Received Picture Loss Indicator";
-  });
+  transport.SetPliCallback([] { LOG_INFO << "[RTCP] Received Picture Loss Indicator"; });
   transport.SetFeedbackCallback([](const RtcpFeedback& fb) {
     LOG_INFO << "[RTCP] Feedback: Checkpoint=" << fb.checkpoint_frame_id
              << ", Loss=" << (fb.fraction_lost * 100.0) << "%, NACKs=" << fb.nacks.size();

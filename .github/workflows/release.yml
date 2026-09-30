@@ -34,7 +34,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libxcomposite-dev libxdamage-dev \
-            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
             nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb \
             libayatana-appindicator-glib-dev \
             dpkg-dev rpm
@@ -121,6 +121,7 @@ jobs:
         run: ./scripts/check_version.ps1 -Tag '${{ github.ref_name }}'
 
       - name: Set up MSYS2 UCRT64
+        id: msys2
         uses: msys2/setup-msys2@fb197b72ce45fb24f17bf3f807a388985654d1f2 # v2.29.0
         with:
           msystem: UCRT64
@@ -166,7 +167,7 @@ jobs:
       - name: Package Windows client (native castcore.dll + self-contained WinUI app)
         shell: pwsh
         run: |
-          $env:CASTMIRROR_MSYS2_BIN = 'C:\msys64\ucrt64\bin'
+          $env:CASTMIRROR_MSYS2_BIN = '${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin'
           $env:CASTMIRROR_DOTNET_ROOT = Split-Path -Parent (Get-Command dotnet).Source
           Write-Host "CASTMIRROR_MSYS2_BIN=$env:CASTMIRROR_MSYS2_BIN"
           Write-Host "CASTMIRROR_DOTNET_ROOT=$env:CASTMIRROR_DOTNET_ROOT"

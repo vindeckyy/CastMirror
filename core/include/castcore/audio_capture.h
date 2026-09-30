@@ -31,6 +31,6 @@ class AudioCaptureFactory {
   static std::unique_ptr<IAudioCapture> CreateSynthetic();
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_AUDIO_CAPTURE_H_
+#endif  // CASTCORE_AUDIO_CAPTURE_H_

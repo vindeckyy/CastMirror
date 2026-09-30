@@ -113,14 +113,14 @@ void SettingsTab::BuildUi() {
 
   // Audio Quality
   const char* const audio_bitrate_strings[] = {
-    "64 kbps", "96 kbps", "128 kbps", "192 kbps", "256 kbps", nullptr
-  };
+      "64 kbps", "96 kbps", "128 kbps", "192 kbps", "256 kbps", nullptr};
   GtkStringList* string_list = gtk_string_list_new(audio_bitrate_strings);
   audio_quality_row_ = adw_combo_row_new();
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_quality_row_), copy::kAudioQualityTitle);
   adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_quality_row_), copy::kAudioQualityHelp);
   adw_combo_row_set_model(ADW_COMBO_ROW(audio_quality_row_), G_LIST_MODEL(string_list));
-  adw_combo_row_set_selected(ADW_COMBO_ROW(audio_quality_row_), AudioBitrateToComboIndex(cfg.audio_bitrate_bps));
+  adw_combo_row_set_selected(ADW_COMBO_ROW(audio_quality_row_),
+                             AudioBitrateToComboIndex(cfg.audio_bitrate_bps));
   adw_preferences_group_add(audio_group, audio_quality_row_);
 
   // 3. Latency & buffering
@@ -156,9 +156,11 @@ void SettingsTab::BuildUi() {
 
   // Latency HUD overlay
   latency_hud_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(latency_hud_row_), "Camera latency HUD overlay");
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(latency_hud_row_),
+                                "Camera latency HUD overlay");
   adw_action_row_set_subtitle(ADW_ACTION_ROW(latency_hud_row_),
-                              "Burn-in millisecond stopwatch and frame counter onto stream for glass-to-glass latency calibration");
+                              "Burn-in millisecond stopwatch and frame counter onto stream for "
+                              "glass-to-glass latency calibration");
   adw_switch_row_set_active(ADW_SWITCH_ROW(latency_hud_row_), cfg.latency_hud_enabled);
   adw_preferences_group_add(lat_group, latency_hud_row_);
 
@@ -190,7 +192,8 @@ void SettingsTab::BuildUi() {
 
   // Force software encode
   force_software_row_ = adw_switch_row_new();
-  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(force_software_row_), copy::kForceSoftwareTitle);
+  adw_preferences_row_set_title(ADW_PREFERENCES_ROW(force_software_row_),
+                                copy::kForceSoftwareTitle);
   adw_action_row_set_subtitle(ADW_ACTION_ROW(force_software_row_), copy::kForceSoftwareHelp);
   adw_switch_row_set_active(ADW_SWITCH_ROW(force_software_row_), cfg.force_software_encode);
   GtkWidget* fsoft_info = MakeInfoButton(copy::kForceSoftwareTitle, copy::kForceSoftwarePopover);
@@ -222,8 +225,10 @@ void SettingsTab::BuildUi() {
     adw_action_row_set_subtitle(ADW_ACTION_ROW(tray_row_), copy::kTrayHelp);
     adw_action_row_set_subtitle(ADW_ACTION_ROW(close_to_tray_row_), copy::kCloseToTrayHelp);
   } else {
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(tray_row_), "System tray support is not available in this build.");
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(close_to_tray_row_), "System tray support is not available in this build.");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(tray_row_),
+                                "System tray support is not available in this build.");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(close_to_tray_row_),
+                                "System tray support is not available in this build.");
   }
 
   // Desktop notifications
@@ -238,33 +243,37 @@ void SettingsTab::BuildUi() {
   adw_preferences_group_set_title(appearance_group, "Appearance");
   adw_preferences_page_add(page, appearance_group);
 
-  const char* const theme_strings[] = {
-    "System default", "Light", "Dark", nullptr
-  };
+  const char* const theme_strings[] = {"System default", "Light", "Dark", nullptr};
   GtkStringList* theme_list = gtk_string_list_new(theme_strings);
   GtkWidget* theme_row = adw_combo_row_new();
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(theme_row), "Color scheme");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(theme_row), "Choose between light, dark, or system visual styles");
+  adw_action_row_set_subtitle(ADW_ACTION_ROW(theme_row),
+                              "Choose between light, dark, or system visual styles");
   adw_combo_row_set_model(ADW_COMBO_ROW(theme_row), G_LIST_MODEL(theme_list));
 
   AdwStyleManager* sm = adw_style_manager_get_default();
   AdwColorScheme scheme = adw_style_manager_get_color_scheme(sm);
   guint sel_idx = 0;
-  if (scheme == ADW_COLOR_SCHEME_FORCE_LIGHT) sel_idx = 1;
-  else if (scheme == ADW_COLOR_SCHEME_FORCE_DARK) sel_idx = 2;
+  if (scheme == ADW_COLOR_SCHEME_FORCE_LIGHT)
+    sel_idx = 1;
+  else if (scheme == ADW_COLOR_SCHEME_FORCE_DARK)
+    sel_idx = 2;
   adw_combo_row_set_selected(ADW_COMBO_ROW(theme_row), sel_idx);
 
-  g_signal_connect(theme_row, "notify::selected", G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer) {
-    guint idx = adw_combo_row_get_selected(ADW_COMBO_ROW(obj));
-    AdwStyleManager* style_mgr = adw_style_manager_get_default();
-    if (idx == 1) {
-      adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_LIGHT);
-    } else if (idx == 2) {
-      adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_DARK);
-    } else {
-      adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_DEFAULT);
-    }
-  }), nullptr);
+  g_signal_connect(theme_row,
+                   "notify::selected",
+                   G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer) {
+                     guint idx = adw_combo_row_get_selected(ADW_COMBO_ROW(obj));
+                     AdwStyleManager* style_mgr = adw_style_manager_get_default();
+                     if (idx == 1) {
+                       adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_LIGHT);
+                     } else if (idx == 2) {
+                       adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_DARK);
+                     } else {
+                       adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_DEFAULT);
+                     }
+                   }),
+                   nullptr);
   adw_preferences_group_add(appearance_group, theme_row);
 
   // 8. Diagnostics & Health
@@ -274,7 +283,9 @@ void SettingsTab::BuildUi() {
 
   GtkWidget* diag_row = adw_action_row_new();
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(diag_row), "Run self-test");
-  adw_action_row_set_subtitle(ADW_ACTION_ROW(diag_row), "Verify display capture, hardware encoder, audio loopback, and UDP sockets");
+  adw_action_row_set_subtitle(
+      ADW_ACTION_ROW(diag_row),
+      "Verify display capture, hardware encoder, audio loopback, and UDP sockets");
 
   GtkWidget* diag_btn = gtk_button_new_with_label("Run test");
   gtk_widget_add_css_class(diag_btn, "suggested-action");
@@ -282,10 +293,13 @@ void SettingsTab::BuildUi() {
   adw_action_row_add_suffix(ADW_ACTION_ROW(diag_row), diag_btn);
   adw_action_row_set_activatable_widget(ADW_ACTION_ROW(diag_row), diag_btn);
 
-  g_signal_connect(diag_btn, "clicked", G_CALLBACK(+[](GtkButton*, gpointer user_data) {
-    auto* self = static_cast<SettingsTab*>(user_data);
-    self->RunSelfTestDialog();
-  }), this);
+  g_signal_connect(diag_btn,
+                   "clicked",
+                   G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+                     auto* self = static_cast<SettingsTab*>(user_data);
+                     self->RunSelfTestDialog();
+                   }),
+                   this);
   adw_preferences_group_add(diag_group, diag_row);
 
   // Sync initial bitrate
@@ -311,20 +325,23 @@ void SettingsTab::BuildUi() {
     if (self->bitrate_debounce_id_ != 0) {
       g_source_remove(self->bitrate_debounce_id_);
     }
-    self->bitrate_debounce_id_ = g_timeout_add(250, +[](gpointer data) -> gboolean {
-      auto* tab = static_cast<SettingsTab*>(data);
-      tab->bitrate_debounce_id_ = 0;
-      const uint32_t kbps = tab->pending_bitrate_kbps_;
-      if (CastEngine::Instance().GetState() == SessionState::kStreaming) {
-        CastEngine::Instance().SetLiveVideoBitrateKbps(kbps);
-      } else {
-        auto& c = ConfigStore::Instance().Mutable();
-        c.SetPresetBitrateKbps(c.quality_preset, kbps);
-        c.max_bitrate_kbps = kbps;
-        ConfigStore::Instance().Save();
-      }
-      return G_SOURCE_REMOVE;
-    }, self);
+    self->bitrate_debounce_id_ = g_timeout_add(
+        250,
+        +[](gpointer data) -> gboolean {
+          auto* tab = static_cast<SettingsTab*>(data);
+          tab->bitrate_debounce_id_ = 0;
+          const uint32_t kbps = tab->pending_bitrate_kbps_;
+          if (CastEngine::Instance().GetState() == SessionState::kStreaming) {
+            CastEngine::Instance().SetLiveVideoBitrateKbps(kbps);
+          } else {
+            auto& c = ConfigStore::Instance().Mutable();
+            c.SetPresetBitrateKbps(c.quality_preset, kbps);
+            c.max_bitrate_kbps = kbps;
+            ConfigStore::Instance().Save();
+          }
+          return G_SOURCE_REMOVE;
+        },
+        self);
   };
   g_signal_connect(bitrate_scale_, "value-changed", G_CALLBACK(on_bitrate_changed), this);
 
@@ -346,8 +363,8 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.audio_enabled = state;
     ConfigStore::Instance().Save();
-    self->UpdateDependentSensitivities(
-        self->app_ ? self->app_->GetCurrentState() : SessionState::kIdle);
+    self->UpdateDependentSensitivities(self->app_ ? self->app_->GetCurrentState()
+                                                  : SessionState::kIdle);
   };
   g_signal_connect(audio_row_, "notify::active", G_CALLBACK(on_audio_toggle), this);
 
@@ -406,11 +423,11 @@ void SettingsTab::BuildUi() {
     if (self->syncing_controls_) return;
     gboolean state = adw_switch_row_get_active(ADW_SWITCH_ROW(self->subnet_scan_row_));
     if (state) {
-      AdwDialog* dialog = adw_alert_dialog_new(
-          "Enable LAN scanning?", copy::kSubnetScanConfirm);
+      AdwDialog* dialog = adw_alert_dialog_new("Enable LAN scanning?", copy::kSubnetScanConfirm);
       adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "cancel", "Cancel");
       adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "enable", "Enable scan");
-      adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "enable", ADW_RESPONSE_SUGGESTED);
+      adw_alert_dialog_set_response_appearance(
+          ADW_ALERT_DIALOG(dialog), "enable", ADW_RESPONSE_SUGGESTED);
       adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "cancel");
       adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
 
@@ -426,8 +443,8 @@ void SettingsTab::BuildUi() {
         SettingsTab* self;
         LivenessToken alive;
       };
-      auto* ctx = new ConsentContext{
-          self, self->app_ ? self->app_->GetLivenessToken() : LivenessToken()};
+      auto* ctx =
+          new ConsentContext{self, self->app_ ? self->app_->GetLivenessToken() : LivenessToken()};
 
       GtkWidget* parent_win = self->app_ ? GTK_WIDGET(self->app_->GetWindow()) : self->root_widget_;
       adw_alert_dialog_choose(
@@ -494,8 +511,8 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.enable_tray_on_startup = state;
     ConfigStore::Instance().Save();
-    self->UpdateDependentSensitivities(
-        self->app_ ? self->app_->GetCurrentState() : SessionState::kIdle);
+    self->UpdateDependentSensitivities(self->app_ ? self->app_->GetCurrentState()
+                                                  : SessionState::kIdle);
   };
   g_signal_connect(tray_row_, "notify::active", G_CALLBACK(on_tray_toggle), this);
 
@@ -521,15 +538,13 @@ void SettingsTab::BuildUi() {
   };
   g_signal_connect(notify_row_, "notify::active", G_CALLBACK(on_notif_toggle), this);
 
-  UpdateDependentSensitivities(
-      app_ ? app_->GetCurrentState() : SessionState::kIdle);
+  UpdateDependentSensitivities(app_ ? app_->GetCurrentState() : SessionState::kIdle);
   syncing_controls_ = false;
 }
 
 void SettingsTab::UpdateBitrateLabel(uint32_t kbps) {
   if (!bitrate_val_lbl_) return;
-  gtk_label_set_text(GTK_LABEL(bitrate_val_lbl_),
-                     FormatMbps(kbps / 1000.0).c_str());
+  gtk_label_set_text(GTK_LABEL(bitrate_val_lbl_), FormatMbps(kbps / 1000.0).c_str());
 }
 
 void SettingsTab::UpdateDelayLabel(int ms) {
@@ -539,10 +554,8 @@ void SettingsTab::UpdateDelayLabel(int ms) {
 }
 
 void SettingsTab::UpdateDependentSensitivities(SessionState state) {
-  bool is_session_idle = (state == SessionState::kIdle ||
-                          state == SessionState::kReady ||
-                          state == SessionState::kDiscovering ||
-                          state == SessionState::kFailed);
+  bool is_session_idle = (state == SessionState::kIdle || state == SessionState::kReady ||
+                          state == SessionState::kDiscovering || state == SessionState::kFailed);
   bool is_streaming = (state == SessionState::kStreaming);
 
   bool audio_on = audio_row_ ? adw_switch_row_get_active(ADW_SWITCH_ROW(audio_row_)) : true;
@@ -560,9 +573,8 @@ void SettingsTab::UpdateDependentSensitivities(SessionState state) {
   // Audio
   if (audio_row_) gtk_widget_set_sensitive(audio_row_, is_session_idle);
   if (silence_row_) gtk_widget_set_sensitive(silence_row_, is_session_idle && audio_on);
-  bool audio_quality_sensitive =
-      (is_session_idle && audio_on) ||
-      (is_streaming && app_ && app_->IsActiveSessionAudioEnabled());
+  bool audio_quality_sensitive = (is_session_idle && audio_on) ||
+                                 (is_streaming && app_ && app_->IsActiveSessionAudioEnabled());
   if (audio_quality_row_) gtk_widget_set_sensitive(audio_quality_row_, audio_quality_sensitive);
 
   // Latency & buffering
@@ -634,9 +646,7 @@ void SettingsTab::RunSelfTestDialog() {
       << (audio_ok ? "✓ " : "✗ ") << "Audio Monitor: " << audio_str << "\n"
       << (net_ok ? "✓ " : "✗ ") << "Network Sockets: " << net_str;
 
-  AdwDialog* dialog = adw_alert_dialog_new(
-      "Hardware & Network Diagnostics",
-      msg.str().c_str());
+  AdwDialog* dialog = adw_alert_dialog_new("Hardware & Network Diagnostics", msg.str().c_str());
   adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "close", "Close");
   adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "close");
   adw_dialog_present(dialog, GTK_WIDGET(parent_win));

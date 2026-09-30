@@ -15,8 +15,8 @@ namespace {
 const char* LevelToString(LogLevel level) {
   switch (level) {
     case LogLevel::kDebug: return "DEBUG";
-    case LogLevel::kInfo:  return "INFO ";
-    case LogLevel::kWarn:  return "WARN ";
+    case LogLevel::kInfo: return "INFO ";
+    case LogLevel::kWarn: return "WARN ";
     case LogLevel::kError: return "ERROR";
     case LogLevel::kFatal: return "FATAL";
   }
@@ -26,8 +26,8 @@ const char* LevelToString(LogLevel level) {
 const char* LevelColor(LogLevel level) {
   switch (level) {
     case LogLevel::kDebug: return "\033[36m";
-    case LogLevel::kInfo:  return "\033[32m";
-    case LogLevel::kWarn:  return "\033[33m";
+    case LogLevel::kInfo: return "\033[32m";
+    case LogLevel::kWarn: return "\033[33m";
     case LogLevel::kError: return "\033[31m";
     case LogLevel::kFatal: return "\033[35m";
   }
@@ -40,7 +40,7 @@ const char* BaseName(const char* path) {
   return p ? p + 1 : path;
 }
 
-} // namespace
+}  // namespace
 
 Logger& Logger::Instance() {
   static Logger instance;
@@ -126,25 +126,38 @@ std::string Logger::RedactIpAddresses(const std::string& input) const {
       int groups = 0;
       size_t scan = j;
       for (int g = 0; g < 4; ++g) {
-        if (scan >= n || !std::isdigit(static_cast<unsigned char>(input[scan]))) { ok = false; break; }
+        if (scan >= n || !std::isdigit(static_cast<unsigned char>(input[scan]))) {
+          ok = false;
+          break;
+        }
         int val = 0;
         int digits = 0;
         while (scan < n && std::isdigit(static_cast<unsigned char>(input[scan]))) {
           val = val * 10 + (input[scan] - '0');
           ++digits;
           ++scan;
-          if (digits > 3) { ok = false; break; }
+          if (digits > 3) {
+            ok = false;
+            break;
+          }
         }
         if (!ok) break;
-        if (val > 255 || digits == 0) { ok = false; break; }
+        if (val > 255 || digits == 0) {
+          ok = false;
+          break;
+        }
         ++groups;
         if (g < 3) {
-          if (scan >= n || input[scan] != '.') { ok = false; break; }
+          if (scan >= n || input[scan] != '.') {
+            ok = false;
+            break;
+          }
           ++scan;
         }
       }
       if (ok && groups == 4) {
-        if (scan < n && (std::isdigit(static_cast<unsigned char>(input[scan])) || input[scan] == '.')) {
+        if (scan < n &&
+            (std::isdigit(static_cast<unsigned char>(input[scan])) || input[scan] == '.')) {
           // Not a clean boundary, treat as not IP
           out.push_back(input[i]);
           ++i;
@@ -166,7 +179,8 @@ std::string Logger::RedactIpAddresses(const std::string& input) const {
 bool Logger::ShouldEmitJson() const {
   if (verbose_json_enabled_.load()) return true;
   const char* env = std::getenv("CASTMIRROR_VERBOSE_JSON");
-  if (env && (std::strcmp(env, "1") == 0 || std::strcmp(env, "true") == 0 || std::strcmp(env, "TRUE") == 0)) {
+  if (env && (std::strcmp(env, "1") == 0 || std::strcmp(env, "true") == 0 ||
+              std::strcmp(env, "TRUE") == 0)) {
     return true;
   }
   return false;
@@ -295,8 +309,7 @@ void Logger::LogJson(const std::string& json_line) {
     json_log_path_ = path;
     try {
       std::filesystem::create_directories(std::filesystem::path(path).parent_path());
-      if (std::filesystem::exists(path) &&
-          std::filesystem::file_size(path) >= kMaxJsonLogBytes) {
+      if (std::filesystem::exists(path) && std::filesystem::file_size(path) >= kMaxJsonLogBytes) {
         std::string rotated = path + ".old";
         std::error_code ec;
         std::filesystem::remove(rotated, ec);
@@ -314,26 +327,30 @@ void Logger::LogJson(const std::string& json_line) {
   RotateJsonLogIfNeededLocked();
 }
 
-void Logger::LogBreadcrumb(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms, uint32_t nack_count) {
-  LogBreadcrumbEx(frame_id, encode_ms, udp_bytes, rtt_ms, nack_count,
-                  "capture->gpu->encode->crypto->rtp->udp", "udp");
+void Logger::LogBreadcrumb(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms,
+                           uint32_t nack_count) {
+  LogBreadcrumbEx(frame_id,
+                  encode_ms,
+                  udp_bytes,
+                  rtt_ms,
+                  nack_count,
+                  "capture->gpu->encode->crypto->rtp->udp",
+                  "udp");
 }
 
-void Logger::LogBreadcrumbEx(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms, uint32_t nack_count,
-                             const std::string& pipeline, const std::string& stage) {
+void Logger::LogBreadcrumbEx(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes,
+                             double rtt_ms, uint32_t nack_count, const std::string& pipeline,
+                             const std::string& stage) {
   if (!ShouldEmitJson()) return;
   auto now = std::chrono::system_clock::now();
-  int64_t ts_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  int64_t ts_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
   std::ostringstream ss;
-  ss << "{\"ts\":" << ts_ms
-     << ",\"frame_id\":" << frame_id
-     << ",\"pipeline\":\"" << pipeline << "\""
+  ss << "{\"ts\":" << ts_ms << ",\"frame_id\":" << frame_id << ",\"pipeline\":\"" << pipeline
+     << "\""
      << ",\"stage\":\"" << stage << "\""
-     << ",\"encode_ms\":" << encode_ms
-     << ",\"udp_bytes\":" << udp_bytes
-     << ",\"rtt_ms\":" << rtt_ms
-     << ",\"nack_count\":" << nack_count
-     << "}";
+     << ",\"encode_ms\":" << encode_ms << ",\"udp_bytes\":" << udp_bytes << ",\"rtt_ms\":" << rtt_ms
+     << ",\"nack_count\":" << nack_count << "}";
   LogJson(ss.str());
 }
 
@@ -359,11 +376,10 @@ void Logger::Log(LogLevel level, const char* file, int line, const std::string& 
 #endif
 
   std::ostringstream ss;
-  ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S.")
-     << std::setfill('0') << std::setw(3) << ms.count() << " "
+  ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S.") << std::setfill('0') << std::setw(3)
+     << ms.count() << " "
      << "[" << LevelToString(level) << "] "
-     << "[" << BaseName(file) << ":" << line << "] "
-     << message;
+     << "[" << BaseName(file) << ":" << line << "] " << message;
 
   std::string formatted = ss.str();
   std::string redacted = RedactIpAddresses(formatted);
@@ -386,4 +402,4 @@ void Logger::Log(LogLevel level, const char* file, int line, const std::string& 
   }
 }
 
-} // namespace castcore
+}  // namespace castcore

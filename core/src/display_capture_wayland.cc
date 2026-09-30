@@ -53,14 +53,14 @@ struct PortalResponseData {
   GVariant* results = nullptr;
 };
 
-void OnPortalSignal(GDBusConnection* conn,
-                    const gchar* sender_name,
-                    const gchar* object_path,
-                    const gchar* interface_name,
-                    const gchar* signal_name,
-                    GVariant* parameters,
+void OnPortalSignal(GDBusConnection* conn, const gchar* sender_name, const gchar* object_path,
+                    const gchar* interface_name, const gchar* signal_name, GVariant* parameters,
                     gpointer user_data) {
-  (void)conn; (void)sender_name; (void)object_path; (void)interface_name; (void)signal_name;
+  (void)conn;
+  (void)sender_name;
+  (void)object_path;
+  (void)interface_name;
+  (void)signal_name;
   auto* data = static_cast<PortalResponseData*>(user_data);
   if (parameters) {
     g_variant_get(parameters, "(u@a{sv})", &data->response_code, &data->results);
@@ -73,23 +73,20 @@ void OnPortalSignal(GDBusConnection* conn,
   }
 }
 
-bool CallPortalRequest(GDBusConnection* conn,
-                       const char* method_name,
-                       GVariant* parameters,
+bool CallPortalRequest(GDBusConnection* conn, const char* method_name, GVariant* parameters,
                        GVariant** out_results) {
   GError* err = nullptr;
-  GVariant* reply = g_dbus_connection_call_sync(
-      conn,
-      "org.freedesktop.portal.Desktop",
-      "/org/freedesktop/portal/desktop",
-      "org.freedesktop.portal.ScreenCast",
-      method_name,
-      parameters,
-      G_VARIANT_TYPE("(o)"),
-      G_DBUS_CALL_FLAGS_NONE,
-      10000,
-      nullptr,
-      &err);
+  GVariant* reply = g_dbus_connection_call_sync(conn,
+                                                "org.freedesktop.portal.Desktop",
+                                                "/org/freedesktop/portal/desktop",
+                                                "org.freedesktop.portal.ScreenCast",
+                                                method_name,
+                                                parameters,
+                                                G_VARIANT_TYPE("(o)"),
+                                                G_DBUS_CALL_FLAGS_NONE,
+                                                10000,
+                                                nullptr,
+                                                &err);
 
   if (!reply) {
     LOG_ERROR << "Portal " << method_name << " failed: " << (err ? err->message : "unknown");
@@ -104,27 +101,30 @@ bool CallPortalRequest(GDBusConnection* conn,
   PortalResponseData resp_data;
   resp_data.loop = loop;
 
-  guint sub_id = g_dbus_connection_signal_subscribe(
-      conn,
-      "org.freedesktop.portal.Desktop",
-      "org.freedesktop.portal.Request",
-      "Response",
-      request_handle,
-      nullptr,
-      G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE,
-      OnPortalSignal,
-      &resp_data,
-      nullptr);
+  guint sub_id = g_dbus_connection_signal_subscribe(conn,
+                                                    "org.freedesktop.portal.Desktop",
+                                                    "org.freedesktop.portal.Request",
+                                                    "Response",
+                                                    request_handle,
+                                                    nullptr,
+                                                    G_DBUS_SIGNAL_FLAGS_NO_MATCH_RULE,
+                                                    OnPortalSignal,
+                                                    &resp_data,
+                                                    nullptr);
 
   // Timeout after 60 seconds (user interaction with screen-share dialog)
   GSource* timeout_source = g_timeout_source_new_seconds(60);
-  g_source_set_callback(timeout_source, +[](gpointer data) -> gboolean {
-    auto* d = static_cast<PortalResponseData*>(data);
-    if (d->loop && g_main_loop_is_running(d->loop)) {
-      g_main_loop_quit(d->loop);
-    }
-    return G_SOURCE_REMOVE;
-  }, &resp_data, nullptr);
+  g_source_set_callback(
+      timeout_source,
+      +[](gpointer data) -> gboolean {
+        auto* d = static_cast<PortalResponseData*>(data);
+        if (d->loop && g_main_loop_is_running(d->loop)) {
+          g_main_loop_quit(d->loop);
+        }
+        return G_SOURCE_REMOVE;
+      },
+      &resp_data,
+      nullptr);
   g_source_attach(timeout_source, g_main_loop_get_context(loop));
 
   g_main_loop_run(loop);
@@ -145,12 +145,12 @@ bool CallPortalRequest(GDBusConnection* conn,
   return true;
 }
 
-} // namespace
+}  // namespace
 
 // xdg-desktop-portal ScreenCast source type bitmask constants.
 //   1 = MONITOR, 2 = WINDOW, 4 = VIRTUAL.
 constexpr uint32_t kPortalSourceMonitor = 1;
-constexpr uint32_t kPortalSourceWindow  = 2;
+constexpr uint32_t kPortalSourceWindow = 2;
 
 // Pure helper: map a CaptureSourceKind to the portal SelectSources "types" value.
 uint32_t PortalSourceTypesFor(CaptureSourceKind kind) {
@@ -159,7 +159,8 @@ uint32_t PortalSourceTypesFor(CaptureSourceKind kind) {
 
 // Pure helper: map a portal stream "source_type" u back to CaptureSourceKind.
 CaptureSourceKind CaptureSourceKindFromPortalSourceType(uint32_t source_type) {
-  return source_type == kPortalSourceWindow ? CaptureSourceKind::kWindow : CaptureSourceKind::kMonitor;
+  return source_type == kPortalSourceWindow ? CaptureSourceKind::kWindow
+                                            : CaptureSourceKind::kMonitor;
 }
 
 class PipeWirePortalCapture : public IDisplayCapture {
@@ -184,7 +185,8 @@ class PipeWirePortalCapture : public IDisplayCapture {
     }
 
     running_ = true;
-    capture_thread_ = std::thread(&PipeWirePortalCapture::StreamLoop, this, node_id, target_fps_.load());
+    capture_thread_ =
+        std::thread(&PipeWirePortalCapture::StreamLoop, this, node_id, target_fps_.load());
     return true;
   }
 
@@ -214,9 +216,7 @@ class PipeWirePortalCapture : public IDisplayCapture {
     }
   }
 
-  bool IsCapturing() const override {
-    return running_.load();
-  }
+  bool IsCapturing() const override { return running_.load(); }
 
   void SetTargetFps(int fps) override {
     if (fps > 0) {
@@ -224,9 +224,7 @@ class PipeWirePortalCapture : public IDisplayCapture {
     }
   }
 
-  bool SizeKnownBeforeStart() const override {
-    return false;
-  }
+  bool SizeKnownBeforeStart() const override { return false; }
 
   std::vector<DisplayInfo> EnumerateDisplays() override {
     std::vector<DisplayInfo> list;
@@ -287,18 +285,17 @@ class PipeWirePortalCapture : public IDisplayCapture {
       if (err) g_error_free(err);
       return false;
     }
-    GVariant* reply = g_dbus_connection_call_sync(
-        conn,
-        "org.freedesktop.portal.Desktop",
-        "/org/freedesktop/portal/desktop",
-        "org.freedesktop.portal.ScreenCast",
-        "GetAvailableSourceTypes",
-        nullptr,
-        G_VARIANT_TYPE("(u)"),
-        G_DBUS_CALL_FLAGS_NONE,
-        5000,
-        nullptr,
-        &err);
+    GVariant* reply = g_dbus_connection_call_sync(conn,
+                                                  "org.freedesktop.portal.Desktop",
+                                                  "/org/freedesktop/portal/desktop",
+                                                  "org.freedesktop.portal.ScreenCast",
+                                                  "GetAvailableSourceTypes",
+                                                  nullptr,
+                                                  G_VARIANT_TYPE("(u)"),
+                                                  G_DBUS_CALL_FLAGS_NONE,
+                                                  5000,
+                                                  nullptr,
+                                                  &err);
     g_object_unref(conn);
     if (!reply) {
       if (err) g_error_free(err);
@@ -319,16 +316,24 @@ class PipeWirePortalCapture : public IDisplayCapture {
       return false;
     }
 
-    std::string token_str = "castmirror_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    std::string token_str =
+        "castmirror_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
 
     // 1. CreateSession
     GVariantBuilder create_builder;
     g_variant_builder_init(&create_builder, G_VARIANT_TYPE("a{sv}"));
-    g_variant_builder_add(&create_builder, "{sv}", "session_handle_token", g_variant_new_string(token_str.c_str()));
-    g_variant_builder_add(&create_builder, "{sv}", "handle_token", g_variant_new_string((token_str + "_req").c_str()));
+    g_variant_builder_add(
+        &create_builder, "{sv}", "session_handle_token", g_variant_new_string(token_str.c_str()));
+    g_variant_builder_add(&create_builder,
+                          "{sv}",
+                          "handle_token",
+                          g_variant_new_string((token_str + "_req").c_str()));
 
     GVariant* create_results = nullptr;
-    if (!CallPortalRequest(conn, "CreateSession", g_variant_new("(@a{sv})", g_variant_builder_end(&create_builder)), &create_results)) {
+    if (!CallPortalRequest(conn,
+                           "CreateSession",
+                           g_variant_new("(@a{sv})", g_variant_builder_end(&create_builder)),
+                           &create_results)) {
       g_object_unref(conn);
       return false;
     }
@@ -353,7 +358,10 @@ class PipeWirePortalCapture : public IDisplayCapture {
     g_variant_builder_init(&select_builder, G_VARIANT_TYPE("a{sv}"));
     g_variant_builder_add(&select_builder, "{sv}", "types", g_variant_new_uint32(source_types));
     g_variant_builder_add(&select_builder, "{sv}", "multiple", g_variant_new_boolean(FALSE));
-    g_variant_builder_add(&select_builder, "{sv}", "persist_mode", g_variant_new_uint32(2)); // 2 = Persist until revoked
+    g_variant_builder_add(&select_builder,
+                          "{sv}",
+                          "persist_mode",
+                          g_variant_new_uint32(2));  // 2 = Persist until revoked
 
     const auto& cfg = ConfigStore::Instance().Get();
     // Only pass a restore_token when the requested kind matches the kind we
@@ -361,11 +369,19 @@ class PipeWirePortalCapture : public IDisplayCapture {
     // window source and vice-versa; mismatched tokens make the portal error.
     if (!cfg.portal_restore_token.empty() &&
         CaptureSourceKindFromString(cfg.last_source_kind) == requested_source_.kind) {
-      g_variant_builder_add(&select_builder, "{sv}", "restore_token", g_variant_new_string(cfg.portal_restore_token.c_str()));
+      g_variant_builder_add(&select_builder,
+                            "{sv}",
+                            "restore_token",
+                            g_variant_new_string(cfg.portal_restore_token.c_str()));
     }
 
     GVariant* select_results = nullptr;
-    if (!CallPortalRequest(conn, "SelectSources", g_variant_new("(o@a{sv})", session_path.c_str(), g_variant_builder_end(&select_builder)), &select_results)) {
+    if (!CallPortalRequest(
+            conn,
+            "SelectSources",
+            g_variant_new(
+                "(o@a{sv})", session_path.c_str(), g_variant_builder_end(&select_builder)),
+            &select_results)) {
       g_object_unref(conn);
       return false;
     }
@@ -374,10 +390,18 @@ class PipeWirePortalCapture : public IDisplayCapture {
     // 3. Start
     GVariantBuilder start_builder;
     g_variant_builder_init(&start_builder, G_VARIANT_TYPE("a{sv}"));
-    g_variant_builder_add(&start_builder, "{sv}", "handle_token", g_variant_new_string((token_str + "_start").c_str()));
+    g_variant_builder_add(&start_builder,
+                          "{sv}",
+                          "handle_token",
+                          g_variant_new_string((token_str + "_start").c_str()));
 
     GVariant* start_results = nullptr;
-    if (!CallPortalRequest(conn, "Start", g_variant_new("(os@a{sv})", session_path.c_str(), "", g_variant_builder_end(&start_builder)), &start_results)) {
+    if (!CallPortalRequest(
+            conn,
+            "Start",
+            g_variant_new(
+                "(os@a{sv})", session_path.c_str(), "", g_variant_builder_end(&start_builder)),
+            &start_results)) {
       g_object_unref(conn);
       return false;
     }
@@ -465,232 +489,189 @@ class PipeWirePortalCapture : public IDisplayCapture {
       struct pw_stream_events ev{};
       ev.version = PW_VERSION_STREAM_EVENTS;
       ev.param_changed = [](void* data, uint32_t id, const struct spa_pod* param) {
-          auto* self = static_cast<PipeWirePortalCapture*>(data);
-          if (id != SPA_PARAM_Format || !param) return;
-          struct spa_video_info_raw info{};
-          if (spa_format_video_raw_parse(param, &info) >= 0) {
-            self->width_ = info.size.width;
-            self->height_ = info.size.height;
-            // Phase 1.2: negotiate DMA-BUF+NV12 for zero-copy; keep BGRx fallback.
-            // When info.format is NV12 we will use DmaBuf path and avoid BGRA shadow copy.
-            if (info.format == SPA_VIDEO_FORMAT_NV12) {
-              self->negotiated_format_ = SPA_VIDEO_FORMAT_NV12;
-              // NV12 has 1.5 bytes per pixel: Y stride + UV stride (same)
-              self->stride_ = info.size.width; // Y stride, UV same
-              self->is_dmabuf_negotiated_ = true;
-              LOG_INFO << "PipeWire format negotiated: NV12 " << self->width_ << "x" << self->height_ << " (DMA-BUF zero-copy)";
-            } else {
-              self->negotiated_format_ = info.format;
-              self->stride_ = info.size.width * 4;
-              self->is_dmabuf_negotiated_ = false;
-              LOG_INFO << "PipeWire format negotiated: BGRx " << self->width_ << "x" << self->height_ << " (SW fallback)";
-            }
+        auto* self = static_cast<PipeWirePortalCapture*>(data);
+        if (id != SPA_PARAM_Format || !param) return;
+        struct spa_video_info_raw info{};
+        if (spa_format_video_raw_parse(param, &info) >= 0) {
+          self->width_ = info.size.width;
+          self->height_ = info.size.height;
+          // Phase 1.2: negotiate DMA-BUF+NV12 for zero-copy; keep BGRx fallback.
+          // When info.format is NV12 we will use DmaBuf path and avoid BGRA shadow copy.
+          if (info.format == SPA_VIDEO_FORMAT_NV12) {
+            self->negotiated_format_ = SPA_VIDEO_FORMAT_NV12;
+            // NV12 has 1.5 bytes per pixel: Y stride + UV stride (same)
+            self->stride_ = info.size.width;  // Y stride, UV same
+            self->is_dmabuf_negotiated_ = true;
+            LOG_INFO << "PipeWire format negotiated: NV12 " << self->width_ << "x" << self->height_
+                     << " (DMA-BUF zero-copy)";
+          } else {
+            self->negotiated_format_ = info.format;
+            self->stride_ = info.size.width * 4;
+            self->is_dmabuf_negotiated_ = false;
+            LOG_INFO << "PipeWire format negotiated: BGRx " << self->width_ << "x" << self->height_
+                     << " (SW fallback)";
           }
-        };
+        }
+      };
       ev.process = [](void* data) {
-          auto* self = static_cast<PipeWirePortalCapture*>(data);
-          if (!self->running_.load() || !self->pw_stream_) return;
+        auto* self = static_cast<PipeWirePortalCapture*>(data);
+        if (!self->running_.load() || !self->pw_stream_) return;
 
-          struct pw_buffer* b = pw_stream_dequeue_buffer(self->pw_stream_);
-          if (!b || !b->buffer) return;
+        struct pw_buffer* b = pw_stream_dequeue_buffer(self->pw_stream_);
+        if (!b || !b->buffer) return;
 
-          struct spa_buffer* sbuf = b->buffer;
-          if (self->width_ <= 0 || self->height_ <= 0) {
-            pw_stream_queue_buffer(self->pw_stream_, b);
-            return;
-          }
+        struct spa_buffer* sbuf = b->buffer;
+        if (self->width_ <= 0 || self->height_ <= 0) {
+          pw_stream_queue_buffer(self->pw_stream_, b);
+          return;
+        }
 
-          // Extract cursor plane if present (SPA_META_Cursor)
-          bool has_cursor = false;
-          int cursor_x = 0, cursor_y = 0, cursor_hotspot_x = 0, cursor_hotspot_y = 0;
-          std::vector<uint8_t> cursor_bg;
-          int cursor_w = 0, cursor_h = 0, cursor_stride = 0;
-          if (sbuf->n_metas > 0) {
-            struct spa_meta* m = spa_buffer_find_meta(sbuf, SPA_META_Cursor);
-            if (m && m->size >= sizeof(struct spa_meta_cursor)) {
-              auto* cur = static_cast<struct spa_meta_cursor*>(m->data);
-              if (spa_meta_cursor_is_valid(cur)) {
-                has_cursor = true;
-                cursor_x = cur->position.x;
-                cursor_y = cur->position.y;
-                cursor_hotspot_x = cur->hotspot.x;
-                cursor_hotspot_y = cur->hotspot.y;
-                if (cur->bitmap_offset >= sizeof(struct spa_meta_cursor) && m->size >= cur->bitmap_offset + sizeof(struct spa_meta_bitmap)) {
-                  auto* bm = reinterpret_cast<struct spa_meta_bitmap*>(reinterpret_cast<uint8_t*>(cur) + cur->bitmap_offset);
-                  if (spa_meta_bitmap_is_valid(bm) && bm->offset >= sizeof(struct spa_meta_bitmap) && bm->size.width > 0 && bm->size.height > 0) {
-                    cursor_w = bm->size.width;
-                    cursor_h = bm->size.height;
-                    cursor_stride = bm->stride;
-                    uint8_t* bmp_data = reinterpret_cast<uint8_t*>(bm) + bm->offset;
-                    size_t bmp_size = static_cast<size_t>(cursor_stride) * cursor_h;
-                    // Validate size fits within meta
-                    if (m->size >= cur->bitmap_offset + bm->offset + bmp_size) {
-                      cursor_bg.assign(bmp_data, bmp_data + bmp_size);
-                    }
+        // Extract cursor plane if present (SPA_META_Cursor)
+        bool has_cursor = false;
+        int cursor_x = 0, cursor_y = 0, cursor_hotspot_x = 0, cursor_hotspot_y = 0;
+        std::vector<uint8_t> cursor_bg;
+        int cursor_w = 0, cursor_h = 0, cursor_stride = 0;
+        if (sbuf->n_metas > 0) {
+          struct spa_meta* m = spa_buffer_find_meta(sbuf, SPA_META_Cursor);
+          if (m && m->size >= sizeof(struct spa_meta_cursor)) {
+            auto* cur = static_cast<struct spa_meta_cursor*>(m->data);
+            if (spa_meta_cursor_is_valid(cur)) {
+              has_cursor = true;
+              cursor_x = cur->position.x;
+              cursor_y = cur->position.y;
+              cursor_hotspot_x = cur->hotspot.x;
+              cursor_hotspot_y = cur->hotspot.y;
+              if (cur->bitmap_offset >= sizeof(struct spa_meta_cursor) &&
+                  m->size >= cur->bitmap_offset + sizeof(struct spa_meta_bitmap)) {
+                auto* bm = reinterpret_cast<struct spa_meta_bitmap*>(
+                    reinterpret_cast<uint8_t*>(cur) + cur->bitmap_offset);
+                if (spa_meta_bitmap_is_valid(bm) && bm->offset >= sizeof(struct spa_meta_bitmap) &&
+                    bm->size.width > 0 && bm->size.height > 0) {
+                  cursor_w = bm->size.width;
+                  cursor_h = bm->size.height;
+                  cursor_stride = bm->stride;
+                  uint8_t* bmp_data = reinterpret_cast<uint8_t*>(bm) + bm->offset;
+                  size_t bmp_size = static_cast<size_t>(cursor_stride) * cursor_h;
+                  // Validate size fits within meta
+                  if (m->size >= cur->bitmap_offset + bm->offset + bmp_size) {
+                    cursor_bg.assign(bmp_data, bmp_data + bmp_size);
                   }
                 }
               }
             }
           }
+        }
 
-          CapturedVideoFrame vf;
-          vf.width = self->width_;
-          vf.height = self->height_;
-          vf.timestamp = std::chrono::steady_clock::now();
-          vf.has_cursor = has_cursor;
-          vf.cursor_x = cursor_x;
-          vf.cursor_y = cursor_y;
-          vf.cursor_hotspot_x = cursor_hotspot_x;
-          vf.cursor_hotspot_y = cursor_hotspot_y;
-          vf.cursor_data = std::move(cursor_bg);
-          vf.cursor_width = cursor_w;
-          vf.cursor_height = cursor_h;
-          vf.cursor_stride = cursor_stride;
+        CapturedVideoFrame vf;
+        vf.width = self->width_;
+        vf.height = self->height_;
+        vf.timestamp = std::chrono::steady_clock::now();
+        vf.has_cursor = has_cursor;
+        vf.cursor_x = cursor_x;
+        vf.cursor_y = cursor_y;
+        vf.cursor_hotspot_x = cursor_hotspot_x;
+        vf.cursor_hotspot_y = cursor_hotspot_y;
+        vf.cursor_data = std::move(cursor_bg);
+        vf.cursor_width = cursor_w;
+        vf.cursor_height = cursor_h;
+        vf.cursor_stride = cursor_stride;
 
-          bool handled = false;
-          // Phase 1.2: DMA-BUF NV12 zero-copy path – avoid BGRA shadow copy entirely.
-          // When portal negotiated DMA-BUF+NV12 and the buffer carries DmaBuf fds,
-          // import the wl_buffer fd into AV_HWDEVICE_TYPE_VAAPI hw_frames_ctx_ via
-          // the video_encoder's DRM PRIME mapping (0 extra GPU copies).
-          if (self->negotiated_format_ == SPA_VIDEO_FORMAT_NV12 && sbuf->n_datas > 0) {
-            bool is_dmabuf = false;
-            int fd = -1;
-            int stride = 0;
-            int offset_y = 0;
-            int offset_uv = 0;
-            uint64_t modifier = DRM_FORMAT_MOD_INVALID;
-            // PipeWire DmaBuf: each plane is a spa_data with type SPA_DATA_DmaBuf
-            // For NV12 single-file case, datas[0] holds the fd, chunk stride covers Y and UV.
-            // For multi-fd case, datas[0] Y, datas[1] UV with separate fds (we use first fd and offsets).
-            if (sbuf->datas[0].type == SPA_DATA_DmaBuf) {
-              is_dmabuf = true;
-              fd = sbuf->datas[0].fd;
-              if (sbuf->datas[0].chunk) {
-                stride = sbuf->datas[0].chunk->stride;
-                offset_y = sbuf->datas[0].chunk->offset;
-              }
-              if (sbuf->n_datas > 1 && sbuf->datas[1].type == SPA_DATA_DmaBuf) {
-                // Multi-fd NV12: UV plane is separate fd – we keep single fd model
-                // by using first fd and computing UV offset as height * stride.
-                // If second fd differs, we cannot represent with single fd, fallback to MemPtr path.
-                if (sbuf->datas[1].fd != fd) {
-                  // Fallback: treat as SW copy (mmap both)
-                  is_dmabuf = false;
-                } else {
-                  if (sbuf->datas[1].chunk) {
-                    offset_uv = sbuf->datas[1].chunk->offset;
-                    // stride should be same; use first
-                  }
-                }
-                // For modifier, assume linear if not negotiated; compositor may not provide modifier
+        bool handled = false;
+        // Phase 1.2: DMA-BUF NV12 zero-copy path – avoid BGRA shadow copy entirely.
+        // When portal negotiated DMA-BUF+NV12 and the buffer carries DmaBuf fds,
+        // import the wl_buffer fd into AV_HWDEVICE_TYPE_VAAPI hw_frames_ctx_ via
+        // the video_encoder's DRM PRIME mapping (0 extra GPU copies).
+        if (self->negotiated_format_ == SPA_VIDEO_FORMAT_NV12 && sbuf->n_datas > 0) {
+          bool is_dmabuf = false;
+          int fd = -1;
+          int stride = 0;
+          int offset_y = 0;
+          int offset_uv = 0;
+          uint64_t modifier = DRM_FORMAT_MOD_INVALID;
+          // PipeWire DmaBuf: each plane is a spa_data with type SPA_DATA_DmaBuf
+          // For NV12 single-file case, datas[0] holds the fd, chunk stride covers Y and UV.
+          // For multi-fd case, datas[0] Y, datas[1] UV with separate fds (we use first fd and offsets).
+          if (sbuf->datas[0].type == SPA_DATA_DmaBuf) {
+            is_dmabuf = true;
+            fd = sbuf->datas[0].fd;
+            if (sbuf->datas[0].chunk) {
+              stride = sbuf->datas[0].chunk->stride;
+              offset_y = sbuf->datas[0].chunk->offset;
+            }
+            if (sbuf->n_datas > 1 && sbuf->datas[1].type == SPA_DATA_DmaBuf) {
+              // Multi-fd NV12: UV plane is separate fd – we keep single fd model
+              // by using first fd and computing UV offset as height * stride.
+              // If second fd differs, we cannot represent with single fd, fallback to MemPtr path.
+              if (sbuf->datas[1].fd != fd) {
+                // Fallback: treat as SW copy (mmap both)
+                is_dmabuf = false;
               } else {
-                // Single fd, UV offset is Y_size
-                if (stride > 0) {
-                  offset_uv = stride * self->height_;
-                  if (sbuf->datas[0].chunk) offset_uv += offset_y;
+                if (sbuf->datas[1].chunk) {
+                  offset_uv = sbuf->datas[1].chunk->offset;
+                  // stride should be same; use first
                 }
               }
-              // Modifier: if info provided modifier, use it; else linear
-              // SPA not exposing modifier directly – keep INVALID sentinel
-              if (is_dmabuf && fd >= 0 && stride > 0) {
-                vf.is_dmabuf = true;
-                vf.dmabuf_fd = fd; // note: PipeWire owns fd lifetime until queue, video_encoder will dup()
-                vf.dmabuf_stride = stride > 0 ? stride : self->width_;
-                vf.dmabuf_offset_y = offset_y;
-                vf.dmabuf_offset_uv = offset_uv;
-                vf.dmabuf_modifier = modifier;
-                vf.dmabuf_format = DRM_FORMAT_NV12;
-                vf.stride = stride;
-                // No BGRA shadow copy – directly queue hw frame
-                handled = true;
-                FrameCallback cb;
-                {
-                  std::lock_guard<std::mutex> lock(self->mutex_);
-                  cb = self->callback_;
-                }
-                if (cb) cb(vf);
+              // For modifier, assume linear if not negotiated; compositor may not provide modifier
+            } else {
+              // Single fd, UV offset is Y_size
+              if (stride > 0) {
+                offset_uv = stride * self->height_;
+                if (sbuf->datas[0].chunk) offset_uv += offset_y;
               }
+            }
+            // Modifier: if info provided modifier, use it; else linear
+            // SPA not exposing modifier directly – keep INVALID sentinel
+            if (is_dmabuf && fd >= 0 && stride > 0) {
+              vf.is_dmabuf = true;
+              vf.dmabuf_fd =
+                  fd;  // note: PipeWire owns fd lifetime until queue, video_encoder will dup()
+              vf.dmabuf_stride = stride > 0 ? stride : self->width_;
+              vf.dmabuf_offset_y = offset_y;
+              vf.dmabuf_offset_uv = offset_uv;
+              vf.dmabuf_modifier = modifier;
+              vf.dmabuf_format = DRM_FORMAT_NV12;
+              vf.stride = stride;
+              // No BGRA shadow copy – directly queue hw frame
+              handled = true;
+              FrameCallback cb;
+              {
+                std::lock_guard<std::mutex> lock(self->mutex_);
+                cb = self->callback_;
+              }
+              if (cb) cb(vf);
             }
           }
+        }
 
-          if (!handled) {
-            // SW fallback: MemPtr/MemFd/DmaBuf mmap BGRA shadow copy (existing path) – keep for compatibility
-            // Also used when DmaBuf negotiation failed or compositor fell back to shm.
-            uint8_t* src_data = nullptr;
-            size_t src_size = 0;
-            int src_stride = self->stride_ > 0 ? self->stride_ : self->width_ * 4;
-            if (sbuf->datas[0].type == SPA_DATA_MemPtr && sbuf->datas[0].data) {
-              src_data = static_cast<uint8_t*>(sbuf->datas[0].data);
-              src_size = sbuf->datas[0].chunk ? sbuf->datas[0].chunk->size : static_cast<size_t>(src_stride) * self->height_;
-              if (sbuf->datas[0].chunk) src_stride = sbuf->datas[0].chunk->stride;
-            } else if (sbuf->datas[0].type == SPA_DATA_MemFd && sbuf->datas[0].fd >= 0 && sbuf->datas[0].chunk) {
-              // MemFd: mmap the fd (SW fallback for shm)
-              int fd = sbuf->datas[0].fd;
-              size_t map_size = sbuf->datas[0].maxsize ? sbuf->datas[0].maxsize : sbuf->datas[0].chunk->size;
-              src_stride = sbuf->datas[0].chunk->stride;
-              void* mapped = mmap(nullptr, map_size, PROT_READ, MAP_PRIVATE, fd, 0);
-              if (mapped != MAP_FAILED) {
-                src_data = static_cast<uint8_t*>(mapped) + sbuf->datas[0].chunk->offset;
-                src_size = sbuf->datas[0].chunk->size;
-                vf.data.resize(src_size);
-                std::memcpy(vf.data.data(), src_data, src_size);
-                vf.stride = src_stride;
-                vf.width = self->width_;
-                vf.height = self->height_;
-                munmap(mapped, map_size);
-                // Also handle cursor fallback already in vf
-                if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
-                  LatencyHud::Render(vf);
-                }
-                FrameCallback cb;
-                {
-                  std::lock_guard<std::mutex> lock(self->mutex_);
-                  cb = self->callback_;
-                }
-                if (cb) cb(vf);
-                handled = true;
-                pw_stream_queue_buffer(self->pw_stream_, b);
-                return;
-              }
-            } else if (sbuf->datas[0].type == SPA_DATA_DmaBuf && sbuf->datas[0].fd >= 0 && sbuf->datas[0].chunk) {
-              // DmaBuf mmap fallback if zero-copy import cannot be used
-              int fd = sbuf->datas[0].fd;
-              size_t map_size = sbuf->datas[0].maxsize ? sbuf->datas[0].maxsize : sbuf->datas[0].chunk->size;
-              if (map_size == 0) map_size = static_cast<size_t>(src_stride) * self->height_;
-              void* mapped = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, fd, 0);
-              if (mapped != MAP_FAILED) {
-                src_data = static_cast<uint8_t*>(mapped) + sbuf->datas[0].chunk->offset;
-                src_size = sbuf->datas[0].chunk->size ? sbuf->datas[0].chunk->size : map_size;
-                src_stride = sbuf->datas[0].chunk->stride ? sbuf->datas[0].chunk->stride : src_stride;
-                vf.data.resize(src_size);
-                std::memcpy(vf.data.data(), src_data, src_size);
-                vf.stride = src_stride;
-                vf.width = self->width_;
-                vf.height = self->height_;
-                munmap(mapped, map_size);
-                if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
-                  LatencyHud::Render(vf);
-                }
-                FrameCallback cb;
-                {
-                  std::lock_guard<std::mutex> lock(self->mutex_);
-                  cb = self->callback_;
-                }
-                if (cb) cb(vf);
-                handled = true;
-                pw_stream_queue_buffer(self->pw_stream_, b);
-                return;
-              }
-            }
-            if (!handled && src_data) {
-              // Determine correct copy size
-              size_t copy_size = static_cast<size_t>(src_stride) * self->height_;
-              if (src_size > 0 && src_size < copy_size) copy_size = src_size;
-              vf.data.resize(copy_size);
-              std::memcpy(vf.data.data(), src_data, copy_size);
+        if (!handled) {
+          // SW fallback: MemPtr/MemFd/DmaBuf mmap BGRA shadow copy (existing path) – keep for compatibility
+          // Also used when DmaBuf negotiation failed or compositor fell back to shm.
+          uint8_t* src_data = nullptr;
+          size_t src_size = 0;
+          int src_stride = self->stride_ > 0 ? self->stride_ : self->width_ * 4;
+          if (sbuf->datas[0].type == SPA_DATA_MemPtr && sbuf->datas[0].data) {
+            src_data = static_cast<uint8_t*>(sbuf->datas[0].data);
+            src_size = sbuf->datas[0].chunk ? sbuf->datas[0].chunk->size
+                                            : static_cast<size_t>(src_stride) * self->height_;
+            if (sbuf->datas[0].chunk) src_stride = sbuf->datas[0].chunk->stride;
+          } else if (sbuf->datas[0].type == SPA_DATA_MemFd && sbuf->datas[0].fd >= 0 &&
+                     sbuf->datas[0].chunk) {
+            // MemFd: mmap the fd (SW fallback for shm)
+            int fd = sbuf->datas[0].fd;
+            size_t map_size =
+                sbuf->datas[0].maxsize ? sbuf->datas[0].maxsize : sbuf->datas[0].chunk->size;
+            src_stride = sbuf->datas[0].chunk->stride;
+            void* mapped = mmap(nullptr, map_size, PROT_READ, MAP_PRIVATE, fd, 0);
+            if (mapped != MAP_FAILED) {
+              src_data = static_cast<uint8_t*>(mapped) + sbuf->datas[0].chunk->offset;
+              src_size = sbuf->datas[0].chunk->size;
+              vf.data.resize(src_size);
+              std::memcpy(vf.data.data(), src_data, src_size);
               vf.stride = src_stride;
               vf.width = self->width_;
               vf.height = self->height_;
+              munmap(mapped, map_size);
+              // Also handle cursor fallback already in vf
               if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
                 LatencyHud::Render(vf);
               }
@@ -700,24 +681,79 @@ class PipeWirePortalCapture : public IDisplayCapture {
                 cb = self->callback_;
               }
               if (cb) cb(vf);
-            } else if (!handled) {
-              // No valid data, skip
+              handled = true;
+              pw_stream_queue_buffer(self->pw_stream_, b);
+              return;
+            }
+          } else if (sbuf->datas[0].type == SPA_DATA_DmaBuf && sbuf->datas[0].fd >= 0 &&
+                     sbuf->datas[0].chunk) {
+            // DmaBuf mmap fallback if zero-copy import cannot be used
+            int fd = sbuf->datas[0].fd;
+            size_t map_size =
+                sbuf->datas[0].maxsize ? sbuf->datas[0].maxsize : sbuf->datas[0].chunk->size;
+            if (map_size == 0) map_size = static_cast<size_t>(src_stride) * self->height_;
+            void* mapped = mmap(nullptr, map_size, PROT_READ, MAP_SHARED, fd, 0);
+            if (mapped != MAP_FAILED) {
+              src_data = static_cast<uint8_t*>(mapped) + sbuf->datas[0].chunk->offset;
+              src_size = sbuf->datas[0].chunk->size ? sbuf->datas[0].chunk->size : map_size;
+              src_stride = sbuf->datas[0].chunk->stride ? sbuf->datas[0].chunk->stride : src_stride;
+              vf.data.resize(src_size);
+              std::memcpy(vf.data.data(), src_data, src_size);
+              vf.stride = src_stride;
+              vf.width = self->width_;
+              vf.height = self->height_;
+              munmap(mapped, map_size);
+              if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+                LatencyHud::Render(vf);
+              }
+              FrameCallback cb;
+              {
+                std::lock_guard<std::mutex> lock(self->mutex_);
+                cb = self->callback_;
+              }
+              if (cb) cb(vf);
+              handled = true;
+              pw_stream_queue_buffer(self->pw_stream_, b);
+              return;
             }
           }
+          if (!handled && src_data) {
+            // Determine correct copy size
+            size_t copy_size = static_cast<size_t>(src_stride) * self->height_;
+            if (src_size > 0 && src_size < copy_size) copy_size = src_size;
+            vf.data.resize(copy_size);
+            std::memcpy(vf.data.data(), src_data, copy_size);
+            vf.stride = src_stride;
+            vf.width = self->width_;
+            vf.height = self->height_;
+            if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
+              LatencyHud::Render(vf);
+            }
+            FrameCallback cb;
+            {
+              std::lock_guard<std::mutex> lock(self->mutex_);
+              cb = self->callback_;
+            }
+            if (cb) cb(vf);
+          } else if (!handled) {
+            // No valid data, skip
+          }
+        }
 
-          pw_stream_queue_buffer(self->pw_stream_, b);
-        };
+        pw_stream_queue_buffer(self->pw_stream_, b);
+      };
       return ev;
     }();
 
-    pw_stream_ = pw_stream_new(
-        pw_core_,
-        "CastMirror Portal ScreenCast",
-        pw_properties_new(
-            PW_KEY_MEDIA_TYPE, "Video",
-            PW_KEY_MEDIA_CATEGORY, "Capture",
-            PW_KEY_MEDIA_ROLE, "Screen",
-            nullptr));
+    pw_stream_ = pw_stream_new(pw_core_,
+                               "CastMirror Portal ScreenCast",
+                               pw_properties_new(PW_KEY_MEDIA_TYPE,
+                                                 "Video",
+                                                 PW_KEY_MEDIA_CATEGORY,
+                                                 "Capture",
+                                                 PW_KEY_MEDIA_ROLE,
+                                                 "Screen",
+                                                 nullptr));
 
     if (!pw_stream_) {
       LOG_ERROR << "Failed to create PipeWire stream";
@@ -735,7 +771,7 @@ class PipeWirePortalCapture : public IDisplayCapture {
     info_nv12.format = SPA_VIDEO_FORMAT_NV12;
     info_nv12.framerate.num = target_fps > 0 ? target_fps : 60;
     info_nv12.framerate.denom = 1;
-    info_nv12.size.width = 0; // let compositor choose
+    info_nv12.size.width = 0;  // let compositor choose
     info_nv12.size.height = 0;
 
     struct spa_video_info_raw info_bgrx{};
@@ -746,16 +782,14 @@ class PipeWirePortalCapture : public IDisplayCapture {
     params[0] = spa_format_video_raw_build(&b, SPA_PARAM_EnumFormat, &info_nv12);
     params[1] = spa_format_video_raw_build(&b, SPA_PARAM_EnumFormat, &info_bgrx);
 
-    if (pw_stream_connect(
-            pw_stream_,
-            PW_DIRECTION_INPUT,
-            node_id,
-            static_cast<enum pw_stream_flags>(
-                PW_STREAM_FLAG_AUTOCONNECT |
-                PW_STREAM_FLAG_MAP_BUFFERS |
-                PW_STREAM_FLAG_RT_PROCESS),
-            params,
-            2) < 0) {
+    if (pw_stream_connect(pw_stream_,
+                          PW_DIRECTION_INPUT,
+                          node_id,
+                          static_cast<enum pw_stream_flags>(PW_STREAM_FLAG_AUTOCONNECT |
+                                                            PW_STREAM_FLAG_MAP_BUFFERS |
+                                                            PW_STREAM_FLAG_RT_PROCESS),
+                          params,
+                          2) < 0) {
       LOG_ERROR << "Failed to connect PipeWire stream to node " << node_id;
       return;
     }
@@ -795,5 +829,5 @@ std::unique_ptr<IDisplayCapture> CreateWaylandPortalCapture() {
   return std::make_unique<PipeWirePortalCapture>();
 }
 
-} // namespace castcore
+}  // namespace castcore
 #endif

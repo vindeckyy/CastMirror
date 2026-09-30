@@ -65,6 +65,6 @@ class DisplayCaptureFactory {
   static std::unique_ptr<IDisplayCapture> CreateSynthetic(int width = 1920, int height = 1080);
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_DISPLAY_CAPTURE_H_
+#endif  // CASTCORE_DISPLAY_CAPTURE_H_

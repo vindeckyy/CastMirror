@@ -47,7 +47,8 @@ int PeakFromProcess(uint32_t pid, int ms) {
     const auto* s = reinterpret_cast<const int16_t*>(f.pcm_data.data());
     const size_t n = f.pcm_data.size() / sizeof(int16_t);
     int local = 0;
-    for (size_t i = 0; i < n; ++i) local = std::max(local, std::abs(static_cast<int>(s[i])));
+    for (size_t i = 0; i < n; ++i)
+      local = std::max(local, std::abs(static_cast<int>(s[i])));
     int seen = peak.load();
     while (local > seen && !peak.compare_exchange_weak(seen, local)) {}
   });
@@ -70,7 +71,8 @@ uint32_t PidFromEnv(const char* name) {
 TEST(AudioSessionsTest, ProcessLoopbackForAProcessThatIsNotPlayingIsSilent) {
   const int peak = PeakFromProcess(0x7FFFFFF0u, 400);
   if (peak < 0) GTEST_SKIP() << "process loopback is not available";
-  EXPECT_LE(peak, 2) << "rounding in the format converter may leave a peak of 1; anything more is sound";
+  EXPECT_LE(peak, 2)
+      << "rounding in the format converter may leave a peak of 1; anything more is sound";
 }
 
 // Needs two real processes, so scripts/verify_process_audio.ps1 starts them and passes
@@ -78,7 +80,8 @@ TEST(AudioSessionsTest, ProcessLoopbackForAProcessThatIsNotPlayingIsSilent) {
 TEST(AudioSessionsTest, ProcessLoopbackHearsOnlyTheTargetApp) {
   const uint32_t loud = PidFromEnv("CASTMIRROR_TEST_AUDIO_PID_LOUD");
   const uint32_t quiet = PidFromEnv("CASTMIRROR_TEST_AUDIO_PID_QUIET");
-  if (loud == 0 || quiet == 0) GTEST_SKIP() << "run scripts/verify_process_audio.ps1 to exercise this";
+  if (loud == 0 || quiet == 0)
+    GTEST_SKIP() << "run scripts/verify_process_audio.ps1 to exercise this";
   const int heard = PeakFromProcess(loud, 1500);
   const int silent = PeakFromProcess(quiet, 800);
   ASSERT_GE(heard, 0);
@@ -98,7 +101,8 @@ TEST(AudioSessionsTest, ProcessLoopbackCapturesTenMillisecondFramesFromARunningA
     ++frames;
   });
   capture->SetTargetProcess(apps.front().pid);
-  if (!capture->Start(48000, 2)) GTEST_SKIP() << "process loopback is not available for " << apps.front().exe_name;
+  if (!capture->Start(48000, 2))
+    GTEST_SKIP() << "process loopback is not available for " << apps.front().exe_name;
 
   EXPECT_TRUE(capture->IsCapturing());
   std::this_thread::sleep_for(std::chrono::milliseconds(500));

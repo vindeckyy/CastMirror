@@ -52,9 +52,8 @@ void UpdateFirstRunNavigation(FirstRunState* state, guint index) {
   char step_text[32];
   std::snprintf(step_text, sizeof(step_text), "Step %u of 3", index + 1);
   gtk_label_set_text(GTK_LABEL(state->step_label), step_text);
-  gtk_accessible_update_property(GTK_ACCESSIBLE(state->step_label),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, step_text,
-                                 -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(state->step_label), GTK_ACCESSIBLE_PROPERTY_LABEL, step_text, -1);
 
   gtk_widget_set_visible(state->back_button, index > 0);
   gtk_widget_set_visible(state->continue_button, index < 2);
@@ -66,9 +65,8 @@ void UpdateFirstRunNavigation(FirstRunState* state, guint index) {
 
 GtkWidget* MakeCarouselPage(GtkWidget* icon_or_logo, const char* title, const char* body) {
   GtkWidget* scrolled = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled),
-                                 GTK_POLICY_NEVER,
-                                 GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_policy(
+      GTK_SCROLLED_WINDOW(scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_widget_set_vexpand(scrolled, TRUE);
   gtk_widget_set_hexpand(scrolled, TRUE);
 
@@ -127,8 +125,9 @@ void ShowFirstRunDialogIfNeeded(AdwApplicationWindow* parent) {
   adw_dialog_set_can_close(dialog, FALSE);
   adw_dialog_set_title(dialog, copy::kFirstRunWelcomeTitle);
 
-  g_object_set_data_full(G_OBJECT(dialog), "first_run_state", state,
-                         [](gpointer data) { delete static_cast<FirstRunState*>(data); });
+  g_object_set_data_full(G_OBJECT(dialog), "first_run_state", state, [](gpointer data) {
+    delete static_cast<FirstRunState*>(data);
+  });
 
   GtkWidget* toolbar_view = adw_toolbar_view_new();
   adw_dialog_set_child(dialog, toolbar_view);
@@ -145,21 +144,24 @@ void ShowFirstRunDialogIfNeeded(AdwApplicationWindow* parent) {
   // Page 1: Welcome
   GtkWidget* logo_img = gtk_image_new_from_resource("/io/github/vindeckyy/CastMirror/logo.svg");
   gtk_image_set_pixel_size(GTK_IMAGE(logo_img), 64);
-  GtkWidget* page1 = MakeCarouselPage(logo_img, copy::kFirstRunWelcomeTitle, copy::kFirstRunWelcomeBody);
+  GtkWidget* page1 =
+      MakeCarouselPage(logo_img, copy::kFirstRunWelcomeTitle, copy::kFirstRunWelcomeBody);
   adw_carousel_append(ADW_CAROUSEL(carousel), page1);
   state->pages.push_back(page1);
 
   // Page 2: Network connection
   GtkWidget* net_icon = gtk_image_new_from_icon_name("network-wireless-symbolic");
   gtk_image_set_pixel_size(GTK_IMAGE(net_icon), 64);
-  GtkWidget* page2 = MakeCarouselPage(net_icon, copy::kFirstRunNetworkTitle, copy::kFirstRunNetworkBody);
+  GtkWidget* page2 =
+      MakeCarouselPage(net_icon, copy::kFirstRunNetworkTitle, copy::kFirstRunNetworkBody);
   adw_carousel_append(ADW_CAROUSEL(carousel), page2);
   state->pages.push_back(page2);
 
   // Page 3: Select screen
   GtkWidget* screen_icon = gtk_image_new_from_icon_name("video-display-symbolic");
   gtk_image_set_pixel_size(GTK_IMAGE(screen_icon), 64);
-  GtkWidget* page3 = MakeCarouselPage(screen_icon, copy::kFirstRunCaptureTitle, copy::kFirstRunCaptureBody);
+  GtkWidget* page3 =
+      MakeCarouselPage(screen_icon, copy::kFirstRunCaptureTitle, copy::kFirstRunCaptureBody);
   adw_carousel_append(ADW_CAROUSEL(carousel), page3);
   state->pages.push_back(page3);
 
@@ -189,7 +191,8 @@ void ShowFirstRunDialogIfNeeded(AdwApplicationWindow* parent) {
   gtk_box_append(GTK_BOX(center_box), step_label);
 
   GtkWidget* dots = adw_carousel_indicator_dots_new();
-  adw_carousel_indicator_dots_set_carousel(ADW_CAROUSEL_INDICATOR_DOTS(dots), ADW_CAROUSEL(carousel));
+  adw_carousel_indicator_dots_set_carousel(ADW_CAROUSEL_INDICATOR_DOTS(dots),
+                                           ADW_CAROUSEL(carousel));
   gtk_box_append(GTK_BOX(center_box), dots);
 
   gtk_box_append(GTK_BOX(bottom_bar), center_box);

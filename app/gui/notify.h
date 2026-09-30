@@ -12,8 +12,7 @@ class NotificationManager {
   static void Initialize(GApplication* app);
   static void Shutdown();
 
-  static void NotifyStateChange(SessionState state,
-                                const std::string& device_name,
+  static void NotifyStateChange(SessionState state, const std::string& device_name,
                                 const std::string& message);
 
  private:

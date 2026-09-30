@@ -52,16 +52,17 @@ CastEngine& CastEngine::Instance() {
 }
 
 CastEngine::CastEngine() {
-  state_machine_.RegisterCallback([this](SessionState old_s, SessionState new_s, const std::string& msg) {
-    StateChangedCallback cb;
-    {
-      std::lock_guard<std::mutex> lock(callbacks_mutex_);
-      cb = state_cb_;
-    }
-    if (cb) {
-      cb(old_s, new_s, msg);
-    }
-  });
+  state_machine_.RegisterCallback(
+      [this](SessionState old_s, SessionState new_s, const std::string& msg) {
+        StateChangedCallback cb;
+        {
+          std::lock_guard<std::mutex> lock(callbacks_mutex_);
+          cb = state_cb_;
+        }
+        if (cb) {
+          cb(old_s, new_s, msg);
+        }
+      });
 
   discovery_.SetCallback([this](const std::vector<CastDevice>& devices) {
     DevicesChangedCallback cb;
@@ -114,7 +115,8 @@ bool CastEngine::Initialize() {
     const auto& cfg = ConfigStore::Instance().Get();
     bool want_json = cfg.verbose_json_logging;
     const char* env = std::getenv("CASTMIRROR_VERBOSE_JSON");
-    if (env && (std::string(env) == "1" || std::string(env) == "true" || std::string(env) == "TRUE")) {
+    if (env &&
+        (std::string(env) == "1" || std::string(env) == "true" || std::string(env) == "TRUE")) {
       want_json = true;
     }
     if (want_json) {
@@ -163,20 +165,18 @@ bool CastEngine::WindowCaptureSupported() const {
   return capturer->SupportsWindowCapture();
 }
 
-bool CastEngine::StartCasting(const std::string& device_id,
-                             int display_id,
-                             QualityPreset preset,
-                             bool audio_enabled,
-                             uint32_t bitrate_kbps) {
+bool CastEngine::StartCasting(const std::string& device_id, int display_id, QualityPreset preset,
+                              bool audio_enabled, uint32_t bitrate_kbps) {
   SessionOverrides overrides;
   overrides.preset = preset;
   overrides.enable_audio = audio_enabled;
   overrides.video_bitrate_kbps = bitrate_kbps;
-  return StartCasting(device_id, display_id,
-                      BuildSessionOptions(ConfigStore::Instance().Get(), overrides));
+  return StartCasting(
+      device_id, display_id, BuildSessionOptions(ConfigStore::Instance().Get(), overrides));
 }
 
-bool CastEngine::StartCasting(const std::string& device_id, int display_id, const SessionOptions& options) {
+bool CastEngine::StartCasting(const std::string& device_id, int display_id,
+                              const SessionOptions& options) {
   auto dev_opt = discovery_.FindDeviceById(device_id);
   if (!dev_opt.has_value()) {
     dev_opt = discovery_.FindDeviceByIp(device_id);
@@ -198,7 +198,8 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
       d.status = DeviceStatus::kReady;
       discovery_.AddOrUpdateDevice(d);
       dev_opt = d;
-    } else if (!cfg.last_device_ip.empty() && (device_id == cfg.last_device_id || device_id == cfg.last_device_name)) {
+    } else if (!cfg.last_device_ip.empty() &&
+               (device_id == cfg.last_device_id || device_id == cfg.last_device_name)) {
       CastDevice d;
       d.id = cfg.last_device_id.empty() ? cfg.last_device_ip : cfg.last_device_id;
       d.name = cfg.last_device_name.empty() ? cfg.last_device_ip : cfg.last_device_name;
@@ -213,15 +214,17 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   }
 
   if (!dev_opt.has_value()) {
-    last_error_ = "Target device not found: " + device_id + ". Please verify the TV is online or add by IP.";
+    last_error_ =
+        "Target device not found: " + device_id + ". Please verify the TV is online or add by IP.";
     LOG_ERROR << last_error_;
     return false;
   }
   CastDevice dev = dev_opt.value();
-  const bool custom_endpoint = dev.model_name == "Custom Chromecast" ||
-                               dev.ip_address.rfind("127.", 0) == 0;
+  const bool custom_endpoint =
+      dev.model_name == "Custom Chromecast" || dev.ip_address.rfind("127.", 0) == 0;
   if (!custom_endpoint && dev.port != 8009 && dev.port != 8008) {
-    LOG_WARN << "Correcting stale Cast control port " << dev.port << " -> 8009 for " << dev.ip_address;
+    LOG_WARN << "Correcting stale Cast control port " << dev.port << " -> 8009 for "
+             << dev.ip_address;
     dev.port = 8009;
     discovery_.AddOrUpdateDevice(dev);
   }
@@ -234,8 +237,8 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   // Persist the capture source so "Cast to last" can rebuild it. When the
   // caller passed an explicit options.source we record it; otherwise this is
   // a Monitor source derived from display_id (legacy path).
-  CaptureSource persisted_source = options.source.value_or(
-      CaptureSource{CaptureSourceKind::kMonitor, display_id, ""});
+  CaptureSource persisted_source =
+      options.source.value_or(CaptureSource{CaptureSourceKind::kMonitor, display_id, ""});
   cfg.last_source_kind = CaptureSourceKindToString(persisted_source.kind);
   cfg.last_source_id = persisted_source.id;
   cfg.last_source_name = persisted_source.name;
@@ -297,7 +300,8 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, cons
   return ok;
 }
 
-bool CastEngine::StartCasting(const std::string& device_id, const CaptureSource& source, const SessionOptions& options) {
+bool CastEngine::StartCasting(const std::string& device_id, const CaptureSource& source,
+                              const SessionOptions& options) {
   SessionOptions opts = options;
   opts.source = source;
   // For Monitor sources, pass source.id as the legacy display_id so backends
@@ -338,16 +342,15 @@ bool CastEngine::StartCastingLastDevice() {
     bool found = false;
     for (const auto& w : windows) {
       if (w.title == cfg.last_source_name) {
-        options.source = CaptureSource{CaptureSourceKind::kWindow, w.id, w.title,
-                                       w.x, w.y, w.width, w.height};
+        options.source =
+            CaptureSource{CaptureSourceKind::kWindow, w.id, w.title, w.x, w.y, w.width, w.height};
         found = true;
         break;
       }
     }
     if (!found) {
       LOG_WARN << "Last-cast window '" << cfg.last_source_name
-               << "' is no longer open; falling back to monitor "
-               << cfg.last_display_id;
+               << "' is no longer open; falling back to monitor " << cfg.last_display_id;
       options.source = CaptureSource{CaptureSourceKind::kMonitor, cfg.last_display_id, ""};
     }
     return StartCasting(target, options.source->id, options);
@@ -467,4 +470,4 @@ void CastEngine::SetOnStatsUpdated(StatsUpdatedCallback callback) {
   stats_cb_ = std::move(callback);
 }
 
-} // namespace castcore
+}  // namespace castcore

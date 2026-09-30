@@ -8,8 +8,7 @@
 namespace castcore {
 
 // Returns index of the preferred device, or -1 if not present.
-inline int IndexOfPreferredDevice(const std::vector<CastDevice>& devices,
-                                  const std::string& id,
+inline int IndexOfPreferredDevice(const std::vector<CastDevice>& devices, const std::string& id,
                                   const std::string& ip) {
   if (!id.empty()) {
     for (size_t i = 0; i < devices.size(); ++i) {

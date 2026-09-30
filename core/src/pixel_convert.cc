@@ -36,9 +36,8 @@ const std::vector<uint8_t>& SrgbEncodeTable() {
     table.resize(kEncodeSteps + 1);
     for (int i = 0; i <= kEncodeSteps; ++i) {
       const float linear = static_cast<float>(i) / kEncodeSteps;
-      const float srgb = linear <= 0.0031308f
-                             ? linear * 12.92f
-                             : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+      const float srgb =
+          linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
       table[i] = static_cast<uint8_t>(std::lround(std::clamp(srgb, 0.0f, 1.0f) * 255.0f));
     }
   });
@@ -51,16 +50,16 @@ const std::vector<float>& HalfTable() {
   static std::once_flag once;
   std::call_once(once, [] {
     table.resize(65536);
-    for (uint32_t i = 0; i < 65536; ++i) table[i] = HalfToFloat(static_cast<uint16_t>(i));
+    for (uint32_t i = 0; i < 65536; ++i)
+      table[i] = HalfToFloat(static_cast<uint16_t>(i));
   });
   return table;
 }
 
 }  // namespace
 
-bool ConvertToBgra8(const uint8_t* src, size_t src_pitch, SourcePixelFormat fmt,
-                    int width, int height, uint8_t* dst, size_t dst_pitch,
-                    float sdr_white_ratio) {
+bool ConvertToBgra8(const uint8_t* src, size_t src_pitch, SourcePixelFormat fmt, int width,
+                    int height, uint8_t* dst, size_t dst_pitch, float sdr_white_ratio) {
   if (!src || !dst || width <= 0 || height <= 0) return false;
   const size_t bytes_per_pixel = fmt == SourcePixelFormat::kRgbaF16 ? 8u : 4u;
   if (src_pitch < static_cast<size_t>(width) * bytes_per_pixel) return false;
@@ -105,9 +104,10 @@ bool ConvertToBgra8(const uint8_t* src, size_t src_pitch, SourcePixelFormat fmt,
     case SourcePixelFormat::kRgbaF16: {
       const std::vector<float>& half = HalfTable();
       const std::vector<uint8_t>& encode = SrgbEncodeTable();
-      const float scale = sdr_white_ratio > 0.0f ? 1.0f / sdr_white_ratio : 1.0f / kDefaultSdrWhiteRatio;
+      const float scale =
+          sdr_white_ratio > 0.0f ? 1.0f / sdr_white_ratio : 1.0f / kDefaultSdrWhiteRatio;
       auto to8 = [&](uint16_t bits) {
-        float v = half[bits] * scale;   // 1.0 = SDR white
+        float v = half[bits] * scale;  // 1.0 = SDR white
         if (!(v > 0.0f)) return static_cast<uint8_t>(0);  // negatives and NaN
         if (v >= 1.0f) return static_cast<uint8_t>(255);
         return encode[static_cast<size_t>(v * kEncodeSteps + 0.5f)];

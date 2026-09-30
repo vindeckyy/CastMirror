@@ -28,13 +28,19 @@ void UseBt709Limited(::SwsContext* ctx) {
   int* inv_table = nullptr;
   int* table = nullptr;
   int src_range = 0, dst_range = 0, brightness = 0, contrast = 0, saturation = 0;
-  if (sws_getColorspaceDetails(ctx, &inv_table, &src_range, &table, &dst_range,
-                               &brightness, &contrast, &saturation) < 0) {
+  if (sws_getColorspaceDetails(
+          ctx, &inv_table, &src_range, &table, &dst_range, &brightness, &contrast, &saturation) <
+      0) {
     return;  // keep the default rather than fail the whole pipeline
   }
-  sws_setColorspaceDetails(ctx, inv_table, /*srcRange=*/1,
-                           sws_getCoefficients(SWS_CS_ITU709), /*dstRange=*/0,
-                           brightness, contrast, saturation);
+  sws_setColorspaceDetails(ctx,
+                           inv_table,
+                           /*srcRange=*/1,
+                           sws_getCoefficients(SWS_CS_ITU709),
+                           /*dstRange=*/0,
+                           brightness,
+                           contrast,
+                           saturation);
 }
 
 }  // namespace
@@ -75,19 +81,31 @@ bool GpuProcessor::Initialize(int src_width, int src_height, int dst_width, int 
   int fit_x = ((dst_width - fit_w) / 2) & ~1;
   int fit_y = ((dst_height - fit_h) / 2) & ~1;
 
-  ::SwsContext* ctx = sws_getContext(
-      src_width, src_height, AV_PIX_FMT_BGRA,
-      fit_w, fit_h, AV_PIX_FMT_YUV420P,
-      SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+  ::SwsContext* ctx = sws_getContext(src_width,
+                                     src_height,
+                                     AV_PIX_FMT_BGRA,
+                                     fit_w,
+                                     fit_h,
+                                     AV_PIX_FMT_YUV420P,
+                                     SWS_FAST_BILINEAR,
+                                     nullptr,
+                                     nullptr,
+                                     nullptr);
   if (!ctx) {
     LOG_ERROR << "Failed to allocate SwsContext (YUV420P)";
     return false;
   }
   UseBt709Limited(ctx);
-  ::SwsContext* ctx_nv12 = sws_getContext(
-      src_width, src_height, AV_PIX_FMT_BGRA,
-      fit_w, fit_h, AV_PIX_FMT_NV12,
-      SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+  ::SwsContext* ctx_nv12 = sws_getContext(src_width,
+                                          src_height,
+                                          AV_PIX_FMT_BGRA,
+                                          fit_w,
+                                          fit_h,
+                                          AV_PIX_FMT_NV12,
+                                          SWS_FAST_BILINEAR,
+                                          nullptr,
+                                          nullptr,
+                                          nullptr);
   if (!ctx_nv12) {
     sws_freeContext(ctx);
     LOG_ERROR << "Failed to allocate SwsContext (NV12)";
@@ -97,10 +115,16 @@ bool GpuProcessor::Initialize(int src_width, int src_height, int dst_width, int 
   // Phase 1.2: NV12 DIRECT (DMA-BUF zero-copy) – when source is already NV12
   // from PipeWire DMA-BUF we avoid the BGRA shadow copy and scale NV12->NV12
   // with 0 extra GPU copies, letterboxing directly into the encoder's NV12 planes.
-  ::SwsContext* ctx_direct = sws_getContext(
-      src_width, src_height, AV_PIX_FMT_NV12,
-      fit_w, fit_h, AV_PIX_FMT_NV12,
-      SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+  ::SwsContext* ctx_direct = sws_getContext(src_width,
+                                            src_height,
+                                            AV_PIX_FMT_NV12,
+                                            fit_w,
+                                            fit_h,
+                                            AV_PIX_FMT_NV12,
+                                            SWS_FAST_BILINEAR,
+                                            nullptr,
+                                            nullptr,
+                                            nullptr);
   if (!ctx_direct) {
     sws_freeContext(ctx);
     sws_freeContext(ctx_nv12);
@@ -127,18 +151,19 @@ bool GpuProcessor::Initialize(int src_width, int src_height, int dst_width, int 
 }
 
 bool GpuProcessor::EnsureSource(const CapturedVideoFrame& src) {
-  if (src.width == src_width_ && src.height == src_height_ && sws_ctx_ && sws_ctx_nv12_ && sws_nv12_direct_) {
+  if (src.width == src_width_ && src.height == src_height_ && sws_ctx_ && sws_ctx_nv12_ &&
+      sws_nv12_direct_) {
     return true;
   }
-  return Initialize(src.width, src.height,
+  return Initialize(src.width,
+                    src.height,
                     dst_width_ > 0 ? dst_width_ : src.width,
                     dst_height_ > 0 ? dst_height_ : src.height);
 }
 
-bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src,
-                                        uint8_t* dst_y, int y_stride,
-                                        uint8_t* dst_u, int u_stride,
-                                        uint8_t* dst_v, int v_stride) {
+bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src, uint8_t* dst_y, int y_stride,
+                                        uint8_t* dst_u, int u_stride, uint8_t* dst_v,
+                                        int v_stride) {
   if (!dst_y || !dst_u || !dst_v || y_stride <= 0 || u_stride <= 0 || v_stride <= 0) {
     return false;
   }
@@ -151,8 +176,8 @@ bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src,
   std::memset(dst_u, 128, static_cast<size_t>(u_stride) * (dst_height_ / 2));
   std::memset(dst_v, 128, static_cast<size_t>(v_stride) * (dst_height_ / 2));
 
-  const uint8_t* src_slice[4] = { src.data.data(), nullptr, nullptr, nullptr };
-  int src_stride[4] = { src.stride > 0 ? src.stride : src.width * 4, 0, 0, 0 };
+  const uint8_t* src_slice[4] = {src.data.data(), nullptr, nullptr, nullptr};
+  int src_stride[4] = {src.stride > 0 ? src.stride : src.width * 4, 0, 0, 0};
 
   uint8_t* dst_slice[4] = {
       dst_y + static_cast<size_t>(fit_y_) * y_stride + fit_x_,
@@ -160,14 +185,13 @@ bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src,
       dst_v + static_cast<size_t>(fit_y_ / 2) * v_stride + fit_x_ / 2,
       nullptr,
   };
-  int dst_strides[4] = { y_stride, u_stride, v_stride, 0 };
+  int dst_strides[4] = {y_stride, u_stride, v_stride, 0};
 
   sws_scale(sws_ctx_, src_slice, src_stride, 0, src_height_, dst_slice, dst_strides);
   return true;
 }
 
-bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src,
-                                     uint8_t* dst_y, int y_stride,
+bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src, uint8_t* dst_y, int y_stride,
                                      uint8_t* dst_uv, int uv_stride) {
   if (!dst_y || !dst_uv || y_stride <= 0 || uv_stride <= 0) {
     return false;
@@ -197,17 +221,23 @@ bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src,
       std::memset(dst_uv, 128, static_cast<size_t>(uv_stride) * (dst_height_ / 2));
       const uint8_t* src_y = src.data.data() + src.dmabuf_offset_y;
       const uint8_t* src_uv = src.data.data() + src.dmabuf_offset_uv;
-      const uint8_t* src_slice_nv12[4] = { src_y, src_uv, nullptr, nullptr };
-      int src_stride_nv12[4] = { src.dmabuf_stride, src.dmabuf_stride, 0, 0 };
+      const uint8_t* src_slice_nv12[4] = {src_y, src_uv, nullptr, nullptr};
+      int src_stride_nv12[4] = {src.dmabuf_stride, src.dmabuf_stride, 0, 0};
       uint8_t* dst_slice[4] = {
           dst_y + static_cast<size_t>(fit_y_) * y_stride + fit_x_,
           dst_uv + static_cast<size_t>(fit_y_ / 2) * uv_stride + fit_x_,
           nullptr,
           nullptr,
       };
-      int dst_strides[4] = { y_stride, uv_stride, 0, 0 };
+      int dst_strides[4] = {y_stride, uv_stride, 0, 0};
       if (sws_nv12_direct_) {
-        sws_scale(sws_nv12_direct_, src_slice_nv12, src_stride_nv12, 0, src_height_, dst_slice, dst_strides);
+        sws_scale(sws_nv12_direct_,
+                  src_slice_nv12,
+                  src_stride_nv12,
+                  0,
+                  src_height_,
+                  dst_slice,
+                  dst_strides);
         return true;
       }
     }
@@ -219,8 +249,8 @@ bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src,
   // covers the whole plane.
   std::memset(dst_uv, 128, static_cast<size_t>(uv_stride) * (dst_height_ / 2));
 
-  const uint8_t* src_slice[4] = { src.data.data(), nullptr, nullptr, nullptr };
-  int src_stride[4] = { src.stride > 0 ? src.stride : src.width * 4, 0, 0, 0 };
+  const uint8_t* src_slice[4] = {src.data.data(), nullptr, nullptr, nullptr};
+  int src_stride[4] = {src.stride > 0 ? src.stride : src.width * 4, 0, 0, 0};
 
   // NV12 UV plane is one byte per chroma sample horizontally, two per pixel
   // pair: the byte offset equals the pixel offset x.
@@ -230,16 +260,14 @@ bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src,
       nullptr,
       nullptr,
   };
-  int dst_strides[4] = { y_stride, uv_stride, 0, 0 };
+  int dst_strides[4] = {y_stride, uv_stride, 0, 0};
 
   sws_scale(sws_ctx_nv12_, src_slice, src_stride, 0, src_height_, dst_slice, dst_strides);
   return true;
 }
 
-bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src,
-                                        std::vector<uint8_t>& dst_y,
-                                        std::vector<uint8_t>& dst_u,
-                                        std::vector<uint8_t>& dst_v,
+bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src, std::vector<uint8_t>& dst_y,
+                                        std::vector<uint8_t>& dst_u, std::vector<uint8_t>& dst_v,
                                         int& y_stride, int& u_stride, int& v_stride) {
   if (!EnsureSource(src)) {
     return false;
@@ -252,8 +280,8 @@ bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src,
   dst_u.resize(static_cast<size_t>(u_stride) * (dst_height_ / 2));
   dst_v.resize(static_cast<size_t>(v_stride) * (dst_height_ / 2));
 
-  return ConvertBgraToYuv420p(src, dst_y.data(), y_stride,
-                              dst_u.data(), u_stride, dst_v.data(), v_stride);
+  return ConvertBgraToYuv420p(
+      src, dst_y.data(), y_stride, dst_u.data(), u_stride, dst_v.data(), v_stride);
 }
 
-} // namespace castcore
+}  // namespace castcore

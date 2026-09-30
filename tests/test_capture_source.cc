@@ -11,12 +11,12 @@ TEST(CaptureSourceTest, KindStringRoundTrip) {
   EXPECT_STREQ(CaptureSourceKindToString(CaptureSourceKind::kMonitor), "monitor");
   EXPECT_STREQ(CaptureSourceKindToString(CaptureSourceKind::kWindow), "window");
   EXPECT_EQ(CaptureSourceKindFromString("monitor"), CaptureSourceKind::kMonitor);
-  EXPECT_EQ(CaptureSourceKindFromString("window"),  CaptureSourceKind::kWindow);
-  EXPECT_EQ(CaptureSourceKindFromString("Window"),  CaptureSourceKind::kWindow);
-  EXPECT_EQ(CaptureSourceKindFromString("WINDOW"),  CaptureSourceKind::kWindow);
+  EXPECT_EQ(CaptureSourceKindFromString("window"), CaptureSourceKind::kWindow);
+  EXPECT_EQ(CaptureSourceKindFromString("Window"), CaptureSourceKind::kWindow);
+  EXPECT_EQ(CaptureSourceKindFromString("WINDOW"), CaptureSourceKind::kWindow);
   // Unknown strings default to monitor (safe fallback).
-  EXPECT_EQ(CaptureSourceKindFromString("nope"),    CaptureSourceKind::kMonitor);
-  EXPECT_EQ(CaptureSourceKindFromString(""),        CaptureSourceKind::kMonitor);
+  EXPECT_EQ(CaptureSourceKindFromString("nope"), CaptureSourceKind::kMonitor);
+  EXPECT_EQ(CaptureSourceKindFromString(""), CaptureSourceKind::kMonitor);
 }
 
 TEST(CaptureSourceTest, EqualityAndAccessors) {

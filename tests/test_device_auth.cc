@@ -65,7 +65,8 @@ TEST_F(DeviceAuthTest, RejectsSelfSignedCertNotAnchoredInCastRoot) {
   X509_set_pubkey(cert, pkey);
 
   X509_NAME* name = X509_get_subject_name(cert);
-  X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, (const unsigned char*)"Fake Receiver", -1, -1, 0);
+  X509_NAME_add_entry_by_txt(
+      name, "CN", MBSTRING_ASC, (const unsigned char*)"Fake Receiver", -1, -1, 0);
   X509_set_issuer_name(cert, name);
 
   ASSERT_GT(X509_sign(cert, pkey, EVP_sha256()), 0);

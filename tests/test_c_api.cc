@@ -120,9 +120,13 @@ TEST(CApiTest, ConfigJsonRoundTrip) {
   EXPECT_LE(written, needed - 1);
   EXPECT_EQ(buf[static_cast<size_t>(written)], '\0');
 
-  nlohmann::json original = nlohmann::json::parse(std::string(buf.data(), static_cast<size_t>(written)));
-  for (const char* key : {"quality_preset", "capture_fps", "audio_bitrate_bps",
-                          "adaptive_resolution_enabled", "ui_theme"}) {
+  nlohmann::json original =
+      nlohmann::json::parse(std::string(buf.data(), static_cast<size_t>(written)));
+  for (const char* key : {"quality_preset",
+                          "capture_fps",
+                          "audio_bitrate_bps",
+                          "adaptive_resolution_enabled",
+                          "ui_theme"}) {
     EXPECT_TRUE(original.contains(key)) << key;
   }
 
@@ -143,13 +147,15 @@ TEST(CApiTest, ConfigJsonRoundTrip) {
   std::vector<char> after_buf(static_cast<size_t>(needed));
   written = castmirror_get_config_json(after_buf.data(), needed);
   ASSERT_GT(written, 0);
-  nlohmann::json after = nlohmann::json::parse(std::string(after_buf.data(), static_cast<size_t>(written)));
+  nlohmann::json after =
+      nlohmann::json::parse(std::string(after_buf.data(), static_cast<size_t>(written)));
   EXPECT_EQ(after["capture_fps"].get<int>(), 30);
   EXPECT_EQ(after["ui_theme"].get<std::string>(), "dark");
   EXPECT_FALSE(after["adaptive_resolution_enabled"].get<bool>());
   EXPECT_EQ(after["audio_bitrate_bps"].get<uint32_t>(), 96000u);
   // Keys that were not part of the patch survive the merge.
-  EXPECT_EQ(after["quality_preset"].get<std::string>(), original["quality_preset"].get<std::string>());
+  EXPECT_EQ(after["quality_preset"].get<std::string>(),
+            original["quality_preset"].get<std::string>());
   EXPECT_EQ(after["target_delay_ms"].get<int>(), original["target_delay_ms"].get<int>());
 
   // Unknown keys are ignored, not fatal.
@@ -188,10 +194,10 @@ TEST(CApiTest, ConfigJsonRejectsUnstorableValuesInsteadOfCoercing) {
   ASSERT_TRUE(castmirror_set_config_json(good.dump().c_str()));
 
   const nlohmann::json hostile = {
-      {"max_bitrate_kbps", -1},        // wraps to 4294967295, then clamps to 25000
-      {"capture_fps", 4294967296LL},   // truncates to 0
-      {"ui_theme", 7},                 // not a string
-      {"audio_enabled", "yes"},        // not a boolean
+      {"max_bitrate_kbps", -1},  // wraps to 4294967295, then clamps to 25000
+      {"capture_fps", 4294967296LL},  // truncates to 0
+      {"ui_theme", 7},  // not a string
+      {"audio_enabled", "yes"},  // not a boolean
   };
   ASSERT_TRUE(castmirror_set_config_json(hostile.dump().c_str()));
 
@@ -222,7 +228,8 @@ TEST(CApiTest, SelfTestReportsSubsystems) {
   ASSERT_GT(written, 0);
   EXPECT_EQ(buf[static_cast<size_t>(written)], '\0');
 
-  nlohmann::json result = nlohmann::json::parse(std::string(buf.data(), static_cast<size_t>(written)));
+  nlohmann::json result =
+      nlohmann::json::parse(std::string(buf.data(), static_cast<size_t>(written)));
   for (const char* key : {"capture", "encoder", "audio", "network"}) {
     ASSERT_TRUE(result.contains(key)) << key;
     EXPECT_TRUE(result[key].contains("ok")) << key;

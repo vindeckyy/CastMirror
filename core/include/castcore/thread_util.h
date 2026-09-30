@@ -46,7 +46,8 @@ struct StopBudgetTimer {
                        std::chrono::steady_clock::now() - start_)
                        .count();
     if (elapsed > warn_ms_) {
-      LOG_WARN << label_ << " exceeded " << warn_ms_ << "ms budget: " << elapsed << "ms (Stop contract <=500ms)";
+      LOG_WARN << label_ << " exceeded " << warn_ms_ << "ms budget: " << elapsed
+               << "ms (Stop contract <=500ms)";
     } else {
       LOG_INFO << label_ << " completed in " << elapsed << "ms";
     }

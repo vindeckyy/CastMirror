@@ -69,8 +69,8 @@ int main(int argc, char** argv) {
 #endif
 
   ApplicationContext ctx;
-  AdwApplication* app = adw_application_new("io.github.vindeckyy.CastMirror",
-                                            G_APPLICATION_DEFAULT_FLAGS);
+  AdwApplication* app =
+      adw_application_new("io.github.vindeckyy.CastMirror", G_APPLICATION_DEFAULT_FLAGS);
   g_signal_connect(app, "startup", G_CALLBACK(OnStartup), &ctx);
   g_signal_connect(app, "activate", G_CALLBACK(OnActivate), &ctx);
   g_signal_connect(app, "shutdown", G_CALLBACK(OnShutdown), &ctx);

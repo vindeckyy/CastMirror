@@ -95,10 +95,8 @@ std::string TruncateStatus(const std::string& text) {
 }
 
 bool SessionBlocksCastControls(SessionState state) {
-  return state == SessionState::kConnecting ||
-         state == SessionState::kNegotiating ||
-         state == SessionState::kStreaming ||
-         state == SessionState::kReconnecting ||
+  return state == SessionState::kConnecting || state == SessionState::kNegotiating ||
+         state == SessionState::kStreaming || state == SessionState::kReconnecting ||
          state == SessionState::kStopping;
 }
 
@@ -177,15 +175,15 @@ void GuiApp::BuildUi() {
 
   header_title_ = adw_view_switcher_title_new();
   adw_view_switcher_title_set_title(ADW_VIEW_SWITCHER_TITLE(header_title_), copy::kAppTitle);
-  adw_view_switcher_title_set_subtitle(ADW_VIEW_SWITCHER_TITLE(header_title_), copy::kAppSubtitleDefault);
+  adw_view_switcher_title_set_subtitle(ADW_VIEW_SWITCHER_TITLE(header_title_),
+                                       copy::kAppSubtitleDefault);
   adw_header_bar_set_title_widget(ADW_HEADER_BAR(header_bar), header_title_);
 
   GtkWidget* menu_btn = gtk_menu_button_new();
   gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu_btn), "open-menu-symbolic");
   gtk_widget_set_tooltip_text(menu_btn, "Application menu");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(menu_btn),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Application menu",
-                                 -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(menu_btn), GTK_ACCESSIBLE_PROPERTY_LABEL, "Application menu", -1);
 
   GMenu* menu = g_menu_new();
   g_menu_append(menu, "About CastMirror", "app.about");
@@ -214,16 +212,18 @@ void GuiApp::BuildUi() {
   adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar_view), header_bar);
 
   view_stack_ = adw_view_stack_new();
-  adw_view_switcher_title_set_stack(ADW_VIEW_SWITCHER_TITLE(header_title_), ADW_VIEW_STACK(view_stack_));
+  adw_view_switcher_title_set_stack(ADW_VIEW_SWITCHER_TITLE(header_title_),
+                                    ADW_VIEW_STACK(view_stack_));
 
   view_switcher_bar_ = adw_view_switcher_bar_new();
-  adw_view_switcher_bar_set_stack(ADW_VIEW_SWITCHER_BAR(view_switcher_bar_), ADW_VIEW_STACK(view_stack_));
-  g_object_bind_property(header_title_, "title-visible",
-                         view_switcher_bar_, "reveal",
-                         G_BINDING_SYNC_CREATE);
+  adw_view_switcher_bar_set_stack(ADW_VIEW_SWITCHER_BAR(view_switcher_bar_),
+                                  ADW_VIEW_STACK(view_stack_));
+  g_object_bind_property(
+      header_title_, "title-visible", view_switcher_bar_, "reveal", G_BINDING_SYNC_CREATE);
   adw_toolbar_view_add_bottom_bar(ADW_TOOLBAR_VIEW(toolbar_view), view_switcher_bar_);
 
-  AdwBreakpoint* breakpoint = adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 680px"));
+  AdwBreakpoint* breakpoint =
+      adw_breakpoint_new(adw_breakpoint_condition_parse("max-width: 680px"));
   GValue val_true = G_VALUE_INIT;
   g_value_init(&val_true, G_TYPE_BOOLEAN);
   g_value_set_boolean(&val_true, TRUE);
@@ -231,9 +231,12 @@ void GuiApp::BuildUi() {
   g_value_unset(&val_true);
   adw_application_window_add_breakpoint(ADW_APPLICATION_WINDOW(window_), breakpoint);
 
-  g_signal_connect(view_stack_, "notify::visible-child", G_CALLBACK(+[](GObject*, GParamSpec*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->UpdateViewLiveVisibility();
-  }), this);
+  g_signal_connect(view_stack_,
+                   "notify::visible-child",
+                   G_CALLBACK(+[](GObject*, GParamSpec*, gpointer user_data) {
+                     static_cast<GuiApp*>(user_data)->UpdateViewLiveVisibility();
+                   }),
+                   this);
 
   cast_tab_ = std::make_unique<CastTab>(this);
   live_tab_ = std::make_unique<LiveTab>(this);
@@ -295,8 +298,8 @@ void GuiApp::BuildUi() {
   gtk_widget_set_size_request(cast_button_, 220, 40);
   gtk_actionable_set_action_name(GTK_ACTIONABLE(cast_button_), "win.cast");
   gtk_widget_set_tooltip_text(cast_button_, "Start or stop casting to the selected display");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(cast_button_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Cast display", -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(cast_button_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Cast display", -1);
 
   GtkWidget* cast_inner = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_widget_set_halign(cast_inner, GTK_ALIGN_CENTER);
@@ -322,58 +325,74 @@ void GuiApp::SetupActions() {
   };
 
   add_app_action("present", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->Present();
-  }));
+                   static_cast<GuiApp*>(user_data)->Present();
+                 }));
   add_app_action("about", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->ShowAboutDialog();
-  }));
+                   static_cast<GuiApp*>(user_data)->ShowAboutDialog();
+                 }));
   add_app_action("open-config", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->OpenConfigFolder();
-  }));
+                   static_cast<GuiApp*>(user_data)->OpenConfigFolder();
+                 }));
   add_app_action("open-logs", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->OpenLogsFolder();
-  }));
+                   static_cast<GuiApp*>(user_data)->OpenLogsFolder();
+                 }));
   add_app_action("quit", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->Quit();
-  }));
+                   static_cast<GuiApp*>(user_data)->Quit();
+                 }));
 
   action_cast_ = g_simple_action_new("cast", nullptr);
-  g_signal_connect(action_cast_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->TriggerCastAction();
-  }), this);
+  g_signal_connect(action_cast_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     static_cast<GuiApp*>(user_data)->TriggerCastAction();
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(window_), G_ACTION(action_cast_));
 
   action_rescan_ = g_simple_action_new("rescan", nullptr);
-  g_signal_connect(action_rescan_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->TriggerRescan();
-  }), this);
+  g_signal_connect(action_rescan_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     static_cast<GuiApp*>(user_data)->TriggerRescan();
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(window_), G_ACTION(action_rescan_));
 
   action_add_ip_ = g_simple_action_new("add-ip", nullptr);
-  g_signal_connect(action_add_ip_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    auto* self = static_cast<GuiApp*>(user_data);
-    if (self->cast_tab_) {
-      self->cast_tab_->OnAddIpClicked();
-    }
-  }), this);
+  g_signal_connect(action_add_ip_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     auto* self = static_cast<GuiApp*>(user_data);
+                     if (self->cast_tab_) {
+                       self->cast_tab_->OnAddIpClicked();
+                     }
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(window_), G_ACTION(action_add_ip_));
 
   action_remove_device_ = g_simple_action_new("remove-device", nullptr);
-  g_signal_connect(action_remove_device_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    auto* self = static_cast<GuiApp*>(user_data);
-    if (self->cast_tab_) {
-      self->cast_tab_->RemoveSelectedDevice();
-    }
-  }), this);
+  g_signal_connect(action_remove_device_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     auto* self = static_cast<GuiApp*>(user_data);
+                     if (self->cast_tab_) {
+                       self->cast_tab_->RemoveSelectedDevice();
+                     }
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(window_), G_ACTION(action_remove_device_));
 
   action_page_ = g_simple_action_new("page", G_VARIANT_TYPE_STRING);
-  g_signal_connect(action_page_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant* parameter, gpointer user_data) {
-    if (!parameter) {
-      return;
-    }
-    static_cast<GuiApp*>(user_data)->OnPageAction(g_variant_get_string(parameter, nullptr));
-  }), this);
+  g_signal_connect(
+      action_page_,
+      "activate",
+      G_CALLBACK(+[](GSimpleAction*, GVariant* parameter, gpointer user_data) {
+        if (!parameter) {
+          return;
+        }
+        static_cast<GuiApp*>(user_data)->OnPageAction(g_variant_get_string(parameter, nullptr));
+      }),
+      this);
   g_action_map_add_action(G_ACTION_MAP(window_), G_ACTION(action_page_));
 
   GtkApplication* gtk_app = GTK_APPLICATION(application_);
@@ -566,8 +585,8 @@ void GuiApp::OwnModalDialog(AdwDialog* dialog) {
     return;
   }
   auto* block = new ModalBlock{this, alive_};
-  g_signal_connect_data(dialog, "closed", G_CALLBACK(OnModalDialogClosed), block,
-                        FreeModalBlock, G_CONNECT_DEFAULT);
+  g_signal_connect_data(
+      dialog, "closed", G_CALLBACK(OnModalDialogClosed), block, FreeModalBlock, G_CONNECT_DEFAULT);
 }
 
 void GuiApp::OnDestinationSelectionChanged() {
@@ -636,20 +655,23 @@ void GuiApp::TriggerRescan() {
   }
   RefreshWindowActionSensitivity();
 
-  rescan_timer_id_ = g_timeout_add(1500, +[](gpointer user_data) -> gboolean {
-    auto* app = static_cast<GuiApp*>(user_data);
-    app->rescan_timer_id_ = 0;
-    app->scan_in_progress_ = false;
-    if (!app->is_quitting_ && app->cast_tab_) {
-      app->cast_tab_->SetScanInProgress(false);
-      app->cast_tab_->RefreshDevices();
-    }
-    if (!app->is_quitting_ && !app->IsSessionActive()) {
-      app->UpdateStateUi(app->current_state_, app->last_state_message_);
-    }
-    app->RefreshWindowActionSensitivity();
-    return G_SOURCE_REMOVE;
-  }, this);
+  rescan_timer_id_ = g_timeout_add(
+      1500,
+      +[](gpointer user_data) -> gboolean {
+        auto* app = static_cast<GuiApp*>(user_data);
+        app->rescan_timer_id_ = 0;
+        app->scan_in_progress_ = false;
+        if (!app->is_quitting_ && app->cast_tab_) {
+          app->cast_tab_->SetScanInProgress(false);
+          app->cast_tab_->RefreshDevices();
+        }
+        if (!app->is_quitting_ && !app->IsSessionActive()) {
+          app->UpdateStateUi(app->current_state_, app->last_state_message_);
+        }
+        app->RefreshWindowActionSensitivity();
+        return G_SOURCE_REMOVE;
+      },
+      this);
 }
 
 void GuiApp::TriggerCastAction() {
@@ -659,7 +681,8 @@ void GuiApp::TriggerCastAction() {
   auto& engine = CastEngine::Instance();
 
   if (current_state_ == SessionState::kStreaming || current_state_ == SessionState::kConnecting ||
-      current_state_ == SessionState::kNegotiating || current_state_ == SessionState::kReconnecting) {
+      current_state_ == SessionState::kNegotiating ||
+      current_state_ == SessionState::kReconnecting) {
     LOG_INFO << "[UI] User requested Stop Casting";
     engine.StopCasting();
     return;
@@ -698,7 +721,8 @@ void GuiApp::TriggerCastAction() {
   opts.adaptive_enabled = cfg.adaptive_enabled;
 
   LOG_INFO << "[UI] Starting Cast Session to device id " << device_id
-           << " (source: " << CaptureSourceKindToString(source.kind) << " id=" << source.id << ")...";
+           << " (source: " << CaptureSourceKindToString(source.kind) << " id=" << source.id
+           << ")...";
 
   std::thread([alive = alive_, self = this, device_id, source, opts]() {
     bool ok = CastEngine::Instance().StartCasting(device_id, source, opts);
@@ -775,7 +799,8 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
       gtk_widget_set_visible(spinner_, TRUE);
       gtk_spinner_start(GTK_SPINNER(spinner_));
       SwitchToPage("live");
-      SetFooterStatus(last_device_name_.empty() ? "Connecting" : ("Connecting to " + last_device_name_));
+      SetFooterStatus(last_device_name_.empty() ? "Connecting"
+                                                : ("Connecting to " + last_device_name_));
       break;
     case SessionState::kNegotiating:
       ApplyPrimaryAction("Cancel", "process-stop-symbolic", true, true);
@@ -905,9 +930,7 @@ void GuiApp::SetFooterStatus(const std::string& text) {
   gtk_widget_set_tooltip_text(footer_status_label_, text.c_str());
 }
 
-void GuiApp::ApplyPrimaryAction(const char* label,
-                                const char* icon_name,
-                                bool destructive,
+void GuiApp::ApplyPrimaryAction(const char* label, const char* icon_name, bool destructive,
                                 bool sensitive) {
   if (cast_button_lbl_) {
     gtk_label_set_text(GTK_LABEL(cast_button_lbl_), label);

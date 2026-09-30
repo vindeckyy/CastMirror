@@ -40,14 +40,11 @@ class MirroringNegotiator {
  public:
   static StreamEncryptionKeys GenerateRandomKeys();
 
-  static std::string CreateOfferJson(int seq_num,
-                                     const StreamStats& video_settings,
-                                     bool include_audio,
-                                     const StreamEncryptionKeys& video_keys,
+  static std::string CreateOfferJson(int seq_num, const StreamStats& video_settings,
+                                     bool include_audio, const StreamEncryptionKeys& video_keys,
                                      const StreamEncryptionKeys& audio_keys,
                                      VideoCodec video_codec = VideoCodec::kH264,
-                                     int target_delay_ms = 400,
-                                     int audio_bitrate_bps = 192000);
+                                     int target_delay_ms = 400, int audio_bitrate_bps = 192000);
 
   static std::string CreateStatusJson(int seq_num, const StreamStats& stats);
 
@@ -60,6 +57,6 @@ class MirroringNegotiator {
   static bool HexToBytes(const std::string& hex, uint8_t* out, size_t max_len);
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_MIRRORING_NEGOTIATOR_H_
+#endif  // CASTCORE_MIRRORING_NEGOTIATOR_H_

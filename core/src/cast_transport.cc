@@ -11,20 +11,20 @@
 #include <cmath>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #define close closesocket
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#define close closesocket
 #else
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #include <poll.h>
-  #ifdef IP_TOS
-    #include <netinet/ip.h>
-  #endif
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#ifdef IP_TOS
+#include <netinet/ip.h>
+#endif
 #endif
 
 namespace castcore {
@@ -74,7 +74,8 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
     ewma_initialized_ = false;
   }
 
-  LOG_INFO << "Starting Cast Media Transport to UDP " << receiver_ip << ":" << receiver_udp_port << "...";
+  LOG_INFO << "Starting Cast Media Transport to UDP " << receiver_ip << ":" << receiver_udp_port
+           << "...";
 
 #if defined(_WIN32)
   if (!EnsureSocketInit()) {
@@ -90,7 +91,8 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   }
 
   int opt = 1;
-  setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+  setsockopt(
+      socket_fd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 
   struct sockaddr_in bind_addr{};
   bind_addr.sin_family = AF_INET;
@@ -111,8 +113,10 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   // Socket buffers for high bitrate streaming
   int sndbuf = 4 * 1024 * 1024;
   int rcvbuf = 2 * 1024 * 1024;
-  setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
-  setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
+  setsockopt(
+      socket_fd_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
+  setsockopt(
+      socket_fd_, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
 
   // Mark the media packets as real-time traffic (DSCP AF41, class 4).
   //
@@ -127,11 +131,14 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   // ignore the TOS, and a LAN without QoS simply drops the marking. A failure
   // here must never prevent a session, so it is not treated as an error.
   int dscp_af41 = 0x28;  // AF41 = DSCP 34, shifted left 2 into the TOS byte
-  if (setsockopt(socket_fd_, IPPROTO_IP, IP_TOS,
+  if (setsockopt(socket_fd_,
+                 IPPROTO_IP,
+                 IP_TOS,
                  reinterpret_cast<const char*>(&dscp_af41),
                  sizeof(dscp_af41)) != 0) {
     LOG_DEBUG << "Could not set IP_TOS (AF41) on the media socket; "
-                 "packets will use the default queue: " << std::strerror(errno);
+                 "packets will use the default queue: "
+              << std::strerror(errno);
   }
 
 #if defined(_WIN32)
@@ -227,7 +234,6 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
            (static_cast<uint32_t>(p0[10]) << 8) | static_cast<uint32_t>(p0[11]);
   }
 
-
   // Cache first, then send. RetransmitPacket uses the same order so a NACK
   // during a large frame cannot deadlock the capture/encode path.
   {
@@ -307,7 +313,7 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
     auto ntp_time = sys_now;
     if (packets[0].capture_time.time_since_epoch().count() != 0) {
       ntp_time = sys_now - std::chrono::duration_cast<std::chrono::system_clock::duration>(
-                                steady_now - packets[0].capture_time);
+                               steady_now - packets[0].capture_time);
     }
     std::lock_guard<std::mutex> lock(send_mutex_);
     if (running_.load() && socket_fd_ >= 0) {
@@ -336,16 +342,21 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
     }
     // encode_ms unknown in transport; use 0, but breadcrumb still contains required fields
     // pipeline indicates full path, stage indicates udp
-    Logger::Instance().LogBreadcrumbEx(current_fid, 0, udp_bytes, rtt_ms, nack_cnt,
-                                       "capture->gpu->encode->crypto->rtp->udp", "udp");
+    Logger::Instance().LogBreadcrumbEx(current_fid,
+                                       0,
+                                       udp_bytes,
+                                       rtt_ms,
+                                       nack_cnt,
+                                       "capture->gpu->encode->crypto->rtp->udp",
+                                       "udp");
   }
 
   return packets_sent_ok > 0;
 }
 
 void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
-                                         std::chrono::system_clock::time_point ntp_time,
-                                         uint32_t packets_just_sent, uint32_t octets_just_sent) {
+                                          std::chrono::system_clock::time_point ntp_time,
+                                          uint32_t packets_just_sent, uint32_t octets_just_sent) {
   if (ssrc == 0 || socket_fd_ < 0) return;
 
   auto& st = sr_state_[ssrc];
@@ -370,15 +381,15 @@ void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
 
   uint8_t sr[28];
   sr[0] = 0x80;  // V=2, P=0, RC=0
-  sr[1] = 200;   // Sender Report
+  sr[1] = 200;  // Sender Report
   sr[2] = 0x00;
   sr[3] = 0x06;  // length = 6 words after header
   sr[4] = static_cast<uint8_t>((ssrc >> 24) & 0xFF);
   sr[5] = static_cast<uint8_t>((ssrc >> 16) & 0xFF);
   sr[6] = static_cast<uint8_t>((ssrc >> 8) & 0xFF);
   sr[7] = static_cast<uint8_t>(ssrc & 0xFF);
-  sr[8]  = static_cast<uint8_t>((ntp_sec >> 24) & 0xFF);
-  sr[9]  = static_cast<uint8_t>((ntp_sec >> 16) & 0xFF);
+  sr[8] = static_cast<uint8_t>((ntp_sec >> 24) & 0xFF);
+  sr[9] = static_cast<uint8_t>((ntp_sec >> 16) & 0xFF);
   sr[10] = static_cast<uint8_t>((ntp_sec >> 8) & 0xFF);
   sr[11] = static_cast<uint8_t>(ntp_sec & 0xFF);
   sr[12] = static_cast<uint8_t>((ntp_frac >> 24) & 0xFF);
@@ -398,8 +409,12 @@ void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
   sr[26] = static_cast<uint8_t>((st.octets >> 8) & 0xFF);
   sr[27] = static_cast<uint8_t>(st.octets & 0xFF);
 
-  sendto(socket_fd_, reinterpret_cast<const char*>(sr), sizeof(sr), kDontWait,
-         reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
+  sendto(socket_fd_,
+         reinterpret_cast<const char*>(sr),
+         sizeof(sr),
+         kDontWait,
+         reinterpret_cast<const struct sockaddr*>(&dest_addr_),
+         sizeof(dest_addr_));
 }
 
 bool CastTransport::SendDatagram(const uint8_t* data, size_t length) {
@@ -408,8 +423,12 @@ bool CastTransport::SendDatagram(const uint8_t* data, size_t length) {
   }
 
   for (;;) {
-    ssize_t sent = sendto(socket_fd_, reinterpret_cast<const char*>(data), length, kDontWait,
-                          reinterpret_cast<const struct sockaddr*>(&dest_addr_), sizeof(dest_addr_));
+    ssize_t sent = sendto(socket_fd_,
+                          reinterpret_cast<const char*>(data),
+                          length,
+                          kDontWait,
+                          reinterpret_cast<const struct sockaddr*>(&dest_addr_),
+                          sizeof(dest_addr_));
     if (sent >= 0) {
       return true;
     }
@@ -461,8 +480,10 @@ bool CastTransport::ConsumePacingTokens(size_t packet_count) {
     pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
     pacing_last_refill_ = now;
   } else {
-    double elapsed_ms = std::chrono::duration<double, std::milli>(now - pacing_last_refill_).count();
-    double refill = elapsed_ms * (static_cast<double>(kPacingMaxBurst) / static_cast<double>(kPacingIntervalMs));
+    double elapsed_ms =
+        std::chrono::duration<double, std::milli>(now - pacing_last_refill_).count();
+    double refill = elapsed_ms *
+                    (static_cast<double>(kPacingMaxBurst) / static_cast<double>(kPacingIntervalMs));
     pacing_tokens_ = std::min(static_cast<double>(kPacingMaxBurst), pacing_tokens_ + refill);
     pacing_last_refill_ = now;
   }
@@ -476,7 +497,8 @@ bool CastTransport::ConsumePacingTokens(size_t packet_count) {
 void CastTransport::RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t packet_id) {
   std::vector<RtpPacket> to_send;
   const auto now = std::chrono::steady_clock::now();
-  constexpr auto kDuplicateNackWindow = std::chrono::milliseconds(CastTransport::kRetransmitSuppressMs);
+  constexpr auto kDuplicateNackWindow =
+      std::chrono::milliseconds(CastTransport::kRetransmitSuppressMs);
   {
     std::lock_guard<std::mutex> clock(cache_mutex_);
     auto sit = packet_cache_.find(ssrc);
@@ -485,8 +507,7 @@ void CastTransport::RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t 
       if (fit != sit->second.end()) {
         auto add_if_due = [&](const RtpPacket& packet) {
           auto& last = last_retransmit_time_[ssrc][frame_id][packet.packet_id];
-          if (last.time_since_epoch().count() != 0 &&
-              now - last < kDuplicateNackWindow) {
+          if (last.time_since_epoch().count() != 0 && now - last < kDuplicateNackWindow) {
             return;
           }
           last = now;
@@ -516,7 +537,6 @@ void CastTransport::RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t 
     }
   }
 }
-
 
 uint32_t CastTransport::SafeCacheEraseLimit(uint32_t checkpoint, uint32_t last_sent) {
   if (checkpoint == 0) {
@@ -548,8 +568,12 @@ void CastTransport::ReceiveLoop() {
 #if defined(_WIN32)
     struct sockaddr_in src_addr{};
     socklen_t slen = sizeof(src_addr);
-    ssize_t bytes_read = recvfrom(socket_fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
-                                  reinterpret_cast<struct sockaddr*>(&src_addr), &slen);
+    ssize_t bytes_read = recvfrom(socket_fd_,
+                                  reinterpret_cast<char*>(buffer),
+                                  sizeof(buffer),
+                                  0,
+                                  reinterpret_cast<struct sockaddr*>(&src_addr),
+                                  &slen);
     if (bytes_read <= 0) {
       if (!running_.load()) break;
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -570,8 +594,12 @@ void CastTransport::ReceiveLoop() {
 
     struct sockaddr_in src_addr{};
     socklen_t slen = sizeof(src_addr);
-    ssize_t bytes_read = recvfrom(socket_fd_, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
-                                  reinterpret_cast<struct sockaddr*>(&src_addr), &slen);
+    ssize_t bytes_read = recvfrom(socket_fd_,
+                                  reinterpret_cast<char*>(buffer),
+                                  sizeof(buffer),
+                                  0,
+                                  reinterpret_cast<struct sockaddr*>(&src_addr),
+                                  &slen);
     if (bytes_read <= 0) {
       if (!running_.load()) break;
       continue;
@@ -597,8 +625,8 @@ void CastTransport::ReceiveLoop() {
     }
 
     RtcpFeedback feedback;
-    bool parsed = RtcpParser::ParseCompoundPacket(buffer, static_cast<size_t>(bytes_read),
-                                                 last_by_ssrc, feedback);
+    bool parsed = RtcpParser::ParseCompoundPacket(
+        buffer, static_cast<size_t>(bytes_read), last_by_ssrc, feedback);
     if (parsed) {
       {
         std::lock_guard<std::mutex> slock(stats_mutex_);
@@ -640,7 +668,6 @@ void CastTransport::ReceiveLoop() {
             }
           }
         }
-
       }
 
       // Handle retransmission requests (NACKs)
@@ -678,8 +705,7 @@ StreamStats CastTransport::GetStats() const {
   s.round_trip_time_ms = last_rtt_ms_;
 
   const auto now = std::chrono::steady_clock::now();
-  const double sample_seconds =
-      std::chrono::duration<double>(now - fps_sample_time_).count();
+  const double sample_seconds = std::chrono::duration<double>(now - fps_sample_time_).count();
   if (sample_seconds >= 0.25) {
     const uint32_t delta_frames = total_frames_sent_ - fps_sample_frames_;
     current_video_fps_ = static_cast<double>(delta_frames) / sample_seconds;
@@ -690,4 +716,4 @@ StreamStats CastTransport::GetStats() const {
   return s;
 }
 
-} // namespace castcore
+}  // namespace castcore

@@ -8,12 +8,10 @@ namespace {
 
 constexpr int kAdaptiveLatencyHeaderSize = 4;
 
-} // namespace
+}  // namespace
 
 RtpPacketizer::RtpPacketizer(uint8_t payload_type, uint32_t sender_ssrc, int max_packet_size)
-    : payload_type_(payload_type),
-      sender_ssrc_(sender_ssrc),
-      max_packet_size_(max_packet_size) {
+    : payload_type_(payload_type), sender_ssrc_(sender_ssrc), max_packet_size_(max_packet_size) {
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<uint16_t> dis(0, 65535);
@@ -32,7 +30,8 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
   int base_hdr_size = kBaseHdrSize;
   bool include_adaptive_latency = (encrypted_frame.playout_delay.count() > 0);
 
-  int header_size_pkt0 = base_hdr_size + (include_adaptive_latency ? kAdaptiveLatencyHeaderSize : 0);
+  int header_size_pkt0 =
+      base_hdr_size + (include_adaptive_latency ? kAdaptiveLatencyHeaderSize : 0);
   int header_size_rest = base_hdr_size;
 
   int max_payload_pkt0 = max_packet_size_ - header_size_pkt0;
@@ -56,7 +55,8 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
     int current_header_size = base_hdr_size + (pkt_adaptive ? kAdaptiveLatencyHeaderSize : 0);
     int current_max_payload = max_packet_size_ - current_header_size;
 
-    size_t chunk_len = std::min(static_cast<size_t>(current_max_payload), total_data_size - data_offset);
+    size_t chunk_len =
+        std::min(static_cast<size_t>(current_max_payload), total_data_size - data_offset);
 
     RtpPacket pkt;
     pkt.sequence_number = sequence_number_++;
@@ -114,7 +114,7 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
     if (pkt_adaptive) {
       // Extension: Type 1, Size 2
       uint16_t ext_hdr = (1 << 10) | 2;
-      p[payload_write_pos]     = static_cast<uint8_t>((ext_hdr >> 8) & 0xFF);
+      p[payload_write_pos] = static_cast<uint8_t>((ext_hdr >> 8) & 0xFF);
       p[payload_write_pos + 1] = static_cast<uint8_t>(ext_hdr & 0xFF);
       uint16_t delay_val = static_cast<uint16_t>(encrypted_frame.playout_delay.count());
       p[payload_write_pos + 2] = static_cast<uint8_t>((delay_val >> 8) & 0xFF);
@@ -135,4 +135,4 @@ std::vector<RtpPacket> RtpPacketizer::PacketizeFrame(const EncodedFrame& encrypt
   return packets;
 }
 
-} // namespace castcore
+}  // namespace castcore

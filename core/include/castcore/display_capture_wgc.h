@@ -89,9 +89,9 @@ class DisplayCaptureWgc : public IDisplayCapture {
   int staging_w_ = 0;
   int staging_h_ = 0;
 
-  int output_index_ = 0;      // flat DXGI output index being duplicated
-  RECT output_rect_{};        // duplicated output's virtual-screen rect
-  HWND target_hwnd_ = nullptr; // non-null in window-capture mode
+  int output_index_ = 0;  // flat DXGI output index being duplicated
+  RECT output_rect_{};  // duplicated output's virtual-screen rect
+  HWND target_hwnd_ = nullptr;  // non-null in window-capture mode
   std::unique_ptr<WgcWindowSource> wgc_window_;  // set when the window is captured through WGC
   bool source_lost_emitted_ = false;
 

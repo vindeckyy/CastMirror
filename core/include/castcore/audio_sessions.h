@@ -13,7 +13,7 @@ namespace castcore {
 struct AudioApp {
   uint32_t pid = 0;
   std::string exe_name;  // "chrome.exe": stable across runs, so this is what is saved
-  std::string title;     // what to show the user, e.g. the session's display name
+  std::string title;  // what to show the user, e.g. the session's display name
 };
 
 // Lists apps with an audio session (active or idle) on the default render device,

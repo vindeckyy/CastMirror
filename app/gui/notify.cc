@@ -19,8 +19,7 @@ void NotificationManager::Shutdown() {
   last_notified_state_ = SessionState::kIdle;
 }
 
-void NotificationManager::NotifyStateChange(SessionState state,
-                                            const std::string& device_name,
+void NotificationManager::NotifyStateChange(SessionState state, const std::string& device_name,
                                             const std::string& message) {
   if (!app_) return;
   if (state == last_notified_state_) return;
@@ -55,9 +54,9 @@ void NotificationManager::NotifyStateChange(SessionState state,
       g_object_unref(icon);
     }
 
-    g_notification_set_priority(
-        notif, (state == SessionState::kFailed) ? G_NOTIFICATION_PRIORITY_URGENT
-                                               : G_NOTIFICATION_PRIORITY_NORMAL);
+    g_notification_set_priority(notif,
+                                (state == SessionState::kFailed) ? G_NOTIFICATION_PRIORITY_URGENT
+                                                                 : G_NOTIFICATION_PRIORITY_NORMAL);
 
     g_application_send_notification(app_, "castmirror-session", notif);
     g_object_unref(notif);

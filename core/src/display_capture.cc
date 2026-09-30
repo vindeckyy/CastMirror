@@ -13,20 +13,20 @@
 #include <unordered_set>
 
 #if !defined(_WIN32)
-  #include <X11/Xlib.h>
-  #include <X11/Xatom.h>
-  #include <X11/Xutil.h>
-  #include <X11/extensions/XShm.h>
-  #include <X11/extensions/Xrandr.h>
-  #include <X11/extensions/Xfixes.h>
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#include <X11/Xutil.h>
+#include <X11/extensions/XShm.h>
+#include <X11/extensions/Xrandr.h>
+#include <X11/extensions/Xfixes.h>
 #if defined(CASTCORE_HAVE_XDAMAGE)
-  #include <X11/extensions/Xdamage.h>
+#include <X11/extensions/Xdamage.h>
 #endif
 #if defined(CASTCORE_HAVE_XCOMPOSITE)
-  #include <X11/extensions/Xcomposite.h>
+#include <X11/extensions/Xcomposite.h>
 #endif
-  #include <sys/ipc.h>
-  #include <sys/shm.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #endif
 
 namespace castcore {
@@ -43,17 +43,16 @@ void EnsureX11Threads() {
 // Synthetic Capturer: produces clean 60fps BGRA frames with smooth animation
 class SyntheticDisplayCapture : public IDisplayCapture {
  public:
-  SyntheticDisplayCapture(int width = 1920, int height = 1080)
-      : width_(width), height_(height) {}
+  SyntheticDisplayCapture(int width = 1920, int height = 1080) : width_(width), height_(height) {}
 
   std::string BackendName() const override { return "Synthetic"; }
 
-  ~SyntheticDisplayCapture() override {
-    Stop();
-  }
+  ~SyntheticDisplayCapture() override { Stop(); }
 
   bool Start(int display_id, int target_fps) override {
-    return Start(CaptureSource{CaptureSourceKind::kMonitor, display_id, "Synthetic Primary Display"}, target_fps);
+    return Start(
+        CaptureSource{CaptureSourceKind::kMonitor, display_id, "Synthetic Primary Display"},
+        target_fps);
   }
 
   bool Start(const CaptureSource& source, int target_fps) override {
@@ -70,7 +69,8 @@ class SyntheticDisplayCapture : public IDisplayCapture {
     }
     running_ = true;
     capture_thread_ = std::thread(&SyntheticDisplayCapture::CaptureLoop, this);
-    LOG_INFO << "Started Synthetic Display Capture (" << width_ << "x" << height_ << " @ " << target_fps_.load() << "fps)";
+    LOG_INFO << "Started Synthetic Display Capture (" << width_ << "x" << height_ << " @ "
+             << target_fps_.load() << "fps)";
     return true;
   }
 
@@ -81,9 +81,7 @@ class SyntheticDisplayCapture : public IDisplayCapture {
     }
   }
 
-  bool IsCapturing() const override {
-    return running_.load();
-  }
+  bool IsCapturing() const override { return running_.load(); }
 
   void SetTargetFps(int fps) override {
     if (fps > 0) {
@@ -109,9 +107,7 @@ class SyntheticDisplayCapture : public IDisplayCapture {
     callback_ = std::move(callback);
   }
 
-  uint64_t GetCaptureSkipped() const override {
-    return 0;
-  }
+  uint64_t GetCaptureSkipped() const override { return 0; }
 
   // Synthetic window support: used by tests and the GUI fallback path to
   // exercise the window-selector flow without a real X11/portal backend.
@@ -158,10 +154,10 @@ class SyntheticDisplayCapture : public IDisplayCapture {
         uint8_t bg_val = static_cast<uint8_t>(20 + (y * 40 / out_h));
         uint8_t* row = &frame_buffer[y * width_ * 4];
         for (int x = 0; x < out_w; ++x) {
-          row[x * 4 + 0] = bg_val + 10; // B
-          row[x * 4 + 1] = bg_val;      // G
-          row[x * 4 + 2] = bg_val;      // R
-          row[x * 4 + 3] = 255;         // A
+          row[x * 4 + 0] = bg_val + 10;  // B
+          row[x * 4 + 1] = bg_val;  // G
+          row[x * 4 + 2] = bg_val;  // R
+          row[x * 4 + 3] = 255;  // A
         }
       }
 
@@ -178,8 +174,8 @@ class SyntheticDisplayCapture : public IDisplayCapture {
         for (int bx = 0; bx < ball_size; ++bx) {
           int px = ball_x + bx;
           if (px < 0 || px >= out_w) continue;
-          row[px * 4 + 0] = 240; // B
-          row[px * 4 + 1] = 180; // G
+          row[px * 4 + 0] = 240;  // B
+          row[px * 4 + 1] = 180;  // G
           row[px * 4 + 2] = 40;  // R (Amber/Cyan)
           row[px * 4 + 3] = 255;
         }
@@ -216,7 +212,8 @@ class SyntheticDisplayCapture : public IDisplayCapture {
         cb(vf);
       }
 
-      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time);
+      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - start_time);
       if (elapsed < frame_interval) {
         std::this_thread::sleep_for(frame_interval - elapsed);
       }
@@ -287,9 +284,8 @@ std::vector<DisplayInfo> EnumerateRandrDisplays(Display* d) {
       }
       break;
     }
-    info.is_primary = (primary_out != None)
-                          ? (res->outputs[i] == primary_out)
-                          : (info.x == 0 && info.y == 0);
+    info.is_primary =
+        (primary_out != None) ? (res->outputs[i] == primary_out) : (info.x == 0 && info.y == 0);
     list.push_back(info);
 
     XRRFreeCrtcInfo(crtc);
@@ -340,8 +336,17 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
       int actual_format = 0;
       unsigned long nitems = 0, bytes_after = 0;
       unsigned char* prop_data = nullptr;
-      if (XGetWindowProperty(d, w, net_wm_window_type, 0, 16, False, XA_ATOM,
-                             &actual_type, &actual_format, &nitems, &bytes_after,
+      if (XGetWindowProperty(d,
+                             w,
+                             net_wm_window_type,
+                             0,
+                             16,
+                             False,
+                             XA_ATOM,
+                             &actual_type,
+                             &actual_format,
+                             &nitems,
+                             &bytes_after,
                              &prop_data) == Success) {
         if (prop_data && nitems > 0) {
           Atom* types = reinterpret_cast<Atom*>(prop_data);
@@ -367,8 +372,18 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
       int fmt = 0;
       unsigned long n = 0, after = 0;
       unsigned char* name_data = nullptr;
-      if (XGetWindowProperty(d, w, net_wm_name, 0, 1024, False, utf8_string,
-                             &type, &fmt, &n, &after, &name_data) == Success) {
+      if (XGetWindowProperty(d,
+                             w,
+                             net_wm_name,
+                             0,
+                             1024,
+                             False,
+                             utf8_string,
+                             &type,
+                             &fmt,
+                             &n,
+                             &after,
+                             &name_data) == Success) {
         if (name_data && n > 0) {
           title = std::string(reinterpret_cast<char*>(name_data), n);
         }
@@ -409,13 +424,22 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
 
     // If the app class is a generic runtime (python, electron, etc.), it's
     // not helpful — clear it so the display falls back to just the title.
-    static const std::unordered_set<std::string> kGenericClasses = {
-        "python3", "python", "python2", "electron", "node", "nw",
-        "wrapper", "appimage", "gnome-terminal", "xterm", "urxvt"
-    };
+    static const std::unordered_set<std::string> kGenericClasses = {"python3",
+                                                                    "python",
+                                                                    "python2",
+                                                                    "electron",
+                                                                    "node",
+                                                                    "nw",
+                                                                    "wrapper",
+                                                                    "appimage",
+                                                                    "gnome-terminal",
+                                                                    "xterm",
+                                                                    "urxvt"};
     std::string lower_class = app_class;
-    std::transform(lower_class.begin(), lower_class.end(), lower_class.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::transform(
+        lower_class.begin(), lower_class.end(), lower_class.begin(), [](unsigned char c) {
+          return std::tolower(c);
+        });
     if (kGenericClasses.count(lower_class)) {
       app_class.clear();
     }
@@ -440,8 +464,17 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
     int actual_format = 0;
     unsigned long nitems = 0, bytes_after = 0;
     unsigned char* prop_data = nullptr;
-    if (XGetWindowProperty(d, root, net_client_list, 0, 1024, False, XA_WINDOW,
-                           &actual_type, &actual_format, &nitems, &bytes_after,
+    if (XGetWindowProperty(d,
+                           root,
+                           net_client_list,
+                           0,
+                           1024,
+                           False,
+                           XA_WINDOW,
+                           &actual_type,
+                           &actual_format,
+                           &nitems,
+                           &bytes_after,
                            &prop_data) == Success) {
       if (prop_data && nitems > 0 && actual_format == 32) {
         Window* wins = reinterpret_cast<Window*>(prop_data);
@@ -474,8 +507,17 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
         unsigned long nitems = 0, bytes_after = 0;
         unsigned char* prop_data = nullptr;
         bool is_normal = false;
-        if (wm_state != None && XGetWindowProperty(d, w, wm_state, 0, 2, False, AnyPropertyType,
-                                                   &actual_type, &actual_format, &nitems, &bytes_after,
+        if (wm_state != None && XGetWindowProperty(d,
+                                                   w,
+                                                   wm_state,
+                                                   0,
+                                                   2,
+                                                   False,
+                                                   AnyPropertyType,
+                                                   &actual_type,
+                                                   &actual_format,
+                                                   &nitems,
+                                                   &bytes_after,
                                                    &prop_data) == Success) {
           if (prop_data && nitems >= 1) {
             long state_val = reinterpret_cast<long*>(prop_data)[0];
@@ -544,11 +586,17 @@ class X11DisplayCapture : public IDisplayCapture {
     } else {
       const DisplayInfo* sel = nullptr;
       for (const auto& di : displays) {
-        if (di.id == display_id) { sel = &di; break; }
+        if (di.id == display_id) {
+          sel = &di;
+          break;
+        }
       }
       if (!sel) {
         for (const auto& di : displays) {
-          if (di.is_primary) { sel = &di; break; }
+          if (di.is_primary) {
+            sel = &di;
+            break;
+          }
         }
       }
       if (!sel) sel = &displays.front();
@@ -557,8 +605,8 @@ class X11DisplayCapture : public IDisplayCapture {
       crop_y_ = sel->y;
       crop_w_ = sel->width & ~1;
       crop_h_ = sel->height & ~1;
-      LOG_INFO << "Capturing monitor '" << sel->name << "' " << crop_w_ << "x" << crop_h_
-               << " at (" << crop_x_ << "," << crop_y_ << ")";
+      LOG_INFO << "Capturing monitor '" << sel->name << "' " << crop_w_ << "x" << crop_h_ << " at ("
+               << crop_x_ << "," << crop_y_ << ")";
     }
 
     xfixes_ok_ = XFixesQueryExtension(display_, &xfixes_event_base_, &xfixes_error_base_);
@@ -568,9 +616,9 @@ class X11DisplayCapture : public IDisplayCapture {
     running_ = true;
     capture_thread_ = std::thread(&X11DisplayCapture::CaptureLoop, this);
     LOG_INFO << "Started X11 Display Capture (" << crop_w_ << "x" << crop_h_ << " @ "
-             << target_fps_.load() << "fps, " << (shm_ok_ ? "MIT-SHM" : "XGetImage")
-             << ", cursor " << ((xfixes_ok_ && show_cursor_) ? "on" : "off")
-             << ", damage " << (xdamage_ok_ ? "on" : "off") << ")";
+             << target_fps_.load() << "fps, " << (shm_ok_ ? "MIT-SHM" : "XGetImage") << ", cursor "
+             << ((xfixes_ok_ && show_cursor_) ? "on" : "off") << ", damage "
+             << (xdamage_ok_ ? "on" : "off") << ")";
     return true;
   }
 
@@ -592,9 +640,7 @@ class X11DisplayCapture : public IDisplayCapture {
     window_root_y_ = 0;
   }
 
-  bool IsCapturing() const override {
-    return running_.load();
-  }
+  bool IsCapturing() const override { return running_.load(); }
 
   void SetTargetFps(int fps) override {
     if (fps > 0) {
@@ -669,7 +715,6 @@ class X11DisplayCapture : public IDisplayCapture {
   CaptureSource ActiveSource() const override { return active_source_; }
 
  private:
-
   bool StartWindow(const CaptureSource& source, int target_fps) {
     Stop();
     EnsureX11Threads();
@@ -689,8 +734,7 @@ class X11DisplayCapture : public IDisplayCapture {
     // Query initial geometry. XGetWindowAttributes returns 0 on failure
     // (including BadWindow), and our error handler prevents abort.
     XWindowAttributes attrs{};
-    if (!XGetWindowAttributes(display_, target_window_, &attrs) ||
-        g_x11_last_error_code != 0 ||
+    if (!XGetWindowAttributes(display_, target_window_, &attrs) || g_x11_last_error_code != 0 ||
         attrs.map_state != IsViewable) {
       LOG_ERROR << "Target window 0x" << std::hex << target_window_ << std::dec
                 << " is not viewable or does not exist";
@@ -714,17 +758,16 @@ class X11DisplayCapture : public IDisplayCapture {
     SetupDamage();
 
     // Select input events for lifecycle tracking (resize, destroy, unmap).
-    XSelectInput(display_, target_window_,
-                 StructureNotifyMask | SubstructureNotifyMask);
+    XSelectInput(display_, target_window_, StructureNotifyMask | SubstructureNotifyMask);
 
     running_ = true;
     capture_thread_ = std::thread(&X11DisplayCapture::CaptureLoop, this);
-    LOG_INFO << "Started X11 Window Capture (0x" << std::hex << target_window_ << std::dec
-             << ", " << crop_w_ << "x" << crop_h_ << " @ " << target_fps_.load() << "fps, "
-             << (shm_ok_ ? "MIT-SHM" : "XGetImage")
-             << ", cursor " << ((xfixes_ok_ && show_cursor_) ? "on" : "off")
-             << ", damage " << (xdamage_ok_ ? "on" : "off")
-             << ", composite " << (xcomposite_ok_ ? "on" : "off") << ")";
+    LOG_INFO << "Started X11 Window Capture (0x" << std::hex << target_window_ << std::dec << ", "
+             << crop_w_ << "x" << crop_h_ << " @ " << target_fps_.load() << "fps, "
+             << (shm_ok_ ? "MIT-SHM" : "XGetImage") << ", cursor "
+             << ((xfixes_ok_ && show_cursor_) ? "on" : "off") << ", damage "
+             << (xdamage_ok_ ? "on" : "off") << ", composite " << (xcomposite_ok_ ? "on" : "off")
+             << ")";
     return true;
   }
 
@@ -802,14 +845,18 @@ class X11DisplayCapture : public IDisplayCapture {
   bool SetupShm() {
     int major = 0, minor = 0;
     Bool shared_pixel_format = False;
-    if (!XShmQueryVersion(display_, &major, &minor, &shared_pixel_format) ||
-        !shared_pixel_format) {
+    if (!XShmQueryVersion(display_, &major, &minor, &shared_pixel_format) || !shared_pixel_format) {
       return false;
     }
     const int screen = DefaultScreen(display_);
-    shm_image_ = XShmCreateImage(display_, DefaultVisual(display_, screen),
-                                 DefaultDepth(display_, screen), ZPixmap, nullptr,
-                                 &shm_info_, crop_w_, crop_h_);
+    shm_image_ = XShmCreateImage(display_,
+                                 DefaultVisual(display_, screen),
+                                 DefaultDepth(display_, screen),
+                                 ZPixmap,
+                                 nullptr,
+                                 &shm_info_,
+                                 crop_w_,
+                                 crop_h_);
     if (!shm_image_) return false;
 
     size_t seg_size = static_cast<size_t>(shm_image_->bytes_per_line) * shm_image_->height;
@@ -895,7 +942,7 @@ class X11DisplayCapture : public IDisplayCapture {
   // the selected monitor crop since last call. Uses per-monitor filtering:
   // only damage rects overlapping [crop_x_,crop_y_,crop_w_,crop_h_] count.
   bool PollDamage() {
-    if (!xdamage_ok_ || !display_ || !damage_) return true; // fallback: assume damaged
+    if (!xdamage_ok_ || !display_ || !damage_) return true;  // fallback: assume damaged
     bool has_damage = damage_pending_;
     const bool window_mode = (target_window_ != 0);
     // Drain all pending X events
@@ -917,8 +964,8 @@ class X11DisplayCapture : public IDisplayCapture {
           // de->area is relative to drawable (root). If empty, treat as full.
           bool intersects = true;
           if (aw > 0 && ah > 0) {
-            intersects = !(ax + aw <= crop_x_ || ax >= crop_x_ + crop_w_ ||
-                           ay + ah <= crop_y_ || ay >= crop_y_ + crop_h_);
+            intersects = !(ax + aw <= crop_x_ || ax >= crop_x_ + crop_w_ || ay + ah <= crop_y_ ||
+                           ay >= crop_y_ + crop_h_);
           }
           if (intersects) {
             has_damage = true;
@@ -977,8 +1024,8 @@ class X11DisplayCapture : public IDisplayCapture {
           d[3] = 255;
         } else {
           const uint32_t inv = 255 - a;
-          d[0] = static_cast<uint8_t>((( c        & 0xFF) * a + d[0] * inv) / 255);
-          d[1] = static_cast<uint8_t>((((c >> 8)  & 0xFF) * a + d[1] * inv) / 255);
+          d[0] = static_cast<uint8_t>(((c & 0xFF) * a + d[0] * inv) / 255);
+          d[1] = static_cast<uint8_t>((((c >> 8) & 0xFF) * a + d[1] * inv) / 255);
           d[2] = static_cast<uint8_t>((((c >> 16) & 0xFF) * a + d[2] * inv) / 255);
           d[3] = 255;
         }
@@ -988,7 +1035,7 @@ class X11DisplayCapture : public IDisplayCapture {
   }
 
   void CaptureLoop() {
-    constexpr int kDamageSkipThreshold = 3; // N vsyncs without damage => skip capture
+    constexpr int kDamageSkipThreshold = 3;  // N vsyncs without damage => skip capture
     while (running_.load()) {
       int fps = std::max(target_fps_.load(), 1);
       auto frame_interval = std::chrono::microseconds(1000000 / fps);
@@ -1027,7 +1074,8 @@ class X11DisplayCapture : public IDisplayCapture {
           if (undamaged_frames_ >= kDamageSkipThreshold) {
             capture_skipped_.fetch_add(1, std::memory_order_relaxed);
             // Still sleep to maintain vsync cadence, but skip XShmGetImage
-            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time);
+            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - start_time);
             if (elapsed < frame_interval) {
               std::this_thread::sleep_for(frame_interval - elapsed);
             }
@@ -1057,8 +1105,8 @@ class X11DisplayCapture : public IDisplayCapture {
       }
       if (!image) {
         // Fallback to XGetImage – must not break existing X11 capture path
-        image = XGetImage(display_, capture_drawable, capture_x, capture_y, crop_w_, crop_h_,
-                          AllPlanes, ZPixmap);
+        image = XGetImage(
+            display_, capture_drawable, capture_x, capture_y, crop_w_, crop_h_, AllPlanes, ZPixmap);
         image_owned = (image != nullptr);
       }
 
@@ -1089,7 +1137,8 @@ class X11DisplayCapture : public IDisplayCapture {
         }
       }
 
-      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time);
+      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - start_time);
       if (elapsed < frame_interval) {
         std::this_thread::sleep_for(frame_interval - elapsed);
       }
@@ -1186,4 +1235,4 @@ std::unique_ptr<IDisplayCapture> DisplayCaptureFactory::CreateSynthetic(int widt
   return std::make_unique<SyntheticDisplayCapture>(width, height);
 }
 
-} // namespace castcore
+}  // namespace castcore

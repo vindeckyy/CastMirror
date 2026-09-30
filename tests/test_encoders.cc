@@ -96,7 +96,8 @@ TEST(EncoderTest, VideoEncoderProducesH264AnnexBNALUs) {
 
   // Check for Annex-B start code (0x00 0x00 0x00 0x01 or 0x00 0x00 0x01)
   ASSERT_GE(ef.data.size(), 4u);
-  bool has_annex_b = (ef.data[0] == 0 && ef.data[1] == 0 && (ef.data[2] == 1 || (ef.data[2] == 0 && ef.data[3] == 1)));
+  bool has_annex_b = (ef.data[0] == 0 && ef.data[1] == 0 &&
+                      (ef.data[2] == 1 || (ef.data[2] == 0 && ef.data[3] == 1)));
   EXPECT_TRUE(has_annex_b);
 
   unsetenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE");
@@ -151,8 +152,8 @@ TEST(EncoderTest, VideoEncoderNameIsNonEmpty) {
   auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
   ASSERT_TRUE(encoder->Initialize(cfg));
   std::string name = encoder->EncoderName();
-  EXPECT_TRUE(name == "libx264" || name == "h264_vaapi" ||
-              name == "mf_h264_hw" || name == "mf_h264_sw");
+  EXPECT_TRUE(name == "libx264" || name == "h264_vaapi" || name == "mf_h264_hw" ||
+              name == "mf_h264_sw");
 }
 
 // The Media Foundation backend reuses one input media buffer and one input
@@ -166,8 +167,15 @@ TEST(EncoderTest, VideoEncoderHandlesSizeChangesAcrossReuse) {
   auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
   ASSERT_NE(encoder, nullptr);
 
-  const struct { int w; int h; } shapes[] = {
-      {320, 240}, {640, 360}, {320, 240}, {1920, 1080}, {640, 360},
+  const struct {
+    int w;
+    int h;
+  } shapes[] = {
+      {320, 240},
+      {640, 360},
+      {320, 240},
+      {1920, 1080},
+      {640, 360},
   };
 
   for (const auto& shape : shapes) {
@@ -568,4 +576,3 @@ TEST(EncoderTest, HEVCRequestFallsBackToH264) {
   ASSERT_TRUE(encoder->Initialize(cfg));
   EXPECT_EQ(encoder->GetConfig().codec, VideoCodec::kH264);
 }
-

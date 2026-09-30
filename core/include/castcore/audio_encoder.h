@@ -36,6 +36,6 @@ class AudioEncoderFactory {
   static std::unique_ptr<IAudioEncoder> Create(AudioCodec codec = AudioCodec::kOpus);
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_AUDIO_ENCODER_H_
+#endif  // CASTCORE_AUDIO_ENCODER_H_

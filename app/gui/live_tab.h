@@ -48,7 +48,7 @@ class LiveTab {
   GtkWidget* root_widget_ = nullptr;  // GtkStack
 
   // Pages in GtkStack
-  GtkWidget* empty_page_ = nullptr;   // AdwStatusPage
+  GtkWidget* empty_page_ = nullptr;  // AdwStatusPage
   GtkWidget* failed_page_ = nullptr;  // AdwStatusPage
   GtkWidget* session_scroller_ = nullptr;  // GtkScrolledWindow
 
@@ -127,6 +127,5 @@ class LiveTab {
 };
 
 }  // namespace castcore::gui
-
 
 #endif  // CASTMIRROR_GUI_LIVE_TAB_H_

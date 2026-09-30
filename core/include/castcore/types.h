@@ -16,11 +16,11 @@ namespace castcore {
 // Quality presets for user-visible quality control (Auto / High / Balanced / Smooth / Game / Cinema)
 enum class QualityPreset {
   kAuto,
-  kHigh,       // Max quality: 1080p60 / 4K30, high bitrate (~8-12 Mbps)
-  kBalanced,   // Balanced: 1080p30 / 1080p60, balanced bitrate (~5 Mbps)
-  kSmooth,     // Smooth: 720p60 / 720p30, lower bitrate (~2.5-3.5 Mbps), low latency
-  kGame,       // Game (Ultra-Low Latency): 150ms delay, locked adaptive resolution
-  kCinema      // Cinema (Max Quality): 400ms delay, maximum bit budget (~16 Mbps)
+  kHigh,  // Max quality: 1080p60 / 4K30, high bitrate (~8-12 Mbps)
+  kBalanced,  // Balanced: 1080p30 / 1080p60, balanced bitrate (~5 Mbps)
+  kSmooth,  // Smooth: 720p60 / 720p30, lower bitrate (~2.5-3.5 Mbps), low latency
+  kGame,  // Game (Ultra-Low Latency): 150ms delay, locked adaptive resolution
+  kCinema  // Cinema (Max Quality): 400ms delay, maximum bit budget (~16 Mbps)
 };
 
 inline const char* QualityPresetToString(QualityPreset preset) {
@@ -128,25 +128,19 @@ inline bool CheckCaptureInvariant(bool is_active, bool capture_running,
 }
 
 #define CASTCORE_CHECK_CAPTURE_INVARIANT(is_active_expr, capture_running_expr) \
-  (void)::castcore::CheckCaptureInvariant((is_active_expr), (capture_running_expr), \
-                                         __func__)
+  (void)::castcore::CheckCaptureInvariant((is_active_expr), (capture_running_expr), __func__)
 
 // Helper to verify Stop budget: measure StopMediaPipeline duration.
 // Returns elapsed ms and logs WARN if > 400ms (Stop contract is <=500ms).
 inline long MeasureStopBudgetMs(std::chrono::steady_clock::time_point start) {
   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now() - start).count();
+                     std::chrono::steady_clock::now() - start)
+                     .count();
   return elapsed;
 }
 
 // Video Codecs
-enum class VideoCodec {
-  kH264,
-  kVP8,
-  kVP9,
-  kHEVC,
-  kAV1
-};
+enum class VideoCodec { kH264, kVP8, kVP9, kHEVC, kAV1 };
 
 inline const char* VideoCodecToString(VideoCodec codec) {
   switch (codec) {
@@ -160,10 +154,7 @@ inline const char* VideoCodecToString(VideoCodec codec) {
 }
 
 // Audio Codecs
-enum class AudioCodec {
-  kOpus,
-  kAAC
-};
+enum class AudioCodec { kOpus, kAAC };
 
 inline const char* AudioCodecToString(AudioCodec codec) {
   switch (codec) {
@@ -174,11 +165,7 @@ inline const char* AudioCodecToString(AudioCodec codec) {
 }
 
 // Device status
-enum class DeviceStatus {
-  kReady,
-  kBusy,
-  kOffline
-};
+enum class DeviceStatus { kReady, kBusy, kOffline };
 
 inline const char* DeviceStatusToString(DeviceStatus status) {
   switch (status) {
@@ -200,21 +187,18 @@ enum CapabilityFlags : uint32_t {
 
 // Information about a discovered Cast Device
 struct CastDevice {
-  std::string id;             // UUID from 'id' TXT record
-  std::string name;           // Friendly name from 'fn' TXT record
-  std::string model_name;     // Hardware model from 'md' TXT record (e.g. "Chromecast", "Chromecast Ultra")
-  std::string ip_address;     // IPv4 address
-  uint16_t port = 8009;       // Port (default 8009)
+  std::string id;  // UUID from 'id' TXT record
+  std::string name;  // Friendly name from 'fn' TXT record
+  std::string
+      model_name;  // Hardware model from 'md' TXT record (e.g. "Chromecast", "Chromecast Ultra")
+  std::string ip_address;  // IPv4 address
+  uint16_t port = 8009;  // Port (default 8009)
   DeviceStatus status = DeviceStatus::kReady;
   uint32_t capabilities = 0;  // Bitmask from 'ca'
   std::chrono::steady_clock::time_point last_seen;
 
-  bool HasVideoOut() const {
-    return (capabilities & kCapVideoOut) != 0 || capabilities == 0;
-  }
-  bool HasAudioOut() const {
-    return (capabilities & kCapAudioOut) != 0 || capabilities == 0;
-  }
+  bool HasVideoOut() const { return (capabilities & kCapVideoOut) != 0 || capabilities == 0; }
+  bool HasAudioOut() const { return (capabilities & kCapAudioOut) != 0 || capabilities == 0; }
 };
 
 // Display / Monitor Information
@@ -230,15 +214,12 @@ struct DisplayInfo {
 };
 
 // Capture source kind: a physical monitor or a single application window.
-enum class CaptureSourceKind {
-  kMonitor,
-  kWindow
-};
+enum class CaptureSourceKind { kMonitor, kWindow };
 
 inline const char* CaptureSourceKindToString(CaptureSourceKind kind) {
   switch (kind) {
     case CaptureSourceKind::kMonitor: return "monitor";
-    case CaptureSourceKind::kWindow:  return "window";
+    case CaptureSourceKind::kWindow: return "window";
   }
   return "monitor";
 }
@@ -262,11 +243,9 @@ struct CaptureSource {
   int height = 0;
 
   bool IsMonitor() const { return kind == CaptureSourceKind::kMonitor; }
-  bool IsWindow() const  { return kind == CaptureSourceKind::kWindow; }
+  bool IsWindow() const { return kind == CaptureSourceKind::kWindow; }
 
-  bool operator==(const CaptureSource& o) const {
-    return kind == o.kind && id == o.id;
-  }
+  bool operator==(const CaptureSource& o) const { return kind == o.kind && id == o.id; }
   bool operator!=(const CaptureSource& o) const { return !(*this == o); }
 };
 
@@ -288,19 +267,12 @@ struct Resolution {
   int width = 1920;
   int height = 1080;
 
-  bool operator==(const Resolution& o) const {
-    return width == o.width && height == o.height;
-  }
-  bool operator!=(const Resolution& o) const {
-    return !(*this == o);
-  }
+  bool operator==(const Resolution& o) const { return width == o.width && height == o.height; }
+  bool operator!=(const Resolution& o) const { return !(*this == o); }
 };
 
 // Frame Dependency
-enum class FrameDependency {
-  kKeyFrame,
-  kDependent
-};
+enum class FrameDependency { kKeyFrame, kDependent };
 
 // Encoded Frame Metadata and Buffer
 struct EncodedFrame {
@@ -329,8 +301,8 @@ struct CapturedVideoFrame {
   int dmabuf_stride = 0;
   int dmabuf_offset_y = 0;
   int dmabuf_offset_uv = 0;
-  uint64_t dmabuf_modifier = 0; // DRM_FORMAT_MOD_INVALID sentinel, 0 = unknown
-  uint32_t dmabuf_format = 0;   // DRM FourCC format (e.g. DRM_FORMAT_NV12)
+  uint64_t dmabuf_modifier = 0;  // DRM_FORMAT_MOD_INVALID sentinel, 0 = unknown
+  uint32_t dmabuf_format = 0;  // DRM FourCC format (e.g. DRM_FORMAT_NV12)
   bool has_cursor = false;
   int cursor_x = 0;
   int cursor_y = 0;
@@ -350,7 +322,7 @@ struct CapturedVideoFrame {
 struct CapturedAudioFrame {
   int sample_rate = 48000;
   int channels = 2;
-  int samples_per_channel = 480; // 10ms frame
+  int samples_per_channel = 480;  // 10ms frame
   std::chrono::steady_clock::time_point timestamp;
   std::vector<uint8_t> pcm_data;
 };
@@ -381,7 +353,7 @@ struct StreamStats {
   bool adaptive_enabled = true;
   int recovery_attempt = 0;
   int recovery_elapsed_s = 0;
-  uint64_t capture_skipped = 0; // XDamage / PipeWire skip optimization
+  uint64_t capture_skipped = 0;  // XDamage / PipeWire skip optimization
   uint64_t video_frames_dropped_capture = 0;
   uint64_t video_queue_overruns = 0;
   std::string health_hint;
@@ -392,9 +364,9 @@ struct SessionOptions {
   QualityPreset preset = QualityPreset::kAuto;
   bool enable_audio = true;
   VideoCodec video_codec = VideoCodec::kH264;
-  uint32_t video_bitrate_kbps = 0;      // 0 = preset default
+  uint32_t video_bitrate_kbps = 0;  // 0 = preset default
   uint32_t audio_bitrate_bps = 192000;
-  int capture_fps = 0;                  // 0 = follow display refresh
+  int capture_fps = 0;  // 0 = follow display refresh
   int target_delay_ms = 200;
   // Ignored on Windows: zeroing the endpoint volume can mute WASAPI loopback
   // capture (driver-dependent), which would send silence to the receiver.
@@ -430,6 +402,6 @@ inline constexpr const char* kPlatformSenderId = "sender-0";
 inline constexpr const char* kPlatformReceiverId = "receiver-0";
 inline constexpr const char* kBroadcastId = "*";
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_TYPES_H_
+#endif  // CASTCORE_TYPES_H_

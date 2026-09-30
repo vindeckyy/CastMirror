@@ -49,8 +49,7 @@ BOOL WINAPI ConsoleCtrlHandler(DWORD type) {
       // Shutdown(), leaving the receiver to time the session out.
       g_interrupted.store(true);
       return TRUE;
-    default:
-      return FALSE;
+    default: return FALSE;
   }
 }
 #endif
@@ -134,21 +133,25 @@ void PrintBanner() {
 }
 
 void PrintHelp() {
-  std::cout << "Usage: castmirror [options]\n\n"
-            << "Options:\n"
-            << "  --device <IP or ID>     Target Cast device IP or UUID\n"
-            << "  --display <ID>          Display/Monitor index (default: 0)\n"
-            << "  --window <ID>           Share a single window by ID (use --list-windows to find IDs)\n"
-            << "  --list-windows          List available windows and exit\n"
-            << "  --list-displays         List available displays and exit\n"
-            << "  --preset <preset>       Quality preset: Auto, High, Balanced, Smooth, Game, Cinema (default: Auto)\n"
-            << "  --no-audio              Disable audio mirroring\n"
-            << "  --bitrate <kbps>        Custom video bitrate in kbps\n"
-            << "  --codec <h264|vp8>      Select video codec (h264 or vp8, default: h264)\n"
-            << "  --low-latency           Force 200ms target playout delay\n"
-            << "  --no-verify             Bypass Cast device certificate verification (dev escape hatch)\n"
-            << "  --auth-probe <IP>       Connect to a device and run the device-auth challenge, then exit\n"
-            << "  --help                  Show this help message\n\n";
+  std::cout
+      << "Usage: castmirror [options]\n\n"
+      << "Options:\n"
+      << "  --device <IP or ID>     Target Cast device IP or UUID\n"
+      << "  --display <ID>          Display/Monitor index (default: 0)\n"
+      << "  --window <ID>           Share a single window by ID (use --list-windows to find IDs)\n"
+      << "  --list-windows          List available windows and exit\n"
+      << "  --list-displays         List available displays and exit\n"
+      << "  --preset <preset>       Quality preset: Auto, High, Balanced, Smooth, Game, Cinema "
+         "(default: Auto)\n"
+      << "  --no-audio              Disable audio mirroring\n"
+      << "  --bitrate <kbps>        Custom video bitrate in kbps\n"
+      << "  --codec <h264|vp8>      Select video codec (h264 or vp8, default: h264)\n"
+      << "  --low-latency           Force 200ms target playout delay\n"
+      << "  --no-verify             Bypass Cast device certificate verification (dev escape "
+         "hatch)\n"
+      << "  --auth-probe <IP>       Connect to a device and run the device-auth challenge, then "
+         "exit\n"
+      << "  --help                  Show this help message\n\n";
 }
 
 int main(int argc, char** argv) {
@@ -213,7 +216,8 @@ int main(int argc, char** argv) {
       const std::string value = value_for("--window");
       long long parsed = 0;
       if (!ParseInteger(value, 0, std::numeric_limits<int>::max(), &parsed)) {
-        UsageError("invalid --window value '" + value + "' (expected a window id from --list-windows)");
+        UsageError("invalid --window value '" + value +
+                   "' (expected a window id from --list-windows)");
       }
       window_id_arg = value;
       interactive_mode = false;
@@ -223,10 +227,16 @@ int main(int argc, char** argv) {
       list_displays = true;
     } else if (arg == "--preset") {
       const std::string value = value_for("--preset");
-      static const struct { const char* name; QualityPreset preset; } kPresets[] = {
-          {"auto", QualityPreset::kAuto},     {"high", QualityPreset::kHigh},
-          {"balanced", QualityPreset::kBalanced}, {"smooth", QualityPreset::kSmooth},
-          {"game", QualityPreset::kGame},     {"cinema", QualityPreset::kCinema},
+      static const struct {
+        const char* name;
+        QualityPreset preset;
+      } kPresets[] = {
+          {"auto", QualityPreset::kAuto},
+          {"high", QualityPreset::kHigh},
+          {"balanced", QualityPreset::kBalanced},
+          {"smooth", QualityPreset::kSmooth},
+          {"game", QualityPreset::kGame},
+          {"cinema", QualityPreset::kCinema},
       };
       bool matched = false;
       for (const auto& entry : kPresets) {
@@ -332,8 +342,8 @@ int main(int argc, char** argv) {
     } else {
       std::cout << "\n\033[1;33m--- Available Displays ---\033[0m\n";
       for (const auto& d : displays) {
-        std::cout << "  [" << d.id << "] " << d.name << " (" << d.width << "x" << d.height
-                  << " @ " << d.refresh_rate << "Hz)" << (d.is_primary ? " [Primary]" : "") << "\n";
+        std::cout << "  [" << d.id << "] " << d.name << " (" << d.width << "x" << d.height << " @ "
+                  << d.refresh_rate << "Hz)" << (d.is_primary ? " [Primary]" : "") << "\n";
       }
     }
     engine.Shutdown();
@@ -369,19 +379,21 @@ int main(int argc, char** argv) {
       // Resolve window title for stats/persistence.
       std::string win_title;
       for (const auto& w : engine.GetWindows()) {
-        if (w.id == win_id) { win_title = w.title; break; }
+        if (w.id == win_id) {
+          win_title = w.title;
+          break;
+        }
       }
       CaptureSource source{CaptureSourceKind::kWindow, win_id, win_title};
       overrides.source = source;
       std::cout << "Initiating Cast of window [" << win_id << "]"
-                << (win_title.empty() ? "" : (" (" + win_title + ")"))
-                << " to " << target_device_arg << "...\n";
-      started = engine.StartCasting(target_device_arg, source,
-                                    BuildSessionOptions(cfg, overrides));
+                << (win_title.empty() ? "" : (" (" + win_title + ")")) << " to "
+                << target_device_arg << "...\n";
+      started = engine.StartCasting(target_device_arg, source, BuildSessionOptions(cfg, overrides));
     } else {
       std::cout << "Initiating Cast to " << target_device_arg << "...\n";
-      started = engine.StartCasting(target_device_arg, display_id_arg,
-                                    BuildSessionOptions(cfg, overrides));
+      started = engine.StartCasting(
+          target_device_arg, display_id_arg, BuildSessionOptions(cfg, overrides));
     }
 
     if (!started) {
@@ -436,10 +448,10 @@ int main(int argc, char** argv) {
       std::cout << "  (No devices found yet. Press [R] to rescan or [A] to add manual IP)\n";
     } else {
       for (size_t i = 0; i < devices.size(); ++i) {
-        std::cout << "  [" << (i + 1) << "] " << devices[i].name
-                  << " \033[32m(" << devices[i].model_name << ")\033[0m"
-                  << " @ " << devices[i].ip_address
-                  << " [" << DeviceStatusToString(devices[i].status) << "]\n";
+        std::cout << "  [" << (i + 1) << "] " << devices[i].name << " \033[32m("
+                  << devices[i].model_name << ")\033[0m"
+                  << " @ " << devices[i].ip_address << " ["
+                  << DeviceStatusToString(devices[i].status) << "]\n";
       }
     }
 
@@ -465,12 +477,14 @@ int main(int argc, char** argv) {
     std::cout << "  Audio Mirroring: " << (cfg.audio_enabled ? "Enabled" : "Disabled") << "\n";
     std::cout << "  Target Delay   : " << cfg.target_delay_ms << " ms\n";
     if (!cfg.last_device_name.empty()) {
-      std::cout << "  Last Device    : " << cfg.last_device_name << " (" << cfg.last_device_ip << ")\n";
+      std::cout << "  Last Device    : " << cfg.last_device_name << " (" << cfg.last_device_ip
+                << ")\n";
     }
 
     std::cout << "\n\033[1;32mActions:\033[0m\n";
     std::cout << "  [1-" << std::max<size_t>(1, devices.size()) << "] Select device & Cast\n";
-    std::cout << "  [L] Cast to Last Device (" << (cfg.last_device_name.empty() ? "None" : cfg.last_device_name) << ")\n";
+    std::cout << "  [L] Cast to Last Device ("
+              << (cfg.last_device_name.empty() ? "None" : cfg.last_device_name) << ")\n";
     std::cout << "  [P] Change Quality Preset (Auto / High / Balanced / Smooth / Game / Cinema)\n";
     std::cout << "  [M] Toggle Audio Mirroring\n";
     std::cout << "  [A] Add Device by IP manually\n";
@@ -493,12 +507,18 @@ int main(int argc, char** argv) {
       auto& mcfg = ConfigStore::Instance().Mutable();
       // Cycle mirrors the GUI preset order (app/gui/cast_tab.cc: Auto, High,
       // Balanced, Smooth, Game, Cinema).
-      if (mcfg.quality_preset == QualityPreset::kAuto) mcfg.quality_preset = QualityPreset::kHigh;
-      else if (mcfg.quality_preset == QualityPreset::kHigh) mcfg.quality_preset = QualityPreset::kBalanced;
-      else if (mcfg.quality_preset == QualityPreset::kBalanced) mcfg.quality_preset = QualityPreset::kSmooth;
-      else if (mcfg.quality_preset == QualityPreset::kSmooth) mcfg.quality_preset = QualityPreset::kGame;
-      else if (mcfg.quality_preset == QualityPreset::kGame) mcfg.quality_preset = QualityPreset::kCinema;
-      else mcfg.quality_preset = QualityPreset::kAuto;
+      if (mcfg.quality_preset == QualityPreset::kAuto)
+        mcfg.quality_preset = QualityPreset::kHigh;
+      else if (mcfg.quality_preset == QualityPreset::kHigh)
+        mcfg.quality_preset = QualityPreset::kBalanced;
+      else if (mcfg.quality_preset == QualityPreset::kBalanced)
+        mcfg.quality_preset = QualityPreset::kSmooth;
+      else if (mcfg.quality_preset == QualityPreset::kSmooth)
+        mcfg.quality_preset = QualityPreset::kGame;
+      else if (mcfg.quality_preset == QualityPreset::kGame)
+        mcfg.quality_preset = QualityPreset::kCinema;
+      else
+        mcfg.quality_preset = QualityPreset::kAuto;
       ConfigStore::Instance().Save();
     } else if (input == "M" || input == "m") {
       auto& mcfg = ConfigStore::Instance().Mutable();
@@ -537,7 +557,10 @@ int main(int argc, char** argv) {
         int win_id = std::stoi(win_input);
         std::string win_title;
         for (const auto& w : windows) {
-          if (w.id == win_id) { win_title = w.title; break; }
+          if (w.id == win_id) {
+            win_title = w.title;
+            break;
+          }
         }
         if (win_title.empty()) {
           std::cout << "Window ID " << win_id << " not found.\n";
@@ -569,8 +592,10 @@ int main(int argc, char** argv) {
         if (idx >= 1 && idx <= devices.size()) {
           const auto& dev = devices[idx - 1];
           std::cout << "\nConnecting to " << dev.name << "...\n";
-          if (engine.StartCasting(dev.id, cfg.last_display_id, cfg.quality_preset, cfg.audio_enabled)) {
-            std::cout << "\n\033[1;32m[LIVE] Mirroring active! Press Enter to stop casting.\033[0m\n";
+          if (engine.StartCasting(
+                  dev.id, cfg.last_display_id, cfg.quality_preset, cfg.audio_enabled)) {
+            std::cout
+                << "\n\033[1;32m[LIVE] Mirroring active! Press Enter to stop casting.\033[0m\n";
             std::cin.ignore();
             std::cin.get();
             engine.StopCasting();

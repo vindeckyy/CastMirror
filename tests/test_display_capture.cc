@@ -84,7 +84,9 @@ bool X11Available() {
   return true;
 }
 
-int EvenRound(int v) { return v & ~1; }
+int EvenRound(int v) {
+  return v & ~1;
+}
 #endif
 
 }  // namespace
@@ -182,11 +184,22 @@ class DesktopChangeProbe {
       wc.hInstance = GetModuleHandleA(nullptr);
       wc.lpszClassName = "CastMirrorPacingProbe";
       RegisterClassA(&wc);
-      HWND hwnd = CreateWindowExA(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, wc.lpszClassName, "", WS_POPUP | WS_VISIBLE,
-                                  0, 0, 120, 120, nullptr, nullptr, wc.hInstance, nullptr);
+      HWND hwnd = CreateWindowExA(WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+                                  wc.lpszClassName,
+                                  "",
+                                  WS_POPUP | WS_VISIBLE,
+                                  0,
+                                  0,
+                                  120,
+                                  120,
+                                  nullptr,
+                                  nullptr,
+                                  wc.hInstance,
+                                  nullptr);
       if (hwnd == nullptr) return;
       for (int i = 0; running_ && i < 5000; ++i) {
-        SetWindowPos(hwnd, HWND_TOPMOST, 80 + (i * 13) % 600, 80 + (i * 7) % 400, 120, 120, SWP_NOACTIVATE);
+        SetWindowPos(
+            hwnd, HWND_TOPMOST, 80 + (i * 13) % 600, 80 + (i * 7) % 400, 120, 120, SWP_NOACTIVATE);
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
       }
       DestroyWindow(hwnd);
@@ -206,8 +219,8 @@ class DesktopChangeProbe {
 // Steady cadence: the requested rate ±25% (the first frame lands up to one
 // interval after Start), monotonically advancing timestamps, and no gap beyond
 // ~3 nominal intervals — a count-only check would also pass a burst.
-void ExpectSteadyCadence(const std::vector<std::chrono::steady_clock::time_point>& stamps, int target_fps,
-                         int seconds) {
+void ExpectSteadyCadence(const std::vector<std::chrono::steady_clock::time_point>& stamps,
+                         int target_fps, int seconds) {
   const int count = static_cast<int>(stamps.size());
   const int expected = target_fps * seconds;
   EXPECT_GE(count, expected * 3 / 4) << "too few frames: capture is not paced on an idle desktop";
@@ -218,12 +231,15 @@ void ExpectSteadyCadence(const std::vector<std::chrono::steady_clock::time_point
 
   long long max_gap_ms = 0;
   for (size_t i = 1; i < stamps.size(); ++i) {
-    max_gap_ms = std::max(max_gap_ms,
-                          std::chrono::duration_cast<std::chrono::milliseconds>(stamps[i] - stamps[i - 1]).count());
+    max_gap_ms = std::max(
+        max_gap_ms,
+        std::chrono::duration_cast<std::chrono::milliseconds>(stamps[i] - stamps[i - 1]).count());
   }
-  LOG_INFO << "Paced capture @" << target_fps << "fps: " << count << " frames in " << seconds << " s ("
-           << (count / static_cast<double>(seconds)) << " fps), max gap " << max_gap_ms << " ms";
-  EXPECT_LE(max_gap_ms, 3000 / target_fps) << "cadence gap too large: capture stalls between frames";
+  LOG_INFO << "Paced capture @" << target_fps << "fps: " << count << " frames in " << seconds
+           << " s (" << (count / static_cast<double>(seconds)) << " fps), max gap " << max_gap_ms
+           << " ms";
+  EXPECT_LE(max_gap_ms, 3000 / target_fps)
+      << "cadence gap too large: capture stalls between frames";
 }
 
 struct PacingMeasurement {
@@ -232,7 +248,8 @@ struct PacingMeasurement {
 };
 
 // Runs a capture for `seconds` and collects the emitted frame timestamps.
-PacingMeasurement MeasurePacedFrames(IDisplayCapture* capture, int display_id, int target_fps, int seconds) {
+PacingMeasurement MeasurePacedFrames(IDisplayCapture* capture, int display_id, int target_fps,
+                                     int seconds) {
   PacingMeasurement result;
   std::mutex mutex;
   capture->SetFrameCallback([&](const CapturedVideoFrame& f) {
@@ -261,7 +278,8 @@ TEST_P(WgcPacingTest, WgcCapturePacedFrameRate) {
   }
 
   DesktopChangeProbe probe;
-  PacingMeasurement measured = MeasurePacedFrames(capture.get(), displays.front().id, target_fps, 2);
+  PacingMeasurement measured =
+      MeasurePacedFrames(capture.get(), displays.front().id, target_fps, 2);
   if (!measured.started) {
     GTEST_SKIP() << "Desktop duplication unavailable in this session";
   }
@@ -288,7 +306,8 @@ TEST_P(WgcPacingTest, WgcCapturePacedOnStaticDesktop) {
     GTEST_SKIP() << "No DXGI outputs available";
   }
 
-  PacingMeasurement measured = MeasurePacedFrames(capture.get(), displays.front().id, target_fps, 2);
+  PacingMeasurement measured =
+      MeasurePacedFrames(capture.get(), displays.front().id, target_fps, 2);
   if (!measured.started) {
     GTEST_SKIP() << "Desktop duplication unavailable in this session";
   }
@@ -334,7 +353,8 @@ TEST(DisplayCaptureTest, DmaBufMetadataHandling) {
 
   // Validate NV12 layout constraints
   EXPECT_GE(dmabuf_frame.dmabuf_stride, dmabuf_frame.width);
-  EXPECT_GE(dmabuf_frame.dmabuf_offset_uv, dmabuf_frame.dmabuf_offset_y + dmabuf_frame.dmabuf_stride * dmabuf_frame.height);
+  EXPECT_GE(dmabuf_frame.dmabuf_offset_uv,
+            dmabuf_frame.dmabuf_offset_y + dmabuf_frame.dmabuf_stride * dmabuf_frame.height);
 
   // 3. Cursor plane preservation on DMA-BUF frames
   dmabuf_frame.has_cursor = true;
@@ -405,8 +425,7 @@ TEST(DisplayCaptureTest, SyntheticWindowStartProducesWindowFrames) {
   auto windows = cap->EnumerateWindows();
   ASSERT_FALSE(windows.empty());
 
-  CaptureSource src{CaptureSourceKind::kWindow, windows[0].id, windows[0].title,
-                    0, 0, 320, 240};
+  CaptureSource src{CaptureSourceKind::kWindow, windows[0].id, windows[0].title, 0, 0, 320, 240};
   FrameWatcher watcher;
   cap->SetFrameCallback(watcher.Callback());
   ASSERT_TRUE(cap->Start(src, 10));
@@ -510,5 +529,3 @@ TEST(DisplayCaptureTest, LatencyHudRendersOntoFrameWhenEnabled) {
   EXPECT_EQ(a, 255);
   EXPECT_GT(b, 0);
 }
-
-

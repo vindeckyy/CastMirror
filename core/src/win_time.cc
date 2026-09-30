@@ -39,8 +39,7 @@ std::chrono::steady_clock::time_point QpcTicksToSteadyClock(uint64_t qpc_ticks) 
   std::call_once(g_init_once, InitOnce);
 
   const int64_t delta_ticks = static_cast<int64_t>(qpc_ticks) - g_qpc_origin_ticks;
-  const __int128 delta_ns =
-      static_cast<__int128>(delta_ticks) * 1000000000LL / g_qpc_freq;
+  const __int128 delta_ns = static_cast<__int128>(delta_ticks) * 1000000000LL / g_qpc_freq;
   const int64_t total_ns = g_steady_origin_ns + static_cast<int64_t>(delta_ns);
 
   return std::chrono::steady_clock::time_point(

@@ -9,8 +9,7 @@ namespace castcore {
 
 class FrameCrypto {
  public:
-  FrameCrypto(const std::array<uint8_t, 16>& aes_key,
-              const std::array<uint8_t, 16>& cast_iv_mask);
+  FrameCrypto(const std::array<uint8_t, 16>& aes_key, const std::array<uint8_t, 16>& cast_iv_mask);
   ~FrameCrypto();
 
   // Encrypts payload in-place or into out buffer
@@ -27,6 +26,6 @@ class FrameCrypto {
   std::array<uint8_t, 16> cast_iv_mask_{};
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_FRAME_CRYPTO_H_
+#endif  // CASTCORE_FRAME_CRYPTO_H_

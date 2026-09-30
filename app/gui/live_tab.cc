@@ -28,9 +28,7 @@ std::string GetCurrentTimestampStr() {
   return ss.str();
 }
 
-GtkWidget* MakePipelineNode(const char* title,
-                            const char* icon_name,
-                            const char* default_sub,
+GtkWidget* MakePipelineNode(const char* title, const char* icon_name, const char* default_sub,
                             GtkWidget** out_sub) {
   GtkWidget* node = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   gtk_widget_add_css_class(node, "cm-pipeline-node");
@@ -108,16 +106,14 @@ void LiveTab::BuildUi() {
   gtk_widget_add_css_class(go_cast_btn, "suggested-action");
   gtk_widget_set_halign(go_cast_btn, GTK_ALIGN_CENTER);
   gtk_actionable_set_action_name(GTK_ACTIONABLE(go_cast_btn), "win.page");
-  gtk_actionable_set_action_target_value(GTK_ACTIONABLE(go_cast_btn),
-                                         g_variant_new_string("cast"));
+  gtk_actionable_set_action_target_value(GTK_ACTIONABLE(go_cast_btn), g_variant_new_string("cast"));
   adw_status_page_set_child(ADW_STATUS_PAGE(empty_page_), go_cast_btn);
   gtk_stack_add_named(GTK_STACK(root_widget_), empty_page_, "empty");
 
   // 2. Active Session Page (GtkScrolledWindow -> AdwClamp -> GtkBox)
   session_scroller_ = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(session_scroller_),
-                                 GTK_POLICY_NEVER,
-                                 GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_policy(
+      GTK_SCROLLED_WINDOW(session_scroller_), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 
   GtkWidget* clamp = adw_clamp_new();
   adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 960);
@@ -180,8 +176,8 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(fbox), freeze_lbl_);
   gtk_button_set_child(GTK_BUTTON(freeze_btn_), fbox);
   gtk_widget_set_tooltip_text(freeze_btn_, "Freeze video on TV (stops sending new video frames)");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(freeze_btn_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Freeze TV stream", -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(freeze_btn_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Freeze TV stream", -1);
   g_signal_connect(freeze_btn_, "toggled", G_CALLBACK(OnFreezeToggled), this);
   gtk_box_append(GTK_BOX(live_controls_box_), freeze_btn_);
 
@@ -194,8 +190,8 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(mbox), mute_lbl_);
   gtk_button_set_child(GTK_BUTTON(mute_btn_), mbox);
   gtk_widget_set_tooltip_text(mute_btn_, "Mute/unmute stream audio sent to the Cast device");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(mute_btn_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Mute TV audio", -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(mute_btn_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Mute TV audio", -1);
   g_signal_connect(mute_btn_, "toggled", G_CALLBACK(OnMuteToggled), this);
   gtk_box_append(GTK_BOX(live_controls_box_), mute_btn_);
 
@@ -208,13 +204,17 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(gbox), gicon);
   gtk_box_append(GTK_BOX(gbox), glbl);
   gtk_button_set_child(GTK_BUTTON(game_mode_btn_), gbox);
-  gtk_widget_set_tooltip_text(game_mode_btn_, "Quick toggle Game mode: ultra-low latency (150ms), locks resolution");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(game_mode_btn_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Switch to Game Mode", -1);
-  g_signal_connect(game_mode_btn_, "clicked", G_CALLBACK(+[](GtkButton*, gpointer user_data) {
-    auto* self = static_cast<LiveTab*>(user_data);
-    self->OnGameModeClicked();
-  }), this);
+  gtk_widget_set_tooltip_text(
+      game_mode_btn_, "Quick toggle Game mode: ultra-low latency (150ms), locks resolution");
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(game_mode_btn_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Switch to Game Mode", -1);
+  g_signal_connect(game_mode_btn_,
+                   "clicked",
+                   G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+                     auto* self = static_cast<LiveTab*>(user_data);
+                     self->OnGameModeClicked();
+                   }),
+                   this);
   gtk_box_append(GTK_BOX(live_controls_box_), game_mode_btn_);
 
   // Quick-toggle for Cinema mode (400ms delay, full bit budget)
@@ -226,13 +226,17 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(cbox), cicon);
   gtk_box_append(GTK_BOX(cbox), clbl);
   gtk_button_set_child(GTK_BUTTON(cinema_mode_btn_), cbox);
-  gtk_widget_set_tooltip_text(cinema_mode_btn_, "Quick toggle Cinema mode: high buffer (400ms), maximum quality budget");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(cinema_mode_btn_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, "Switch to Cinema Mode", -1);
-  g_signal_connect(cinema_mode_btn_, "clicked", G_CALLBACK(+[](GtkButton*, gpointer user_data) {
-    auto* self = static_cast<LiveTab*>(user_data);
-    self->OnCinemaModeClicked();
-  }), this);
+  gtk_widget_set_tooltip_text(
+      cinema_mode_btn_, "Quick toggle Cinema mode: high buffer (400ms), maximum quality budget");
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(cinema_mode_btn_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Switch to Cinema Mode", -1);
+  g_signal_connect(cinema_mode_btn_,
+                   "clicked",
+                   G_CALLBACK(+[](GtkButton*, gpointer user_data) {
+                     auto* self = static_cast<LiveTab*>(user_data);
+                     self->OnCinemaModeClicked();
+                   }),
+                   this);
   gtk_box_append(GTK_BOX(live_controls_box_), cinema_mode_btn_);
 
   gtk_box_append(GTK_BOX(live_controls_box_), hero_status_pill_);
@@ -249,9 +253,8 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(pipe_card_), pipe_header);
 
   GtkWidget* pipe_scroller = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(pipe_scroller),
-                                 GTK_POLICY_AUTOMATIC,
-                                 GTK_POLICY_NEVER);
+  gtk_scrolled_window_set_policy(
+      GTK_SCROLLED_WINDOW(pipe_scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
 
   GtkWidget* pipe_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(pipe_scroller), pipe_hbox);
@@ -261,23 +264,28 @@ void LiveTab::BuildUi() {
     gtk_image_set_pixel_size(GTK_IMAGE(img), 16);
     gtk_widget_set_valign(img, GTK_ALIGN_CENTER);
     gtk_widget_add_css_class(img, "dim-label");
-    gtk_accessible_update_property(GTK_ACCESSIBLE(img), GTK_ACCESSIBLE_PROPERTY_LABEL, "separator", -1);
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(img), GTK_ACCESSIBLE_PROPERTY_LABEL, "separator", -1);
     return img;
   };
 
-  pipe_screen_node_ = MakePipelineNode("Screen", "video-single-display-symbolic", "—", &pipe_screen_sub_);
+  pipe_screen_node_ =
+      MakePipelineNode("Screen", "video-single-display-symbolic", "—", &pipe_screen_sub_);
   gtk_box_append(GTK_BOX(pipe_hbox), pipe_screen_node_);
   gtk_box_append(GTK_BOX(pipe_hbox), make_chevron());
 
-  pipe_capture_node_ = MakePipelineNode("Capture", "camera-video-symbolic", "—", &pipe_capture_sub_);
+  pipe_capture_node_ =
+      MakePipelineNode("Capture", "camera-video-symbolic", "—", &pipe_capture_sub_);
   gtk_box_append(GTK_BOX(pipe_hbox), pipe_capture_node_);
   gtk_box_append(GTK_BOX(pipe_hbox), make_chevron());
 
-  pipe_encode_node_ = MakePipelineNode("Encode", "applications-engineering-symbolic", "—", &pipe_encode_sub_);
+  pipe_encode_node_ =
+      MakePipelineNode("Encode", "applications-engineering-symbolic", "—", &pipe_encode_sub_);
   gtk_box_append(GTK_BOX(pipe_hbox), pipe_encode_node_);
   gtk_box_append(GTK_BOX(pipe_hbox), make_chevron());
 
-  pipe_network_node_ = MakePipelineNode("Network", "network-transmit-receive-symbolic", "—", &pipe_network_sub_);
+  pipe_network_node_ =
+      MakePipelineNode("Network", "network-transmit-receive-symbolic", "—", &pipe_network_sub_);
   gtk_box_append(GTK_BOX(pipe_hbox), pipe_network_node_);
   gtk_box_append(GTK_BOX(pipe_hbox), make_chevron());
 
@@ -319,33 +327,52 @@ void LiveTab::BuildUi() {
   gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(flow_box), 12);
   gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(flow_box), 12);
 
-  spark_fps_ = std::make_unique<Sparkline>(40, 0.0f, 65.0f, 0.46, 0.84, 0.63);      // Green #75D6A1
-  spark_bitrate_ = std::make_unique<Sparkline>(40, 0.0f, 25.0f, 0.0, 0.82, 1.0);    // Cyan #00D2FF
-  spark_rtt_ = std::make_unique<Sparkline>(40, 0.0f, 100.0f, 0.64, 0.47, 1.0);      // Purple #A277FF
-  spark_loss_ = std::make_unique<Sparkline>(40, 0.0f, 10.0f, 0.95, 0.78, 0.43);     // Amber #F2C66D
+  spark_fps_ = std::make_unique<Sparkline>(40, 0.0f, 65.0f, 0.46, 0.84, 0.63);  // Green #75D6A1
+  spark_bitrate_ = std::make_unique<Sparkline>(40, 0.0f, 25.0f, 0.0, 0.82, 1.0);  // Cyan #00D2FF
+  spark_rtt_ = std::make_unique<Sparkline>(40, 0.0f, 100.0f, 0.64, 0.47, 1.0);  // Purple #A277FF
+  spark_loss_ = std::make_unique<Sparkline>(40, 0.0f, 10.0f, 0.95, 0.78, 0.43);  // Amber #F2C66D
 
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCardWithSparkline("Frame rate", "media-playback-start-symbolic",
-                                               copy::kStatFpsHelp, &val_fps_, spark_fps_->GetWidget()));
+                      MakeStatCardWithSparkline("Frame rate",
+                                                "media-playback-start-symbolic",
+                                                copy::kStatFpsHelp,
+                                                &val_fps_,
+                                                spark_fps_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCardWithSparkline("Video bitrate", "network-transmit-symbolic",
-                                               copy::kStatBitrateHelp, &val_bitrate_, spark_bitrate_->GetWidget()));
+                      MakeStatCardWithSparkline("Video bitrate",
+                                                "network-transmit-symbolic",
+                                                copy::kStatBitrateHelp,
+                                                &val_bitrate_,
+                                                spark_bitrate_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCardWithSparkline("Round-trip time", "alarm-symbolic",
-                                               copy::kStatRttHelp, &val_rtt_, spark_rtt_->GetWidget()));
+                      MakeStatCardWithSparkline("Round-trip time",
+                                                "alarm-symbolic",
+                                                copy::kStatRttHelp,
+                                                &val_rtt_,
+                                                spark_rtt_->GetWidget()));
   gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCardWithSparkline("Packet loss", "network-error-symbolic",
-                                               copy::kStatLossHelp, &val_loss_, spark_loss_->GetWidget()));
-  gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Target delay", "preferences-system-time-symbolic", copy::kStatDelayHelp, &val_delay_));
-  gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Output", "video-single-display-symbolic", copy::kStatSizeHelp, &val_size_));
-  gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Encoder", "applications-engineering-symbolic", copy::kStatEncoderHelp, &val_encoder_));
-  gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Repairs", "error-correct-symbolic", copy::kStatRepairsHelp, &val_repairs_));
-  gtk_flow_box_append(GTK_FLOW_BOX(flow_box),
-                      MakeStatCard("Total sent", "document-send-symbolic", copy::kStatSentHelp, &val_sent_));
+                      MakeStatCardWithSparkline("Packet loss",
+                                                "network-error-symbolic",
+                                                copy::kStatLossHelp,
+                                                &val_loss_,
+                                                spark_loss_->GetWidget()));
+  gtk_flow_box_append(
+      GTK_FLOW_BOX(flow_box),
+      MakeStatCard(
+          "Target delay", "preferences-system-time-symbolic", copy::kStatDelayHelp, &val_delay_));
+  gtk_flow_box_append(
+      GTK_FLOW_BOX(flow_box),
+      MakeStatCard("Output", "video-single-display-symbolic", copy::kStatSizeHelp, &val_size_));
+  gtk_flow_box_append(
+      GTK_FLOW_BOX(flow_box),
+      MakeStatCard(
+          "Encoder", "applications-engineering-symbolic", copy::kStatEncoderHelp, &val_encoder_));
+  gtk_flow_box_append(
+      GTK_FLOW_BOX(flow_box),
+      MakeStatCard("Repairs", "error-correct-symbolic", copy::kStatRepairsHelp, &val_repairs_));
+  gtk_flow_box_append(
+      GTK_FLOW_BOX(flow_box),
+      MakeStatCard("Total sent", "document-send-symbolic", copy::kStatSentHelp, &val_sent_));
 
   gtk_box_append(GTK_BOX(stats_section), flow_box);
   gtk_box_append(GTK_BOX(content_box), stats_section);
@@ -358,9 +385,8 @@ void LiveTab::BuildUi() {
   gtk_box_append(GTK_BOX(ladder_section), ladder_header);
 
   GtkWidget* ladder_scroller = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ladder_scroller),
-                                 GTK_POLICY_AUTOMATIC,
-                                 GTK_POLICY_NEVER);
+  gtk_scrolled_window_set_policy(
+      GTK_SCROLLED_WINDOW(ladder_scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
 
   ladder_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_widget_set_hexpand(ladder_box_, TRUE);
@@ -413,8 +439,7 @@ void LiveTab::BuildUi() {
   failed_page_ = adw_status_page_new();
   adw_status_page_set_icon_name(ADW_STATUS_PAGE(failed_page_), "dialog-error-symbolic");
   adw_status_page_set_title(ADW_STATUS_PAGE(failed_page_), "Casting ended");
-  adw_status_page_set_description(ADW_STATUS_PAGE(failed_page_),
-                                  "An unexpected error occurred.");
+  adw_status_page_set_description(ADW_STATUS_PAGE(failed_page_), "An unexpected error occurred.");
   GtkWidget* back_cast_btn = gtk_button_new_with_label("Back to Cast");
   gtk_widget_add_css_class(back_cast_btn, "pill");
   gtk_widget_add_css_class(back_cast_btn, "suggested-action");
@@ -422,9 +447,10 @@ void LiveTab::BuildUi() {
   gtk_actionable_set_action_name(GTK_ACTIONABLE(back_cast_btn), "win.page");
   gtk_actionable_set_action_target_value(GTK_ACTIONABLE(back_cast_btn),
                                          g_variant_new_string("cast"));
-  g_signal_connect_swapped(back_cast_btn, "clicked", G_CALLBACK(+[](LiveTab* self) {
-    self->failure_visible_ = false;
-  }), this);
+  g_signal_connect_swapped(back_cast_btn,
+                           "clicked",
+                           G_CALLBACK(+[](LiveTab* self) { self->failure_visible_ = false; }),
+                           this);
   adw_status_page_set_child(ADW_STATUS_PAGE(failed_page_), back_cast_btn);
   gtk_stack_add_named(GTK_STACK(root_widget_), failed_page_, "failed");
 
@@ -432,7 +458,8 @@ void LiveTab::BuildUi() {
   gtk_stack_set_visible_child_name(GTK_STACK(root_widget_), "empty");
 }
 
-void LiveTab::SetHealthState(const std::string& text, const char* state_class, const char* icon_name) {
+void LiveTab::SetHealthState(const std::string& text, const char* state_class,
+                             const char* icon_name) {
   if (health_lbl_) {
     gtk_label_set_text(GTK_LABEL(health_lbl_), text.c_str());
   }
@@ -482,8 +509,8 @@ void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats
     ss_net << FormatMbps(stats.bitrate_kbps / 1000.0);
     ss_net << " · RTT " << std::fixed << std::setprecision(0) << stats.round_trip_time_ms << " ms";
     if (stats.packet_loss_fraction > 0.001) {
-      ss_net << " (" << std::fixed << std::setprecision(1)
-             << (stats.packet_loss_fraction * 100.0) << "% loss)";
+      ss_net << " (" << std::fixed << std::setprecision(1) << (stats.packet_loss_fraction * 100.0)
+             << "% loss)";
     }
     gtk_label_set_text(GTK_LABEL(pipe_network_sub_), ss_net.str().c_str());
     gtk_widget_set_tooltip_text(pipe_network_sub_, ss_net.str().c_str());
@@ -558,14 +585,13 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
 
   if (!cur.device_name.empty()) {
     last_device_name_ = cur.device_name;
-    gtk_label_set_text(GTK_LABEL(hero_title_lbl_),
-                       ("Casting to " + cur.device_name).c_str());
+    gtk_label_set_text(GTK_LABEL(hero_title_lbl_), ("Casting to " + cur.device_name).c_str());
   }
 
   // Update Hero Subtitle
   std::ostringstream ss_hero;
-  ss_hero << cur.current_resolution.width << " × " << cur.current_resolution.height
-          << " · " << std::fixed << std::setprecision(1) << cur.current_fps << " FPS"
+  ss_hero << cur.current_resolution.width << " × " << cur.current_resolution.height << " · "
+          << std::fixed << std::setprecision(1) << cur.current_fps << " FPS"
           << " · " << FormatMbps(cur.bitrate_kbps / 1000.0);
   gtk_label_set_text(GTK_LABEL(hero_subtitle_lbl_), ss_hero.str().c_str());
 
@@ -604,13 +630,14 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
 
   // 5. Target delay (shows live measured RTT alongside target delay)
   std::ostringstream ss_delay;
-  ss_delay << cur.target_delay_ms << " ms (RTT " << static_cast<int>(cur.round_trip_time_ms) << " ms)";
+  ss_delay << cur.target_delay_ms << " ms (RTT " << static_cast<int>(cur.round_trip_time_ms)
+           << " ms)";
   gtk_label_set_text(GTK_LABEL(val_delay_), ss_delay.str().c_str());
 
   // 6. Output
   std::ostringstream ss_size;
-  ss_size << cur.current_resolution.width << " × " << cur.current_resolution.height
-          << " · " << cur.current_framerate << " fps";
+  ss_size << cur.current_resolution.width << " × " << cur.current_resolution.height << " · "
+          << cur.current_framerate << " fps";
   gtk_label_set_text(GTK_LABEL(val_size_), ss_size.str().c_str());
 
   // 7. Encoder
@@ -677,8 +704,7 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
 
   if (state == SessionState::kConnecting) {
     failure_visible_ = false;
-    if (current_ui_state_ == SessionState::kIdle ||
-        current_ui_state_ == SessionState::kReady ||
+    if (current_ui_state_ == SessionState::kIdle || current_ui_state_ == SessionState::kReady ||
         current_ui_state_ == SessionState::kFailed ||
         current_ui_state_ == SessionState::kDiscovering) {
       ResetSessionValues();
@@ -686,9 +712,9 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
     if (last_device_name_.empty()) {
       last_device_name_ = ConfigStore::Instance().Get().last_device_name;
     }
-    gtk_label_set_text(GTK_LABEL(hero_title_lbl_),
-                       last_device_name_.empty() ? "Starting cast…"
-                                                 : ("Casting to " + last_device_name_).c_str());
+    gtk_label_set_text(
+        GTK_LABEL(hero_title_lbl_),
+        last_device_name_.empty() ? "Starting cast…" : ("Casting to " + last_device_name_).c_str());
     gtk_label_set_text(GTK_LABEL(hero_subtitle_lbl_),
                        message.empty() ? "Connecting to display…" : message.c_str());
     SetHealthState("Waiting for stream data…", "is-idle", "dialog-information-symbolic");
@@ -700,9 +726,9 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
 
   if (state == SessionState::kNegotiating) {
     failure_visible_ = false;
-    gtk_label_set_text(GTK_LABEL(hero_title_lbl_),
-                       last_device_name_.empty() ? "Starting cast…"
-                                                 : ("Casting to " + last_device_name_).c_str());
+    gtk_label_set_text(
+        GTK_LABEL(hero_title_lbl_),
+        last_device_name_.empty() ? "Starting cast…" : ("Casting to " + last_device_name_).c_str());
     gtk_label_set_text(GTK_LABEL(hero_subtitle_lbl_),
                        message.empty() ? "Negotiating stream parameters…" : message.c_str());
     SetHealthState("Waiting for stream data…", "is-idle", "dialog-information-symbolic");
@@ -868,7 +894,8 @@ void LiveTab::ResetSessionValues() {
   }
 
   if (session_scroller_) {
-    GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(session_scroller_));
+    GtkAdjustment* vadj =
+        gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(session_scroller_));
     if (vadj) {
       gtk_adjustment_set_value(vadj, gtk_adjustment_get_lower(vadj));
     }
@@ -911,9 +938,9 @@ void LiveTab::SetFreezeUi(bool frozen) {
     gtk_label_set_text(GTK_LABEL(freeze_lbl_), frozen ? "Resume" : "Freeze");
   }
   if (freeze_icon_) {
-    gtk_image_set_from_icon_name(GTK_IMAGE(freeze_icon_),
-                                 frozen ? "media-playback-start-symbolic"
-                                        : "media-playback-pause-symbolic");
+    gtk_image_set_from_icon_name(
+        GTK_IMAGE(freeze_icon_),
+        frozen ? "media-playback-start-symbolic" : "media-playback-pause-symbolic");
   }
   syncing_toggles_ = prev;
 }
@@ -928,9 +955,9 @@ void LiveTab::SetMuteUi(bool muted) {
     gtk_label_set_text(GTK_LABEL(mute_lbl_), muted ? "Unmute TV" : "Mute TV");
   }
   if (mute_icon_) {
-    gtk_image_set_from_icon_name(GTK_IMAGE(mute_icon_),
-                                 muted ? "audio-volume-muted-symbolic"
-                                       : "audio-volume-high-symbolic");
+    gtk_image_set_from_icon_name(
+        GTK_IMAGE(mute_icon_),
+        muted ? "audio-volume-muted-symbolic" : "audio-volume-high-symbolic");
   }
   syncing_toggles_ = prev;
 }
@@ -945,7 +972,8 @@ void LiveTab::OnCinemaModeClicked() {
   CastEngine::Instance().SetPlayoutDelayMs(400);
   CastEngine::Instance().SetAdaptiveResolutionChangeAllowed(true);
   CastEngine::Instance().SetLiveVideoBitrateKbps(16000);
-  AppendActivityEvent("Switched to Cinema Mode: target delay 400 ms, maximum bitrate budget (16 Mbps)");
+  AppendActivityEvent(
+      "Switched to Cinema Mode: target delay 400 ms, maximum bitrate budget (16 Mbps)");
 }
 
 #if !defined(NDEBUG)

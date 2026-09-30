@@ -3,18 +3,18 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>  /* offsetof, for the ABI guards below */
+#include <stddef.h> /* offsetof, for the ABI guards below */
 
 #if defined(_WIN32)
-  #if defined(CASTCORE_EXPORTS)
-    #define CASTMIRROR_API __declspec(dllexport)
-  #elif defined(CASTCORE_STATIC)
-    #define CASTMIRROR_API
-  #else
-    #define CASTMIRROR_API __declspec(dllimport)
-  #endif
+#if defined(CASTCORE_EXPORTS)
+#define CASTMIRROR_API __declspec(dllexport)
+#elif defined(CASTCORE_STATIC)
+#define CASTMIRROR_API
 #else
-  #define CASTMIRROR_API __attribute__((visibility("default")))
+#define CASTMIRROR_API __declspec(dllimport)
+#endif
+#else
+#define CASTMIRROR_API __attribute__((visibility("default")))
 #endif
 
 #ifdef __cplusplus
@@ -62,16 +62,13 @@ typedef struct {
   char capture_backend[64];
   char display_name[128];
   // Appended in v3.
-  int recovery_attempt;      // 0 unless the connection dropped and is being retried
-  int recovery_elapsed_s;    // seconds spent retrying so far
-  char health_hint[160];     // plain-language advice, empty when the stream is healthy
+  int recovery_attempt;  // 0 unless the connection dropped and is being retried
+  int recovery_elapsed_s;  // seconds spent retrying so far
+  char health_hint[160];  // plain-language advice, empty when the stream is healthy
 } CastMirrorStreamStats;
 
 // Capture source kinds matching castcore::CaptureSourceKind
-typedef enum {
-  CASTMIRROR_SOURCE_MONITOR = 0,
-  CASTMIRROR_SOURCE_WINDOW = 1
-} CastMirrorSourceKind;
+typedef enum { CASTMIRROR_SOURCE_MONITOR = 0, CASTMIRROR_SOURCE_WINDOW = 1 } CastMirrorSourceKind;
 
 // Quality presets matching castcore::QualityPreset ordinals
 typedef enum {
@@ -122,11 +119,11 @@ typedef struct {
 // in CastCoreBridge.cs - update both sides in the same commit.
 // ---------------------------------------------------------------------------
 #if defined(__cplusplus)
-  #define CASTMIRROR_ABI_ASSERT(cond) static_assert(cond, #cond)
+#define CASTMIRROR_ABI_ASSERT(cond) static_assert(cond, #cond)
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-  #define CASTMIRROR_ABI_ASSERT(cond) _Static_assert(cond, #cond)
+#define CASTMIRROR_ABI_ASSERT(cond) _Static_assert(cond, #cond)
 #else
-  #define CASTMIRROR_ABI_ASSERT(cond) /* no compile-time assert before C11 */
+#define CASTMIRROR_ABI_ASSERT(cond) /* no compile-time assert before C11 */
 #endif
 
 // sizeof == 512, alignof == 8.
@@ -184,7 +181,8 @@ CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, height) == 400);
 CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, visible) == 404);
 
 // Callbacks
-typedef void (*CastMirrorStateCallback)(CastMirrorState state, const char* message, void* user_data);
+typedef void (*CastMirrorStateCallback)(CastMirrorState state, const char* message,
+                                        void* user_data);
 typedef void (*CastMirrorDevicesCallback)(int count, void* user_data);
 typedef void (*CastMirrorStatsCallback)(const CastMirrorStreamStats* stats, void* user_data);
 // Log callback: level is a castcore::LogLevel ordinal (0 Debug .. 4 Fatal).
@@ -249,15 +247,12 @@ CASTMIRROR_API bool castmirror_get_window_info(int index, CastMirrorWindowInfo* 
 CASTMIRROR_API bool castmirror_window_capture_supported(void);
 
 // Casting controls
-CASTMIRROR_API bool castmirror_start_cast(const char* device_id, int display_id, int target_fps, uint32_t bitrate_kbps);
+CASTMIRROR_API bool castmirror_start_cast(const char* device_id, int display_id, int target_fps,
+                                          uint32_t bitrate_kbps);
 // Extended start: source_kind is a CastMirrorSourceKind; preset is a
 // CastMirrorQualityPreset; bitrate_kbps 0 means "use the preset default".
-CASTMIRROR_API bool castmirror_start_cast_ex(const char* device_id,
-                                             int source_kind,
-                                             int source_id,
-                                             int target_fps,
-                                             uint32_t bitrate_kbps,
-                                             int preset,
+CASTMIRROR_API bool castmirror_start_cast_ex(const char* device_id, int source_kind, int source_id,
+                                             int target_fps, uint32_t bitrate_kbps, int preset,
                                              bool audio_enabled);
 CASTMIRROR_API void castmirror_stop_cast(void);
 CASTMIRROR_API CastMirrorState castmirror_get_state(void);

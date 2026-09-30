@@ -42,7 +42,8 @@ Bytes RandomRtcp(std::mt19937& rng) {
     Put16(packet, words);
     // Usually the body matches the declared length; sometimes it doesn't.
     size_t body = (rng() % 4 == 0) ? rng() % 200 : static_cast<size_t>(words) * 4;
-    for (size_t j = 0; j < body; ++j) packet.push_back(static_cast<uint8_t>(rng()));
+    for (size_t j = 0; j < body; ++j)
+      packet.push_back(static_cast<uint8_t>(rng()));
   }
   return packet;
 }
@@ -51,8 +52,8 @@ void Mutate(Bytes& b, std::mt19937& rng) {
   if (b.empty()) return;
   switch (rng() % 5) {
     case 0: b[rng() % b.size()] ^= static_cast<uint8_t>(1u << (rng() % 8)); break;
-    case 1: b.resize(rng() % (b.size() + 1)); break;                       // truncate
-    case 2: b[rng() % b.size()] = static_cast<uint8_t>(rng()); break;       // overwrite
+    case 1: b.resize(rng() % (b.size() + 1)); break;  // truncate
+    case 2: b[rng() % b.size()] = static_cast<uint8_t>(rng()); break;  // overwrite
     case 3: b.insert(b.begin() + rng() % (b.size() + 1), static_cast<uint8_t>(rng())); break;
     case 4: b.erase(b.begin() + rng() % b.size()); break;
   }
@@ -65,27 +66,38 @@ Bytes RandomMdns(std::mt19937& rng) {
   Bytes p;
   Put16(p, 0);
   Put16(p, (rng() % 3 == 0) ? static_cast<uint16_t>(rng()) : 0x8400);
-  for (int i = 0; i < 4; ++i) Put16(p, static_cast<uint16_t>(rng() % 6));
+  for (int i = 0; i < 4; ++i)
+    Put16(p, static_cast<uint16_t>(rng() % 6));
   const int records = static_cast<int>(rng() % 8);
   for (int r = 0; r < records; ++r) {
     const int labels = static_cast<int>(rng() % 4);
     for (int l = 0; l < labels; ++l) {
-      const uint8_t len = (rng() % 8 == 0) ? static_cast<uint8_t>(rng()) : static_cast<uint8_t>(rng() % 12);
+      const uint8_t len =
+          (rng() % 8 == 0) ? static_cast<uint8_t>(rng()) : static_cast<uint8_t>(rng() % 12);
       p.push_back(len);
-      for (uint8_t c = 0; c < (len & 0x3F); ++c) p.push_back(static_cast<uint8_t>('a' + rng() % 26));
+      for (uint8_t c = 0; c < (len & 0x3F); ++c)
+        p.push_back(static_cast<uint8_t>('a' + rng() % 26));
     }
-    if (rng() % 4 == 0) { p.push_back(0xC0); p.push_back(static_cast<uint8_t>(rng())); }
-    else p.push_back(0);
+    if (rng() % 4 == 0) {
+      p.push_back(0xC0);
+      p.push_back(static_cast<uint8_t>(rng()));
+    } else
+      p.push_back(0);
     static const uint16_t kTypes[] = {1, 12, 16, 28, 33};
     Put16(p, kTypes[rng() % 5]);
     Put16(p, 0x8001);
-    p.push_back(0); p.push_back(0); p.push_back(0); p.push_back(120);
-    const uint16_t rdlength = (rng() % 3 == 0) ? static_cast<uint16_t>(rng()) : static_cast<uint16_t>(rng() % 40);
+    p.push_back(0);
+    p.push_back(0);
+    p.push_back(0);
+    p.push_back(120);
+    const uint16_t rdlength =
+        (rng() % 3 == 0) ? static_cast<uint16_t>(rng()) : static_cast<uint16_t>(rng() % 40);
     Put16(p, rdlength);
     const size_t body = (rng() % 3 == 0) ? rng() % 60 : rdlength;
     for (size_t i = 0; i < body && i < 200; ++i) {
       // TXT-looking bytes some of the time so the key=value path runs.
-      p.push_back((rng() % 2) ? static_cast<uint8_t>(rng()) : static_cast<uint8_t>("id=fn=md=ca="[rng() % 11]));
+      p.push_back((rng() % 2) ? static_cast<uint8_t>(rng())
+                              : static_cast<uint8_t>("id=fn=md=ca="[rng() % 11]));
     }
   }
   return p;
@@ -98,9 +110,11 @@ TEST(ParserRobustnessTest, RtcpParserSurvivesGeneratedAndMutatedPackets) {
   int parsed = 0;
   for (int i = 0; i < 60000; ++i) {
     Bytes packet = RandomRtcp(rng);
-    for (int m = rng() % 4; m > 0; --m) Mutate(packet, rng);
+    for (int m = rng() % 4; m > 0; --m)
+      Mutate(packet, rng);
     RtcpFeedback fb;
-    if (RtcpParser::ParseCompoundPacket(packet.data(), packet.size(), static_cast<uint32_t>(rng()), fb)) {
+    if (RtcpParser::ParseCompoundPacket(
+            packet.data(), packet.size(), static_cast<uint32_t>(rng()), fb)) {
       ++parsed;
       // Whatever it accepted must be internally sane.
       EXPECT_LE(fb.nacks.size(), 100000u);
@@ -127,7 +141,8 @@ TEST(ParserRobustnessTest, MdnsParserSurvivesGeneratedAndMutatedPackets) {
   DeviceDiscovery discovery;
   for (int i = 0; i < 40000; ++i) {
     Bytes packet = RandomMdns(rng);
-    for (int m = rng() % 4; m > 0; --m) Mutate(packet, rng);
+    for (int m = rng() % 4; m > 0; --m)
+      Mutate(packet, rng);
     discovery.ProcessMdnsResponse(packet.data(), packet.size(), "192.0.2.1");
     if (i % 5000 == 0) {
       // The list must stay bounded and well-formed however much garbage arrives.
@@ -147,7 +162,8 @@ TEST(ParserRobustnessTest, TxtParserHandlesHostileEntries) {
     for (int e = 0; e < n; ++e) {
       std::string s;
       const size_t len = (rng() % 10 == 0) ? 300 + rng() % 300 : rng() % 40;
-      for (size_t c = 0; c < len; ++c) s.push_back(static_cast<char>(rng() % 3 == 0 ? '=' : rng()));
+      for (size_t c = 0; c < len; ++c)
+        s.push_back(static_cast<char>(rng() % 3 == 0 ? '=' : rng()));
       entries.push_back(std::move(s));
     }
     auto map = DeviceDiscovery::ParseTxtRecord(entries);

@@ -4,8 +4,7 @@
 
 namespace castcore::gui {
 
-Sparkline::Sparkline(int max_points, float min_val, float max_val,
-                     double r, double g, double b)
+Sparkline::Sparkline(int max_points, float min_val, float max_val, double r, double g, double b)
     : max_points_(std::max(5, max_points)),
       min_val_(min_val),
       max_val_(max_val),
@@ -21,14 +20,9 @@ Sparkline::Sparkline(int max_points, float min_val, float max_val,
   // The drawing area is owned by the widget tree and can outlive this object.
   // Let GLib clear drawing_area_ when the widget is finalized so the
   // destructor below can tell "still alive" from "already gone".
-  g_object_add_weak_pointer(G_OBJECT(drawing_area_),
-                            reinterpret_cast<gpointer*>(&drawing_area_));
+  g_object_add_weak_pointer(G_OBJECT(drawing_area_), reinterpret_cast<gpointer*>(&drawing_area_));
 
-  gtk_drawing_area_set_draw_func(
-      GTK_DRAWING_AREA(drawing_area_),
-      DrawCallback,
-      this,
-      nullptr);
+  gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drawing_area_), DrawCallback, this, nullptr);
 }
 
 Sparkline::~Sparkline() {
@@ -36,8 +30,7 @@ Sparkline::~Sparkline() {
   // widget tree is; without this the draw func would keep `this` as its
   // user_data and a later repaint would dereference freed memory.
   if (drawing_area_) {
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drawing_area_), nullptr,
-                                   nullptr, nullptr);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drawing_area_), nullptr, nullptr, nullptr);
     g_object_remove_weak_pointer(G_OBJECT(drawing_area_),
                                  reinterpret_cast<gpointer*>(&drawing_area_));
     drawing_area_ = nullptr;
@@ -78,7 +71,8 @@ void Sparkline::Reset() {
   }
 }
 
-void Sparkline::DrawCallback(GtkDrawingArea*, cairo_t* cr, int width, int height, gpointer user_data) {
+void Sparkline::DrawCallback(GtkDrawingArea*, cairo_t* cr, int width, int height,
+                             gpointer user_data) {
   auto* self = static_cast<Sparkline*>(user_data);
   if (self) {
     self->Draw(cr, width, height);

@@ -88,9 +88,9 @@ TEST(GpuProcessorTest, LetterboxRectMatchesFormulaForOddSourceDimensions) {
   };
   const Case cases[] = {
       {1920, 1044, 1920, 1080},  // window slightly shorter than a 1080p frame
-      {65, 37, 64, 48},          // odd source, downscale
-      {63, 35, 48, 64},          // odd source, portrait destination
-      {101, 99, 64, 48},         // both dimensions odd
+      {65, 37, 64, 48},  // odd source, downscale
+      {63, 35, 48, 64},  // odd source, portrait destination
+      {101, 99, 64, 48},  // both dimensions odd
   };
 
   for (const Case& c : cases) {
@@ -132,7 +132,7 @@ TEST(GpuProcessorTest, LetterboxRectMatchesFormulaForOddSourceDimensions) {
 TEST(GpuProcessorTest, Yuv420pBarsAreNeutralBlackAndStridesAreRespected) {
   const int sw = 64, sh = 36, dw = 64, dh = 48;
   const FitRect fit = ExpectedFit(sw, sh, dw, dh);
-  ASSERT_EQ(fit.y, 6);   // (48 - 36) / 2
+  ASSERT_EQ(fit.y, 6);  // (48 - 36) / 2
   ASSERT_EQ(fit.h, 36);
   ASSERT_EQ(fit.w, 64);
 
@@ -148,8 +148,8 @@ TEST(GpuProcessorTest, Yuv420pBarsAreNeutralBlackAndStridesAreRespected) {
   std::vector<uint8_t> u(static_cast<size_t>(c_stride) * (dh / 2) + guard, 0xAB);
   std::vector<uint8_t> v(static_cast<size_t>(c_stride) * (dh / 2) + guard, 0xAB);
 
-  ASSERT_TRUE(gp.ConvertBgraToYuv420p(src, y.data(), y_stride, u.data(), c_stride,
-                                      v.data(), c_stride));
+  ASSERT_TRUE(
+      gp.ConvertBgraToYuv420p(src, y.data(), y_stride, u.data(), c_stride, v.data(), c_stride));
 
   // Top letterbox bar: rows [0, fit.y).
   for (int row = 0; row < fit.y; ++row) {

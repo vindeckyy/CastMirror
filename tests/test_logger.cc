@@ -24,9 +24,7 @@ TEST(LoggerTest, DebugDroppedWhenMinIsInfo) {
 TEST(LoggerTest, CallbackReceivesFormattedLine) {
   auto& log = Logger::Instance();
   std::string seen_msg;
-  log.SetCallback([&](LogLevel, const std::string& msg) {
-    seen_msg = msg;
-  });
+  log.SetCallback([&](LogLevel, const std::string& msg) { seen_msg = msg; });
   LOG_INFO << "hello-ui-telemetry-test";
   EXPECT_NE(seen_msg.find("hello-ui-telemetry-test"), std::string::npos);
   EXPECT_NE(seen_msg.find("[INFO"), std::string::npos);

@@ -159,4 +159,3 @@ TEST(OfferAnswerTest, OfferMatchesChromeGoldenNetlogSchema) {
     EXPECT_EQ(actual_video[it.key()], it.value()) << "Video field mismatch on: " << it.key();
   }
 }
-

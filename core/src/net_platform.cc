@@ -4,19 +4,19 @@
 #include <mutex>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #include <iphlpapi.h>
-  #include <cerrno>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#include <cerrno>
 #else
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <ifaddrs.h>
-  #include <net/if.h>
-  #include <unistd.h>
-  #include <cerrno>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <cerrno>
 #endif
 
 namespace castcore {
@@ -46,28 +46,31 @@ std::vector<IPv4Interface> EnumerateIPv4Interfaces() {
   ULONG buf_len = 16 * 1024;
   std::vector<uint8_t> buf(buf_len);
   auto* addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data());
-  ULONG rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST |
-                                          GAA_FLAG_SKIP_MULTICAST |
-                                          GAA_FLAG_SKIP_DNS_SERVER,
-                                  nullptr, addresses, &buf_len);
+  ULONG rc = GetAdaptersAddresses(
+      AF_INET,
+      GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+      nullptr,
+      addresses,
+      &buf_len);
   if (rc == ERROR_BUFFER_OVERFLOW) {
     buf.resize(buf_len);
     addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buf.data());
-    rc = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST |
-                                        GAA_FLAG_SKIP_MULTICAST |
-                                        GAA_FLAG_SKIP_DNS_SERVER,
-                              nullptr, addresses, &buf_len);
+    rc = GetAdaptersAddresses(
+        AF_INET,
+        GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER,
+        nullptr,
+        addresses,
+        &buf_len);
   }
   if (rc != NO_ERROR) {
     return out;
   }
 
   for (auto* aa = addresses; aa != nullptr; aa = aa->Next) {
-    const bool up = (aa->OperStatus == IfOperStatusUp) &&
-                    (aa->Flags & IP_ADAPTER_NO_MULTICAST) == 0;
+    const bool up =
+        (aa->OperStatus == IfOperStatusUp) && (aa->Flags & IP_ADAPTER_NO_MULTICAST) == 0;
     for (auto* ua = aa->FirstUnicastAddress; ua != nullptr; ua = ua->Next) {
-      if (!ua->Address.lpSockaddr ||
-          ua->Address.lpSockaddr->sa_family != AF_INET) {
+      if (!ua->Address.lpSockaddr || ua->Address.lpSockaddr->sa_family != AF_INET) {
         continue;
       }
       auto* sin = reinterpret_cast<struct sockaddr_in*>(ua->Address.lpSockaddr);
@@ -84,8 +87,8 @@ std::vector<IPv4Interface> EnumerateIPv4Interfaces() {
       char mask_buf[INET_ADDRSTRLEN]{};
       inet_ntop(AF_INET, &mask_addr, mask_buf, sizeof(mask_buf));
       iface.netmask = mask_buf;
-      iface.is_loopback = (aa->IfType == IF_TYPE_SOFTWARE_LOOPBACK) ||
-                          iface.address.rfind("127.", 0) == 0;
+      iface.is_loopback =
+          (aa->IfType == IF_TYPE_SOFTWARE_LOOPBACK) || iface.address.rfind("127.", 0) == 0;
       iface.is_up = up;
       out.push_back(iface);
     }
@@ -164,8 +167,7 @@ int SocketLastError() {
 
 bool SocketErrorIsTransient(int err) {
 #if defined(_WIN32)
-  return err == WSAEWOULDBLOCK || err == WSAETIMEDOUT || err == WSAEINTR ||
-         err == WSAEINPROGRESS;
+  return err == WSAEWOULDBLOCK || err == WSAETIMEDOUT || err == WSAEINTR || err == WSAEINPROGRESS;
 #else
   return err == EAGAIN || err == EWOULDBLOCK || err == EINTR;
 #endif
@@ -176,9 +178,12 @@ std::string SocketErrorString() {
 #if defined(_WIN32)
   char buf[256]{};
   FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                 nullptr, static_cast<DWORD>(err),
+                 nullptr,
+                 static_cast<DWORD>(err),
                  MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                 buf, sizeof(buf) - 1, nullptr);
+                 buf,
+                 sizeof(buf) - 1,
+                 nullptr);
   std::string s = buf;
   while (!s.empty() && (s.back() == '\r' || s.back() == '\n' || s.back() == ' ')) {
     s.pop_back();

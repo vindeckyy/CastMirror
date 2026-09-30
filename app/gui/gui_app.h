@@ -20,7 +20,9 @@ class TrayManager;
 // mechanism used for cross-thread / cross-teardown callbacks in the GUI.
 using LivenessToken = std::shared_ptr<bool>;
 
-inline bool Alive(const LivenessToken& token) { return token && *token; }
+inline bool Alive(const LivenessToken& token) {
+  return token && *token;
+}
 
 class GuiApp {
  public:
@@ -78,9 +80,7 @@ class GuiApp {
   void SaveWindowGeometry();
   void UpdateViewLiveVisibility();
   void SetFooterStatus(const std::string& text);
-  void ApplyPrimaryAction(const char* label,
-                          const char* icon_name,
-                          bool destructive,
+  void ApplyPrimaryAction(const char* label, const char* icon_name, bool destructive,
                           bool sensitive);
   void PresentAlert(const char* heading, const char* body);
   void ShowAboutDialog();

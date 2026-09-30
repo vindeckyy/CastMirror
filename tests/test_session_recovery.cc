@@ -40,7 +40,8 @@ TEST(SessionRecoveryTest, ConcurrentStartRecoveryOpensExactlyOneWindow) {
       if (rec.StartRecovery("drop")) ++winners;
     });
   }
-  for (auto& th : threads) th.join();
+  for (auto& th : threads)
+    th.join();
   EXPECT_EQ(winners.load(), 1);
   EXPECT_TRUE(rec.IsRecovering());
   rec.Reset();

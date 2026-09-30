@@ -29,13 +29,16 @@ bool StateMachine::IsValidTransition(SessionState from, SessionState to) const {
 
   switch (from) {
     case SessionState::kIdle:
-      return to == SessionState::kDiscovering || to == SessionState::kReady || to == SessionState::kConnecting;
+      return to == SessionState::kDiscovering || to == SessionState::kReady ||
+             to == SessionState::kConnecting;
 
     case SessionState::kDiscovering:
-      return to == SessionState::kReady || to == SessionState::kIdle || to == SessionState::kConnecting;
+      return to == SessionState::kReady || to == SessionState::kIdle ||
+             to == SessionState::kConnecting;
 
     case SessionState::kReady:
-      return to == SessionState::kConnecting || to == SessionState::kDiscovering || to == SessionState::kIdle;
+      return to == SessionState::kConnecting || to == SessionState::kDiscovering ||
+             to == SessionState::kIdle;
 
     case SessionState::kConnecting:
       // Audit: allow reconnect attempt from early active states so RequestReconnect is valid.
@@ -47,10 +50,12 @@ bool StateMachine::IsValidTransition(SessionState from, SessionState to) const {
              to == SessionState::kStopping || to == SessionState::kIdle;
 
     case SessionState::kStreaming:
-      return to == SessionState::kReconnecting || to == SessionState::kStopping || to == SessionState::kIdle;
+      return to == SessionState::kReconnecting || to == SessionState::kStopping ||
+             to == SessionState::kIdle;
 
     case SessionState::kReconnecting:
-      return to == SessionState::kStreaming || to == SessionState::kStopping || to == SessionState::kIdle;
+      return to == SessionState::kStreaming || to == SessionState::kStopping ||
+             to == SessionState::kIdle;
 
     case SessionState::kStopping:
       // Stopping may go to Idle (normal) or Failed (teardown error).
@@ -77,9 +82,8 @@ bool StateMachine::TransitionTo(SessionState new_state, const std::string& messa
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!IsValidTransition(current_state_, new_state)) {
-      LOG_WARN << "Invalid state transition attempted: "
-               << SessionStateToString(current_state_) << " -> "
-               << SessionStateToString(new_state);
+      LOG_WARN << "Invalid state transition attempted: " << SessionStateToString(current_state_)
+               << " -> " << SessionStateToString(new_state);
       return false;
     }
 
@@ -89,9 +93,8 @@ bool StateMachine::TransitionTo(SessionState new_state, const std::string& messa
     callbacks_copy = callbacks_;
   }
 
-  LOG_INFO << "State Transition: " << SessionStateToString(old_state)
-           << " -> " << SessionStateToString(new_state)
-           << (message.empty() ? "" : (" (" + message + ")"));
+  LOG_INFO << "State Transition: " << SessionStateToString(old_state) << " -> "
+           << SessionStateToString(new_state) << (message.empty() ? "" : (" (" + message + ")"));
 
   for (const auto& cb : callbacks_copy) {
     if (cb) {
@@ -111,4 +114,4 @@ void StateMachine::Reset() {
   TransitionTo(SessionState::kIdle, "Reset");
 }
 
-} // namespace castcore
+}  // namespace castcore

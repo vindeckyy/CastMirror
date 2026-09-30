@@ -39,37 +39,49 @@ void TrayManager::CreateIndicator() {
   action_group_ = g_simple_action_group_new();
 
   action_show_ = g_simple_action_new("show", nullptr);
-  g_signal_connect(action_show_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    auto* self = static_cast<TrayManager*>(user_data);
-    if (self && self->app_) {
-      self->app_->Present();
-    }
-  }), this);
+  g_signal_connect(action_show_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     auto* self = static_cast<TrayManager*>(user_data);
+                     if (self && self->app_) {
+                       self->app_->Present();
+                     }
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(action_group_), G_ACTION(action_show_));
 
   action_cast_last_ = g_simple_action_new("cast-last", nullptr);
-  g_signal_connect(action_cast_last_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    auto* self = static_cast<TrayManager*>(user_data);
-    if (self) {
-      self->StartCastingLastDeviceAsync();
-    }
-  }), this);
+  g_signal_connect(action_cast_last_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     auto* self = static_cast<TrayManager*>(user_data);
+                     if (self) {
+                       self->StartCastingLastDeviceAsync();
+                     }
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(action_group_), G_ACTION(action_cast_last_));
 
   action_stop_ = g_simple_action_new("stop", nullptr);
-  g_signal_connect(action_stop_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer) {
-    CastEngine::Instance().StopCasting();
-  }), nullptr);
+  g_signal_connect(action_stop_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer) {
+                     CastEngine::Instance().StopCasting();
+                   }),
+                   nullptr);
   g_simple_action_set_enabled(action_stop_, FALSE);
   g_action_map_add_action(G_ACTION_MAP(action_group_), G_ACTION(action_stop_));
 
   action_quit_ = g_simple_action_new("quit", nullptr);
-  g_signal_connect(action_quit_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
-    auto* self = static_cast<TrayManager*>(user_data);
-    if (self && self->app_) {
-      self->app_->Quit();
-    }
-  }), this);
+  g_signal_connect(action_quit_,
+                   "activate",
+                   G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+                     auto* self = static_cast<TrayManager*>(user_data);
+                     if (self && self->app_) {
+                       self->app_->Quit();
+                     }
+                   }),
+                   this);
   g_action_map_add_action(G_ACTION_MAP(action_group_), G_ACTION(action_quit_));
 
   menu_ = g_menu_new();
@@ -90,9 +102,8 @@ void TrayManager::CreateIndicator() {
     indicator_ = ai;
     created_ = true;
 
-    app_indicator_set_attention_icon_full(ai,
-                                          "io.github.vindeckyy.CastMirror-attention-symbolic",
-                                          "CastMirror is casting");
+    app_indicator_set_attention_icon_full(
+        ai, "io.github.vindeckyy.CastMirror-attention-symbolic", "CastMirror is casting");
 
     app_indicator_set_actions(ai, G_ACTION_GROUP(action_group_));
     app_indicator_set_menu(ai, G_MENU_MODEL(menu_));
@@ -103,12 +114,15 @@ void TrayManager::CreateIndicator() {
     g_object_get(ai, "connected", &connected, NULL);
     connected_ = (connected != FALSE);
 
-    g_signal_connect(ai, "connection-changed", G_CALLBACK(+[](AppIndicator*, gboolean connected, gpointer user_data) {
-      auto* self = static_cast<TrayManager*>(user_data);
-      if (self) {
-        self->OnConnectionChanged(connected != FALSE);
-      }
-    }), this);
+    g_signal_connect(ai,
+                     "connection-changed",
+                     G_CALLBACK(+[](AppIndicator*, gboolean connected, gpointer user_data) {
+                       auto* self = static_cast<TrayManager*>(user_data);
+                       if (self) {
+                         self->OnConnectionChanged(connected != FALSE);
+                       }
+                     }),
+                     this);
 
     LOG_INFO << "[UI] System tray icon created";
   }
@@ -119,9 +133,7 @@ void TrayManager::StartCastingLastDeviceAsync() {
   // Never overlap two runs, and keep the handle so it can be joined before the
   // engine is shut down.
   JoinCastLastThread();
-  cast_last_thread_ = std::thread([]() {
-    CastEngine::Instance().StartCastingLastDevice();
-  });
+  cast_last_thread_ = std::thread([]() { CastEngine::Instance().StartCastingLastDevice(); });
 }
 
 void TrayManager::JoinCastLastThread() {
@@ -173,9 +185,8 @@ void TrayManager::UpdateState(SessionState state, const std::string& device_name
     g_simple_action_set_enabled(action_cast_last_, is_active ? FALSE : TRUE);
   }
 
-  std::string stop_label = (is_active && !device_name.empty())
-                               ? ("Stop casting — " + device_name)
-                               : "Stop casting";
+  std::string stop_label =
+      (is_active && !device_name.empty()) ? ("Stop casting — " + device_name) : "Stop casting";
 
   if (menu_ && stop_label != current_stop_label_) {
     g_menu_remove(menu_, 2);
@@ -184,7 +195,8 @@ void TrayManager::UpdateState(SessionState state, const std::string& device_name
   }
 
   if (state == SessionState::kStreaming) {
-    app_indicator_set_status(static_cast<AppIndicator*>(indicator_), APP_INDICATOR_STATUS_ATTENTION);
+    app_indicator_set_status(static_cast<AppIndicator*>(indicator_),
+                             APP_INDICATOR_STATUS_ATTENTION);
   } else {
     app_indicator_set_status(static_cast<AppIndicator*>(indicator_), APP_INDICATOR_STATUS_ACTIVE);
   }

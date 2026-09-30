@@ -31,9 +31,8 @@ bool IsDottedQuad(const std::string& s) {
 // Reconstructs the dotted-quad netmask for a CIDR prefix exactly the way
 // net_platform.cc:79-86 does, so the reported netmask and prefix must agree.
 std::string MaskForPrefix(uint32_t prefix_len) {
-  uint64_t mask64 = prefix_len >= 32
-                        ? 0xFFFFFFFFULL
-                        : (0xFFFFFFFFULL << (32 - prefix_len)) & 0xFFFFFFFFULL;
+  uint64_t mask64 =
+      prefix_len >= 32 ? 0xFFFFFFFFULL : (0xFFFFFFFFULL << (32 - prefix_len)) & 0xFFFFFFFFULL;
   struct in_addr a{};
   a.s_addr = htonl(static_cast<uint32_t>(mask64));
   char buf[INET_ADDRSTRLEN]{};
@@ -73,7 +72,8 @@ TEST(NetPlatformTest, LocalIpForTargetResolvesLoopback) {
   const std::string local_ip = LocalIpForTarget("127.0.0.1");
   ASSERT_FALSE(local_ip.empty()) << "UDP connect to 127.0.0.1 must report the local address";
   EXPECT_TRUE(IsDottedQuad(local_ip));
-  EXPECT_EQ(local_ip.rfind("127.", 0), 0u) << "expected a loopback source address, got " << local_ip;
+  EXPECT_EQ(local_ip.rfind("127.", 0), 0u)
+      << "expected a loopback source address, got " << local_ip;
 }
 
 TEST(NetPlatformTest, LocalIpForTargetRejectsBogusTargetsWithoutThrowing) {

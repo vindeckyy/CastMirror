@@ -14,7 +14,9 @@ using Clock = FramePacer::Clock;
 using ms = std::chrono::milliseconds;
 using us = std::chrono::microseconds;
 
-Clock::time_point T0() { return Clock::time_point{} + ms(1000); }
+Clock::time_point T0() {
+  return Clock::time_point{} + ms(1000);
+}
 
 CapturedVideoFrame MakeFrame(Clock::time_point ts) {
   CapturedVideoFrame frame;

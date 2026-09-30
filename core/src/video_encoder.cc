@@ -60,9 +60,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
  public:
   FFmpegVideoEncoder() = default;
 
-  ~FFmpegVideoEncoder() override {
-    Cleanup();
-  }
+  ~FFmpegVideoEncoder() override { Cleanup(); }
 
   bool Initialize(const VideoEncoderConfig& config) override {
     Cleanup();
@@ -108,8 +106,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       rtp_clock_origin_ = frame.timestamp;
       rtp_clock_origin_set_ = true;
     }
-    int64_t capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
-        frame.timestamp - rtp_clock_origin_).count();
+    int64_t capture_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_)
+            .count();
     if (capture_us < 0) {
       capture_us = 0;
     }
@@ -139,14 +138,22 @@ class FFmpegVideoEncoder : public IVideoEncoder {
           drm_frame->height = frame.height;
           drm_frame->format = AV_PIX_FMT_DRM_PRIME;
           auto* desc = static_cast<AVDRMFrameDescriptor*>(av_mallocz(sizeof(AVDRMFrameDescriptor)));
-          if (!desc) { av_frame_free(&drm_frame); break; }
+          if (!desc) {
+            av_frame_free(&drm_frame);
+            break;
+          }
           // Single DMA-BUF object – NV12 is 2 planes in 1 object for most
           // PipeWire/GBM allocators. Stride comes from PipeWire chunk stride.
           desc->nb_objects = 1;
           desc->objects[0].fd = dup(frame.dmabuf_fd);
-          if (desc->objects[0].fd < 0) { av_free(desc); av_frame_free(&drm_frame); break; }
+          if (desc->objects[0].fd < 0) {
+            av_free(desc);
+            av_frame_free(&drm_frame);
+            break;
+          }
           desc->objects[0].size = static_cast<size_t>(frame.dmabuf_stride) * frame.height * 3 / 2;
-          desc->objects[0].format_modifier = frame.dmabuf_modifier ? frame.dmabuf_modifier : DRM_FORMAT_MOD_INVALID;
+          desc->objects[0].format_modifier =
+              frame.dmabuf_modifier ? frame.dmabuf_modifier : DRM_FORMAT_MOD_INVALID;
           desc->nb_layers = 1;
           desc->layers[0].format = frame.dmabuf_format ? frame.dmabuf_format : DRM_FORMAT_NV12;
           desc->layers[0].nb_planes = 2;
@@ -156,11 +163,14 @@ class FFmpegVideoEncoder : public IVideoEncoder {
           desc->layers[0].planes[0].pitch = frame.dmabuf_stride;
           // UV plane (NV12 interleaved, offset after Y)
           desc->layers[0].planes[1].object_index = 0;
-          desc->layers[0].planes[1].offset = frame.dmabuf_offset_uv ? frame.dmabuf_offset_uv : static_cast<ptrdiff_t>(frame.dmabuf_stride * frame.height);
+          desc->layers[0].planes[1].offset =
+              frame.dmabuf_offset_uv ? frame.dmabuf_offset_uv
+                                     : static_cast<ptrdiff_t>(frame.dmabuf_stride * frame.height);
           desc->layers[0].planes[1].pitch = frame.dmabuf_stride;
 
           drm_desc_ref = av_buffer_create(
-              reinterpret_cast<uint8_t*>(desc), sizeof(*desc),
+              reinterpret_cast<uint8_t*>(desc),
+              sizeof(*desc),
               [](void* opaque, uint8_t* data) {
                 (void)opaque;
                 auto* d = reinterpret_cast<AVDRMFrameDescriptor*>(data);
@@ -171,8 +181,14 @@ class FFmpegVideoEncoder : public IVideoEncoder {
                   av_free(d);
                 }
               },
-              nullptr, 0);
-          if (!drm_desc_ref) { close(desc->objects[0].fd); av_free(desc); av_frame_free(&drm_frame); break; }
+              nullptr,
+              0);
+          if (!drm_desc_ref) {
+            close(desc->objects[0].fd);
+            av_free(desc);
+            av_frame_free(&drm_frame);
+            break;
+          }
           drm_frame->buf[0] = drm_desc_ref;
           drm_frame->data[0] = reinterpret_cast<uint8_t*>(desc);
 
@@ -224,9 +240,11 @@ class FFmpegVideoEncoder : public IVideoEncoder {
             LOG_ERROR << "VAAPI sw_frame_ not writable (fallback)";
             return false;
           }
-          if (!gpu_processor_.ConvertBgraToNv12(
-                  frame, sw_frame_->data[0], sw_frame_->linesize[0],
-                  sw_frame_->data[1], sw_frame_->linesize[1])) {
+          if (!gpu_processor_.ConvertBgraToNv12(frame,
+                                                sw_frame_->data[0],
+                                                sw_frame_->linesize[0],
+                                                sw_frame_->data[1],
+                                                sw_frame_->linesize[1])) {
             LOG_ERROR << "ConvertBgraToNv12 failed (fallback)";
             return false;
           }
@@ -258,9 +276,11 @@ class FFmpegVideoEncoder : public IVideoEncoder {
           LOG_ERROR << "VAAPI sw_frame_ not writable";
           return false;
         }
-        if (!gpu_processor_.ConvertBgraToNv12(
-                frame, sw_frame_->data[0], sw_frame_->linesize[0],
-                sw_frame_->data[1], sw_frame_->linesize[1])) {
+        if (!gpu_processor_.ConvertBgraToNv12(frame,
+                                              sw_frame_->data[0],
+                                              sw_frame_->linesize[0],
+                                              sw_frame_->data[1],
+                                              sw_frame_->linesize[1])) {
           LOG_ERROR << "ConvertBgraToNv12 failed";
           return false;
         }
@@ -291,10 +311,13 @@ class FFmpegVideoEncoder : public IVideoEncoder {
 #endif
     {
       if (!av_frame_ || av_frame_make_writable(av_frame_) < 0) return false;
-      if (!gpu_processor_.ConvertBgraToYuv420p(
-              frame, av_frame_->data[0], av_frame_->linesize[0],
-              av_frame_->data[1], av_frame_->linesize[1],
-              av_frame_->data[2], av_frame_->linesize[2])) {
+      if (!gpu_processor_.ConvertBgraToYuv420p(frame,
+                                               av_frame_->data[0],
+                                               av_frame_->linesize[0],
+                                               av_frame_->data[1],
+                                               av_frame_->linesize[1],
+                                               av_frame_->data[2],
+                                               av_frame_->linesize[2])) {
         return false;
       }
       av_frame_->pts = static_cast<int64_t>(rtp_ts);
@@ -335,7 +358,8 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       last_key_frame_id_ = current_fid;
     }
 
-    out_encoded_frame.dependency = is_key ? FrameDependency::kKeyFrame : FrameDependency::kDependent;
+    out_encoded_frame.dependency =
+        is_key ? FrameDependency::kKeyFrame : FrameDependency::kDependent;
     out_encoded_frame.frame_id = current_fid;
     out_encoded_frame.referenced_frame_id = is_key ? current_fid : (current_fid - 1);
     out_encoded_frame.rtp_timestamp = rtp_ts;
@@ -349,9 +373,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     return true;
   }
 
-  void ForceKeyFrame() override {
-    force_keyframe_ = true;
-  }
+  void ForceKeyFrame() override { force_keyframe_ = true; }
 
   void SetBitrate(uint32_t bitrate_kbps) override {
     config_.bitrate_kbps = bitrate_kbps;
@@ -363,7 +385,8 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       if (use_vaapi_) {
         // h264_vaapi honors the generic bit_rate above; "b" exists on some
         // FFmpeg builds — an AVERROR_OPTION_NOT_FOUND here is expected.
-        av_opt_set_int(codec_ctx_->priv_data, "b",
+        av_opt_set_int(codec_ctx_->priv_data,
+                       "b",
                        static_cast<int64_t>(bitrate_kbps) * 1000,
                        AV_OPT_SEARCH_CHILDREN);
       }
@@ -382,9 +405,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     rtp_clock_origin_set_ = true;
   }
 
-  const VideoEncoderConfig& GetConfig() const override {
-    return config_;
-  }
+  const VideoEncoderConfig& GetConfig() const override { return config_; }
 
   std::string EncoderName() const override {
     if (use_vaapi_) return "h264_vaapi";
@@ -416,8 +437,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     // Windows hardware encode is handled by MediaFoundationVideoEncoder.
     return false;
 #else
-    if (av_hwdevice_ctx_create(&hw_device_ctx_, AV_HWDEVICE_TYPE_VAAPI,
-                               nullptr, nullptr, 0) < 0) {
+    if (av_hwdevice_ctx_create(&hw_device_ctx_, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0) < 0) {
       hw_device_ctx_ = nullptr;
       return false;
     }
@@ -482,8 +502,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     // IDR keyframes (which cause visible blinking every ~1s). The gradual
     // intra refresh handles error recovery without full IDRs. When intra
     // refresh is disabled, use a reasonable GOP (e.g. 5s) for recovery.
-    codec_ctx_->gop_size = config_.intra_refresh ? 10000 :
-                           (config_.gop_size > 0 ? config_.gop_size : config_.framerate * 5);
+    codec_ctx_->gop_size = config_.intra_refresh
+                               ? 10000
+                               : (config_.gop_size > 0 ? config_.gop_size : config_.framerate * 5);
     codec_ctx_->max_b_frames = 0;  // 0 B-frames required for Cast display mirroring
     codec_ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
     codec_ctx_->slices = config_.slices > 0 ? config_.slices : 4;
@@ -524,9 +545,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     }
 
     use_vaapi_ = true;
-    LOG_INFO << "Initialized Video Encoder: " << codec_name << " ("
-             << config_.width << "x" << config_.height << " @ " << config_.framerate
-             << "fps, " << config_.bitrate_kbps << " kbps)";
+    LOG_INFO << "Initialized Video Encoder: " << codec_name << " (" << config_.width << "x"
+             << config_.height << " @ " << config_.framerate << "fps, " << config_.bitrate_kbps
+             << " kbps)";
     return true;
 #endif
   }
@@ -548,7 +569,8 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     }
 
     if (!codec) {
-      LOG_ERROR << "Failed to find suitable video encoder codec for " << VideoCodecToString(config_.codec);
+      LOG_ERROR << "Failed to find suitable video encoder codec for "
+                << VideoCodecToString(config_.codec);
       return false;
     }
 
@@ -572,8 +594,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     codec_ctx_->color_range = AVCOL_RANGE_MPEG;
     codec_ctx_->bit_rate = static_cast<int64_t>(config_.bitrate_kbps) * 1000;
     codec_ctx_->rc_max_rate = static_cast<int64_t>(config_.bitrate_kbps) * 1000;
-    codec_ctx_->gop_size = config_.intra_refresh ? 10000 :
-                           (config_.gop_size > 0 ? config_.gop_size : config_.framerate * 5);
+    codec_ctx_->gop_size = config_.intra_refresh
+                               ? 10000
+                               : (config_.gop_size > 0 ? config_.gop_size : config_.framerate * 5);
     codec_ctx_->max_b_frames = 0;  // 0 B-frames required for Cast display mirroring
     codec_ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
     codec_ctx_->slices = config_.slices > 0 ? config_.slices : 4;
@@ -593,8 +616,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       av_opt_set(codec_ctx_->priv_data, "intra-refresh", config_.intra_refresh ? "1" : "0", 0);
       av_opt_set(codec_ctx_->priv_data, "forced-idr", "1", 0);
       std::ostringstream x264p;
-      x264p << "keyint=" << codec_ctx_->gop_size
-            << ":min-keyint=" << codec_ctx_->gop_size
+      x264p << "keyint=" << codec_ctx_->gop_size << ":min-keyint=" << codec_ctx_->gop_size
             << ":scenecut=0:intra-refresh=" << (config_.intra_refresh ? 1 : 0)
             << ":slices=" << codec_ctx_->slices
             << ":bframes=0:rc-lookahead=0:"
@@ -629,10 +651,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     gpu_processor_.Initialize(config_.width, config_.height, config_.width, config_.height);
 
     use_vaapi_ = false;
-    LOG_INFO << "Initialized Video Encoder: " << codec->name << " ("
-             << config_.width << "x" << config_.height << " @ " << config_.framerate
-             << "fps, " << config_.bitrate_kbps << " kbps, vbv="
-             << (codec_ctx_->rc_buffer_size / 1000) << " kb)";
+    LOG_INFO << "Initialized Video Encoder: " << codec->name << " (" << config_.width << "x"
+             << config_.height << " @ " << config_.framerate << "fps, " << config_.bitrate_kbps
+             << " kbps, vbv=" << (codec_ctx_->rc_buffer_size / 1000) << " kb)";
 
     return true;
   }
@@ -671,9 +692,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
 
   VideoEncoderConfig config_;
   AVCodecContext* codec_ctx_ = nullptr;
-  AVFrame* av_frame_ = nullptr;     // software path input (YUV420P)
-  AVFrame* sw_frame_ = nullptr;     // VAAPI path staging (NV12, system memory)
-  AVFrame* hw_frame_ = nullptr;     // VAAPI path upload target
+  AVFrame* av_frame_ = nullptr;  // software path input (YUV420P)
+  AVFrame* sw_frame_ = nullptr;  // VAAPI path staging (NV12, system memory)
+  AVFrame* hw_frame_ = nullptr;  // VAAPI path upload target
   AVPacket* av_packet_ = nullptr;
   AVBufferRef* hw_device_ctx_ = nullptr;
   AVBufferRef* hw_frames_ctx_ = nullptr;
@@ -750,23 +771,27 @@ class WindowsVideoEncoder : public IVideoEncoder {
     }
     return false;
   }
-  void ForceKeyFrame() override { if (active_) active_->ForceKeyFrame(); }
-  void SetBitrate(uint32_t kbps) override { if (active_) active_->SetBitrate(kbps); }
-  void SetFramerate(int fps) override { if (active_) active_->SetFramerate(fps); }
+  void ForceKeyFrame() override {
+    if (active_) active_->ForceKeyFrame();
+  }
+  void SetBitrate(uint32_t kbps) override {
+    if (active_) active_->SetBitrate(kbps);
+  }
+  void SetFramerate(int fps) override {
+    if (active_) active_->SetFramerate(fps);
+  }
   void SetClockOrigin(std::chrono::steady_clock::time_point o) override {
     clock_origin_ = o;
     if (active_) active_->SetClockOrigin(o);
   }
-  std::string EncoderName() const override {
-    return active_ ? active_->EncoderName() : "none";
-  }
+  std::string EncoderName() const override { return active_ ? active_->EncoderName() : "none"; }
   const VideoEncoderConfig& GetConfig() const override {
     return active_ ? active_->GetConfig() : empty_config_;
   }
 
  private:
-  static constexpr int kMfFailuresBeforeFirstFrame = 90;   // ~1.5 s at 60 fps
-  static constexpr int kMfFailuresAfterSuccess = 300;      // ~5 s at 60 fps
+  static constexpr int kMfFailuresBeforeFirstFrame = 90;  // ~1.5 s at 60 fps
+  static constexpr int kMfFailuresAfterSuccess = 300;  // ~5 s at 60 fps
 
   std::unique_ptr<IVideoEncoder> active_;
   VideoEncoderConfig empty_config_{};
@@ -785,8 +810,7 @@ namespace {
 // working H.264 stream instead of an OFFER the receiver rejects.
 class CodecFallbackEncoder : public IVideoEncoder {
  public:
-  explicit CodecFallbackEncoder(std::unique_ptr<IVideoEncoder> inner)
-      : inner_(std::move(inner)) {}
+  explicit CodecFallbackEncoder(std::unique_ptr<IVideoEncoder> inner) : inner_(std::move(inner)) {}
 
   bool Initialize(const VideoEncoderConfig& config) override {
     return inner_->Initialize(ForceH264(config));
@@ -827,8 +851,7 @@ std::unique_ptr<IVideoEncoder> MakeH264Backend() {
 
 std::unique_ptr<IVideoEncoder> VideoEncoderFactory::Create(VideoCodec codec) {
   switch (codec) {
-    case VideoCodec::kH264:
-      return MakeH264Backend();
+    case VideoCodec::kH264: return MakeH264Backend();
     case VideoCodec::kVP8:
       // Cast Streaming mirroring accepts vp8; libvpx is available everywhere.
       return std::make_unique<FFmpegVideoEncoder>();
@@ -846,4 +869,4 @@ std::unique_ptr<IVideoEncoder> VideoEncoderFactory::Create(VideoCodec codec) {
   return nullptr;
 }
 
-} // namespace castcore
+}  // namespace castcore

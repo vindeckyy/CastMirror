@@ -28,17 +28,15 @@ namespace castcore {
 class CastSession {
  public:
   using ErrorCallback = std::function<void(const std::string& error_message)>;
-  using DeviceLookupCallback = std::function<std::optional<CastDevice>(const std::string& id, const std::string& ip)>;
+  using DeviceLookupCallback =
+      std::function<std::optional<CastDevice>(const std::string& id, const std::string& ip)>;
 
   CastSession(StateMachine& state_machine);
   ~CastSession();
 
   void SetDeviceLookup(DeviceLookupCallback callback);
-  bool Start(const CastDevice& device,
-             int display_id,
-             QualityPreset preset,
-             bool enable_audio = true,
-             VideoCodec video_codec = VideoCodec::kH264,
+  bool Start(const CastDevice& device, int display_id, QualityPreset preset,
+             bool enable_audio = true, VideoCodec video_codec = VideoCodec::kH264,
              uint32_t bitrate_kbps = 0);
 
   bool Start(const CastDevice& device, int display_id, const SessionOptions& options);
@@ -179,6 +177,6 @@ class CastSession {
   bool video_stalling_ = false;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_CAST_SESSION_H_
+#endif  // CASTCORE_CAST_SESSION_H_

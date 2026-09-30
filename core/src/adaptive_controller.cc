@@ -15,23 +15,24 @@ AdaptiveController::~AdaptiveController() = default;
 
 void AdaptiveController::BuildLadder() {
   ladder_ = {
-    {{3840, 2160}, 60, 25000}, // Rung 0: 4K60
-    {{3840, 2160}, 30, 16000}, // Rung 1: 4K30
-    {{2560, 1440}, 60, 12000}, // Rung 2: 1440p60
-    {{1920, 1080}, 60, 8000},  // Rung 3: 1080p60 (High)
-    {{1920, 1080}, 30, 5000},  // Rung 4: 1080p30 (Balanced)
-    {{1280, 720},  60, 3500},  // Rung 5: 720p60 (Smooth)
-    {{1280, 720},  30, 2000},  // Rung 6: 720p30
-    {{960,  540},  30, 1200}   // Rung 7: 540p30 (Floor)
+      {{3840, 2160}, 60, 25000},  // Rung 0: 4K60
+      {{3840, 2160}, 30, 16000},  // Rung 1: 4K30
+      {{2560, 1440}, 60, 12000},  // Rung 2: 1440p60
+      {{1920, 1080}, 60, 8000},  // Rung 3: 1080p60 (High)
+      {{1920, 1080}, 30, 5000},  // Rung 4: 1080p30 (Balanced)
+      {{1280, 720}, 60, 3500},  // Rung 5: 720p60 (Smooth)
+      {{1280, 720}, 30, 2000},  // Rung 6: 720p30
+      {{960, 540}, 30, 1200}  // Rung 7: 540p30 (Floor)
   };
 }
 
 void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPreset preset) {
   std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   preset_ = preset;
-  current_target_delay_ms_ = initial_target.target_delay_ms > 0
-                                 ? std::clamp(initial_target.target_delay_ms, kMinPlayoutDelayMs, kMaxPlayoutDelayMs)
-                                 : kDefaultPlayoutDelayMs;
+  current_target_delay_ms_ =
+      initial_target.target_delay_ms > 0
+          ? std::clamp(initial_target.target_delay_ms, kMinPlayoutDelayMs, kMaxPlayoutDelayMs)
+          : kDefaultPlayoutDelayMs;
   current_bitrate_kbps_ = initial_target.bitrate_kbps;
   max_encode_width_ = initial_target.current_resolution.width;
   max_encode_height_ = initial_target.current_resolution.height;
@@ -48,9 +49,8 @@ void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPr
   recent_jitter_ms_.store(0.0);
   ResetFeedbackWindow();
 
-
   // Find closest rung in ladder
-  current_rung_idx_ = 3; // Default 1080p60
+  current_rung_idx_ = 3;  // Default 1080p60
   for (size_t i = 0; i < ladder_.size(); ++i) {
     if (ladder_[i].resolution.width <= initial_target.current_resolution.width &&
         ladder_[i].framerate <= initial_target.current_framerate &&
@@ -68,12 +68,10 @@ void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPr
   consecutive_loss_events_ = 0;
   consecutive_clean_seconds_ = 0;
   consecutive_clean_delay_intervals_ = 0;
-  LOG_INFO << "Initialized Adaptive Controller at Ladder Rung " << current_rung_idx_
-           << " (" << current_resolution_.width << "x"
-           << current_resolution_.height << " @ "
-           << current_framerate_ << "fps, "
-           << ladder_[current_rung_idx_].bitrate_kbps << " kbps, target_delay="
-           << current_target_delay_ms_ << "ms)";
+  LOG_INFO << "Initialized Adaptive Controller at Ladder Rung " << current_rung_idx_ << " ("
+           << current_resolution_.width << "x" << current_resolution_.height << " @ "
+           << current_framerate_ << "fps, " << ladder_[current_rung_idx_].bitrate_kbps
+           << " kbps, target_delay=" << current_target_delay_ms_ << "ms)";
 }
 
 void AdaptiveController::SetBitrateCapKbps(uint32_t kbps) {
@@ -168,8 +166,8 @@ void AdaptiveController::OnFeedback(const RtcpFeedback& feedback) {
   if (!feedback.nacks.empty()) {
     std::lock_guard<std::mutex> lock(feedback_mutex_);
     for (const auto& nack : feedback.nacks) {
-      const uint64_t key = (static_cast<uint64_t>(nack.frame_id) << 16) |
-                           static_cast<uint64_t>(nack.packet_id);
+      const uint64_t key =
+          (static_cast<uint64_t>(nack.frame_id) << 16) | static_cast<uint64_t>(nack.packet_id);
       recent_nack_keys_.insert(key);
     }
   }
@@ -204,7 +202,8 @@ void AdaptiveController::ResetFeedbackWindow() {
 bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
   std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
   auto now = std::chrono::steady_clock::now();
-  if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_eval_time_).count() < eval_interval_ms_) {
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_eval_time_).count() <
+      eval_interval_ms_) {
     return false;
   }
   last_eval_time_ = now;
@@ -235,21 +234,19 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
   // network is recovering, so don't panic.
   if (!enabled_) {
     // Cooldown: don't cascade more than 1 rung per 3 seconds
-    const auto since_last = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - last_downshift_time_).count();
+    const auto since_last =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - last_downshift_time_).count();
     const bool emergency_cooldown = since_last >= 3000;
 
-    const bool severe = (recent_loss > 0.10) || recent_pli ||
-                        (recent_nacks >= 50 && recent_loss > 0.03);
+    const bool severe =
+        (recent_loss > 0.10) || recent_pli || (recent_nacks >= 50 && recent_loss > 0.03);
     if (severe && emergency_cooldown && current_rung_idx_ < static_cast<int>(ladder_.size()) - 1) {
       current_rung_idx_++;
       current_bitrate_kbps_ = ladder_[current_rung_idx_].bitrate_kbps;
       last_downshift_time_ = now;
-      LOG_WARN << "Emergency bitrate downshift -> " << current_bitrate_kbps_
-               << " kbps (rung " << current_rung_idx_
-               << ") — adaptive disabled but severe congestion detected"
-               << " (unique_nacks=" << recent_nacks
-               << ", loss=" << (recent_loss * 100.0) << "%)";
+      LOG_WARN << "Emergency bitrate downshift -> " << current_bitrate_kbps_ << " kbps (rung "
+               << current_rung_idx_ << ") — adaptive disabled but severe congestion detected"
+               << " (unique_nacks=" << recent_nacks << ", loss=" << (recent_loss * 100.0) << "%)";
       out_updated_settings.bitrate_kbps = current_bitrate_kbps_;
       out_updated_settings.current_resolution = current_resolution_;
       out_updated_settings.current_framerate = current_framerate_;
@@ -281,10 +278,12 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
   // retransmissions are currently succeeding).
   int nack_pressure_thresh = recent_jitter > 30.0 ? 6 : 4;
   int severe_thresh = recent_jitter > 30.0 ? 10 : 8;
-  const bool nack_pressure = (recent_loss > 0.01 && recent_nacks >= static_cast<uint32_t>(nack_pressure_thresh)) ||
-                             recent_nacks >= 50;
-  const bool severe_feedback = (recent_loss > 0.03 && recent_nacks >= static_cast<uint32_t>(severe_thresh)) ||
-                               recent_nacks >= 50 || recent_pli;
+  const bool nack_pressure =
+      (recent_loss > 0.01 && recent_nacks >= static_cast<uint32_t>(nack_pressure_thresh)) ||
+      recent_nacks >= 50;
+  const bool severe_feedback =
+      (recent_loss > 0.03 && recent_nacks >= static_cast<uint32_t>(severe_thresh)) ||
+      recent_nacks >= 50 || recent_pli;
 
   const auto since_downshift =
       std::chrono::duration_cast<std::chrono::milliseconds>(now - last_downshift_time_).count();
@@ -292,7 +291,8 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
 
   // Playout delay adaptation:
   // Step up delay: 150ms -> 200ms -> 300ms -> 400ms when EWMA_Jitter > 30ms or loss_fraction > 0.03 (or NACK burst).
-  const bool delay_degraded = (ewma_jitter_ms_ > 30.0 || recent_loss > 0.03 || nack_pressure || recent_pli);
+  const bool delay_degraded =
+      (ewma_jitter_ms_ > 30.0 || recent_loss > 0.03 || nack_pressure || recent_pli);
   if (delay_degraded) {
     if (can_downshift) {
       StepUpPlayoutDelay();
@@ -327,17 +327,18 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
 
   const bool rtt_trend_pressure = (rtt_rising_ticks_ >= 3);
 
-  if (recent_loss > 0.03 || recent_rtt > 120.0 || nack_pressure || recent_pli || rtt_trend_pressure) {
-    consecutive_loss_events_ = std::min(2, consecutive_loss_events_ + ((severe_feedback || rtt_trend_pressure) ? 2 : 1));
+  if (recent_loss > 0.03 || recent_rtt > 120.0 || nack_pressure || recent_pli ||
+      rtt_trend_pressure) {
+    consecutive_loss_events_ =
+        std::min(2, consecutive_loss_events_ + ((severe_feedback || rtt_trend_pressure) ? 2 : 1));
     consecutive_clean_seconds_ = 0;
 
     // Immediate emergency downshift on severe congestion — don't wait for
     // 2 consecutive loss events. But require actual loss OR very high NACKs
     // with some loss, and respect a 3s cooldown to prevent cascade.
-    const auto since_last = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - last_downshift_time_).count();
-    const bool emergency = (recent_loss > 0.15) ||
-                           (recent_nacks >= 50 && recent_loss > 0.03);
+    const auto since_last =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - last_downshift_time_).count();
+    const bool emergency = (recent_loss > 0.15) || (recent_nacks >= 50 && recent_loss > 0.03);
     if (emergency && since_last >= 3000 &&
         current_rung_idx_ < static_cast<int>(ladder_.size()) - 1) {
       current_rung_idx_++;
@@ -346,9 +347,8 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
       apply_caps();
       consecutive_loss_events_ = 0;
       rtt_rising_ticks_ = 0;
-      LOG_WARN << "Emergency bitrate downshift -> " << current_bitrate_kbps_
-               << " kbps (rung " << current_rung_idx_
-               << ") due to severe feedback: unique_nacks=" << recent_nacks
+      LOG_WARN << "Emergency bitrate downshift -> " << current_bitrate_kbps_ << " kbps (rung "
+               << current_rung_idx_ << ") due to severe feedback: unique_nacks=" << recent_nacks
                << ", loss=" << (recent_loss * 100.0) << "%";
     } else if (consecutive_loss_events_ >= 2 && can_downshift) {
       if (max_encode_width_ <= 1920 && max_encode_height_ <= 1080 &&
@@ -364,10 +364,9 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
         consecutive_loss_events_ = 0;
         rtt_rising_ticks_ = 0;
 
-        LOG_WARN << "Adaptive bitrate downshift -> " << current_bitrate_kbps_
-                 << " kbps (rung " << current_rung_idx_ << ") due to feedback: loss="
-                 << (recent_loss * 100.0) << "%, rtt=" << recent_rtt
-                 << "ms, unique_nacks=" << recent_nacks
+        LOG_WARN << "Adaptive bitrate downshift -> " << current_bitrate_kbps_ << " kbps (rung "
+                 << current_rung_idx_ << ") due to feedback: loss=" << (recent_loss * 100.0)
+                 << "%, rtt=" << recent_rtt << "ms, unique_nacks=" << recent_nacks
                  << ", rtt_trend=" << (rtt_trend_pressure ? "rising_3_ticks" : "stable")
                  << ", pli=" << (recent_pli ? "yes" : "no");
       } else if (last_floor_warning_time_.time_since_epoch().count() == 0 ||
@@ -375,8 +374,7 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
         last_floor_warning_time_ = now;
         consecutive_loss_events_ = 0;
         LOG_WARN << "Adaptive quality is already at the floor; feedback remains degraded"
-                 << " (unique_nacks=" << recent_nacks
-                 << ", loss=" << (recent_loss * 100.0) << "%)";
+                 << " (unique_nacks=" << recent_nacks << ", loss=" << (recent_loss * 100.0) << "%)";
       }
     }
 
@@ -390,27 +388,28 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
 
     // Recovery hysteresis: require 8 s of stable RTT (slope <= 0) + 0 loss before stepping up.
     // This prevents oscillation on borderline links.
-    if (custom_target_kbps_ > 0 && consecutive_clean_seconds_ >= 8 &&
-        rtt_rising_ticks_ == 0 && current_bitrate_kbps_ < custom_target_kbps_) {
+    if (custom_target_kbps_ > 0 && consecutive_clean_seconds_ >= 8 && rtt_rising_ticks_ == 0 &&
+        current_bitrate_kbps_ < custom_target_kbps_) {
       uint32_t gap = custom_target_kbps_ - current_bitrate_kbps_;
       uint32_t step = std::max<uint32_t>(500, gap / 2);
       uint32_t before = current_bitrate_kbps_;
       current_bitrate_kbps_ = std::min(custom_target_kbps_, current_bitrate_kbps_ + step);
       apply_caps();
       consecutive_clean_seconds_ = 0;
-      LOG_INFO << "Aggressive bitrate ramp-up -> " << current_bitrate_kbps_
-               << " kbps (from " << before << ", target " << custom_target_kbps_ << ")";
+      LOG_INFO << "Aggressive bitrate ramp-up -> " << current_bitrate_kbps_ << " kbps (from "
+               << before << ", target " << custom_target_kbps_ << ")";
     }
 
     // Resolution/fps upshift stays on the slow cadence (10 s clean + 15 s
     // since last downshift) and only fires once bitrate has ramped all the
     // way back to the user's target. This prevents keyframe storms while
     // bitrate is still recovering.
-    auto time_since_downshift = std::chrono::duration_cast<std::chrono::seconds>(now - last_downshift_time_).count();
-    const bool bitrate_recovered = (custom_target_kbps_ == 0) ||
-                                   (current_bitrate_kbps_ >= custom_target_kbps_);
-    if (bitrate_recovered && consecutive_clean_seconds_ >= 10 &&
-        time_since_downshift >= 15 && current_rung_idx_ > 0) {
+    auto time_since_downshift =
+        std::chrono::duration_cast<std::chrono::seconds>(now - last_downshift_time_).count();
+    const bool bitrate_recovered =
+        (custom_target_kbps_ == 0) || (current_bitrate_kbps_ >= custom_target_kbps_);
+    if (bitrate_recovered && consecutive_clean_seconds_ >= 10 && time_since_downshift >= 15 &&
+        current_rung_idx_ > 0) {
       int next = current_rung_idx_ - 1;
       // Do not upshift past initial max dimensions
       if (ladder_[next].resolution.width <= max_encode_width_ &&
@@ -425,8 +424,8 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
           apply_caps();
           consecutive_clean_seconds_ = 0;
 
-          LOG_INFO << "Adaptive bitrate upshift -> " << current_bitrate_kbps_
-                   << " kbps (rung " << current_rung_idx_ << ")";
+          LOG_INFO << "Adaptive bitrate upshift -> " << current_bitrate_kbps_ << " kbps (rung "
+                   << current_rung_idx_ << ")";
         }
       } else {
         // Rung is larger than initial maximum encode size; stop upshifting here.
@@ -465,4 +464,4 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
 
   return changed;
 }
-} // namespace castcore
+}  // namespace castcore

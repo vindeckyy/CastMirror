@@ -28,7 +28,8 @@ void SessionRecovery::Reset() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (is_recovering_) {
     const auto elapsed_s = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::steady_clock::now() - recovery_start_time_).count();
+                               std::chrono::steady_clock::now() - recovery_start_time_)
+                               .count();
     LOG_INFO << "Session Recovery Succeeded (resolved after " << elapsed_s << "s)";
   }
   is_recovering_ = false;
@@ -46,7 +47,8 @@ int SessionRecovery::GetElapsedSeconds() const {
   std::lock_guard<std::mutex> lock(mutex_);
   if (!is_recovering_) return 0;
   return static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::steady_clock::now() - recovery_start_time_).count());
+                              std::chrono::steady_clock::now() - recovery_start_time_)
+                              .count());
 }
 
-} // namespace castcore
+}  // namespace castcore

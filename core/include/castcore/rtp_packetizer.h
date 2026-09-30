@@ -40,6 +40,6 @@ class RtpPacketizer {
   uint16_t sequence_number_ = 0;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_RTP_PACKETIZER_H_
+#endif  // CASTCORE_RTP_PACKETIZER_H_

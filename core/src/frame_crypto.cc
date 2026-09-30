@@ -16,8 +16,8 @@ void FrameCrypto::Crypt(uint32_t frame_id, const uint8_t* in, size_t in_len, uin
 
   std::array<uint8_t, 16> aes_nonce{};
   // Cast Streaming AES nonce calculation: frame_id lower 32 bits at offset 8 (big-endian)
-  aes_nonce[8]  = static_cast<uint8_t>((frame_id >> 24) & 0xFF);
-  aes_nonce[9]  = static_cast<uint8_t>((frame_id >> 16) & 0xFF);
+  aes_nonce[8] = static_cast<uint8_t>((frame_id >> 24) & 0xFF);
+  aes_nonce[9] = static_cast<uint8_t>((frame_id >> 16) & 0xFF);
   aes_nonce[10] = static_cast<uint8_t>((frame_id >> 8) & 0xFF);
   aes_nonce[11] = static_cast<uint8_t>(frame_id & 0xFF);
 
@@ -48,16 +48,18 @@ void FrameCrypto::Decrypt(uint32_t frame_id, const uint8_t* in, size_t in_len, u
   Crypt(frame_id, in, in_len, out);
 }
 
-std::vector<uint8_t> FrameCrypto::Encrypt(uint32_t frame_id, const std::vector<uint8_t>& plain_data) const {
+std::vector<uint8_t> FrameCrypto::Encrypt(uint32_t frame_id,
+                                          const std::vector<uint8_t>& plain_data) const {
   std::vector<uint8_t> result(plain_data.size());
   Encrypt(frame_id, plain_data.data(), plain_data.size(), result.data());
   return result;
 }
 
-std::vector<uint8_t> FrameCrypto::Decrypt(uint32_t frame_id, const std::vector<uint8_t>& cipher_data) const {
+std::vector<uint8_t> FrameCrypto::Decrypt(uint32_t frame_id,
+                                          const std::vector<uint8_t>& cipher_data) const {
   std::vector<uint8_t> result(cipher_data.size());
   Decrypt(frame_id, cipher_data.data(), cipher_data.size(), result.data());
   return result;
 }
 
-} // namespace castcore
+}  // namespace castcore

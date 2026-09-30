@@ -34,14 +34,12 @@ StreamEncryptionKeys MirroringNegotiator::GenerateRandomKeys() {
   return keys;
 }
 
-std::string MirroringNegotiator::CreateOfferJson(int seq_num,
-                                                const StreamStats& video_settings,
-                                                bool include_audio,
-                                                const StreamEncryptionKeys& video_keys,
-                                                const StreamEncryptionKeys& audio_keys,
-                                                VideoCodec video_codec,
-                                                int target_delay_ms,
-                                                int audio_bitrate_bps) {
+std::string MirroringNegotiator::CreateOfferJson(int seq_num, const StreamStats& video_settings,
+                                                 bool include_audio,
+                                                 const StreamEncryptionKeys& video_keys,
+                                                 const StreamEncryptionKeys& audio_keys,
+                                                 VideoCodec video_codec, int target_delay_ms,
+                                                 int audio_bitrate_bps) {
   nlohmann::json offer_root;
   offer_root["type"] = "OFFER";
   offer_root["seqNum"] = seq_num;
@@ -59,7 +57,7 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
     audio_stream["type"] = "audio_source";
     audio_stream["codecName"] = "opus";
     audio_stream["rtpProfile"] = "cast";
-    audio_stream["rtpPayloadType"] = 127; // AndroidTV / standard hack
+    audio_stream["rtpPayloadType"] = 127;  // AndroidTV / standard hack
     audio_stream["ssrc"] = 1;
     audio_stream["bitRate"] = audio_bitrate_bps > 0 ? audio_bitrate_bps : 192000;
     audio_stream["timeBase"] = "1/48000";
@@ -140,9 +138,9 @@ std::string MirroringNegotiator::CreateStatusJson(int seq_num, const StreamStats
 }
 
 bool MirroringNegotiator::ParseAnswerJson(const std::string& answer_json,
-                                         const StreamEncryptionKeys& video_keys,
-                                         const StreamEncryptionKeys& audio_keys,
-                                         NegotiatedSessionParams& out_params) {
+                                          const StreamEncryptionKeys& video_keys,
+                                          const StreamEncryptionKeys& audio_keys,
+                                          NegotiatedSessionParams& out_params) {
   try {
     nlohmann::json j = nlohmann::json::parse(answer_json);
     if (!j.contains("type") || j["type"] != "ANSWER") {
@@ -212,4 +210,4 @@ bool MirroringNegotiator::ParseAnswerJson(const std::string& answer_json,
   }
 }
 
-} // namespace castcore
+}  // namespace castcore

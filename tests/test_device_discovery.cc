@@ -77,7 +77,7 @@ void AppendSrvRecord(std::vector<uint8_t>& b, const std::string& name, uint16_t 
 
 std::vector<uint8_t> MdnsHeader(uint16_t qd, uint16_t an, uint16_t ns, uint16_t ar) {
   std::vector<uint8_t> b;
-  AppendU16(b, 0);       // ID
+  AppendU16(b, 0);  // ID
   AppendU16(b, 0x8400);  // response, authoritative
   AppendU16(b, qd);
   AppendU16(b, an);
@@ -95,9 +95,13 @@ const char* kInstance = "Living Room TV._googlecast._tcp.local";
 // ---------------------------------------------------------------------------
 
 TEST(DeviceDiscoveryTest, ParseTxtRecordMapsCastFields) {
-  auto txt = DeviceDiscovery::ParseTxtRecord(
-      {"id=abcd1234", "fn=Living Room TV", "md=Chromecast Ultra", "ca=5", "st=1",
-       "ve=05", "rs=mirroring"});
+  auto txt = DeviceDiscovery::ParseTxtRecord({"id=abcd1234",
+                                              "fn=Living Room TV",
+                                              "md=Chromecast Ultra",
+                                              "ca=5",
+                                              "st=1",
+                                              "ve=05",
+                                              "rs=mirroring"});
   ASSERT_EQ(txt.size(), 7u);
   EXPECT_EQ(txt["id"], "abcd1234");
   EXPECT_EQ(txt["fn"], "Living Room TV");
@@ -116,8 +120,8 @@ TEST(DeviceDiscoveryTest, ParseTxtRecordKeepsFirstDuplicateKey) {
 
 TEST(DeviceDiscoveryTest, ParseTxtRecordSkipsOversizeAndMalformedEntries) {
   const std::string oversize_value = "fn=" + std::string(300, 'x');  // > 255: skipped
-  const std::string oversize_key = std::string(80, 'k') + "=v";      // key > 64: skipped
-  const std::string bare_oversize_key(80, 'k');                      // key > 64: skipped
+  const std::string oversize_key = std::string(80, 'k') + "=v";  // key > 64: skipped
+  const std::string bare_oversize_key(80, 'k');  // key > 64: skipped
   auto txt = DeviceDiscovery::ParseTxtRecord(
       {oversize_value, oversize_key, bare_oversize_key, "=novalue", "fn=ok"});
   ASSERT_EQ(txt.size(), 1u);
@@ -141,7 +145,9 @@ TEST(DeviceDiscoveryTest, ParseTxtRecordIgnoresEmptyEntries) {
 
 TEST(DeviceDiscoveryTest, ParseFromMdnsDataMapsTxtOverSrvName) {
   CastDevice dev = DeviceDiscovery::ParseFromMdnsData(
-      "instance-name", "10.0.0.9", 8009,
+      "instance-name",
+      "10.0.0.9",
+      8009,
       {"id=uuid-1", "fn=Bedroom", "md=Chromecast with Google TV", "ca=5", "st=1"});
   EXPECT_EQ(dev.id, "uuid-1");
   EXPECT_EQ(dev.name, "Bedroom");
@@ -153,8 +159,8 @@ TEST(DeviceDiscoveryTest, ParseFromMdnsDataMapsTxtOverSrvName) {
 
 TEST(DeviceDiscoveryTest, ParseFromMdnsDataFallsBackWhenIdMissing) {
   CastDevice dev = DeviceDiscovery::ParseFromMdnsData("", "192.168.1.42", 8009, {"fn=Kitchen"});
-  EXPECT_EQ(dev.id, "192.168.1.42");        // id falls back to the sender IP
-  EXPECT_EQ(dev.name, "Kitchen");           // name comes from 'fn'
+  EXPECT_EQ(dev.id, "192.168.1.42");  // id falls back to the sender IP
+  EXPECT_EQ(dev.name, "Kitchen");  // name comes from 'fn'
   EXPECT_EQ(dev.model_name, "Chromecast");  // 'md' missing
   EXPECT_EQ(dev.capabilities, kDefaultCaps);
   EXPECT_EQ(dev.status, DeviceStatus::kReady);
@@ -198,8 +204,8 @@ TEST(DeviceDiscoveryTest, SrvPortIsCoercedToCastControlPort) {
 TEST(DeviceDiscoveryTest, ProcessMdnsResponseLandsDeviceWithCoercedPort) {
   std::vector<uint8_t> pkt = MdnsHeader(0, 2, 0, 0);
   AppendSrvRecord(pkt, kInstance, 8081);  // non-control SRV port -> coerced to 8009
-  AppendTxtRecord(pkt, kInstance,
-                  {"id=uuid-mdns", "fn=Living Room TV", "md=Chromecast Ultra", "ca=5", "st=0"});
+  AppendTxtRecord(
+      pkt, kInstance, {"id=uuid-mdns", "fn=Living Room TV", "md=Chromecast Ultra", "ca=5", "st=0"});
 
   DeviceDiscovery discovery;
   discovery.ProcessMdnsResponse(pkt.data(), pkt.size(), "192.168.7.7");
@@ -243,10 +249,10 @@ TEST(DeviceDiscoveryTest, ProcessMdnsResponseIgnoresShortAndTruncatedInput) {
   // A record whose RDLENGTH points past the buffer must be dropped, not read.
   std::vector<uint8_t> lying = MdnsHeader(0, 1, 0, 0);
   AppendName(lying, kInstance);
-  AppendU16(lying, 16);        // TXT
+  AppendU16(lying, 16);  // TXT
   AppendU16(lying, 0x8001);
   AppendU32(lying, 120);
-  AppendU16(lying, 4096);      // RDLENGTH far beyond the payload
+  AppendU16(lying, 4096);  // RDLENGTH far beyond the payload
   lying.push_back(0x02);
   discovery.ProcessMdnsResponse(lying.data(), lying.size(), "10.0.0.1");
   EXPECT_TRUE(discovery.GetDevices().empty());
@@ -298,11 +304,12 @@ TEST(DeviceDiscoveryTest, ProcessMdnsResponsePrefersTheARecordAddress) {
   AppendSrvRecord(pkt, kInstance, 8009);
   AppendTxtRecord(pkt, kInstance, {"id=uuid-a", "fn=Bedroom"});
   AppendName(pkt, "Bedroom.local");
-  AppendU16(pkt, 1);       // A
+  AppendU16(pkt, 1);  // A
   AppendU16(pkt, 0x8001);
   AppendU32(pkt, 120);
   AppendU16(pkt, 4);
-  for (uint8_t b : {uint8_t{192}, uint8_t{168}, uint8_t{7}, uint8_t{33}}) pkt.push_back(b);
+  for (uint8_t b : {uint8_t{192}, uint8_t{168}, uint8_t{7}, uint8_t{33}})
+    pkt.push_back(b);
 
   DeviceDiscovery discovery;
   discovery.ProcessMdnsResponse(pkt.data(), pkt.size(), "192.168.7.1");  // e.g. a reflector
@@ -328,7 +335,8 @@ TEST(DeviceDiscoveryTest, ExpireStaleDevicesDropsSilentMdnsDevicesButKeepsManual
 
   const auto now = std::chrono::steady_clock::now();
   EXPECT_EQ(discovery.ExpireStaleDevices(now, std::chrono::minutes(10)), 0u);  // just seen
-  EXPECT_EQ(discovery.ExpireStaleDevices(now + std::chrono::minutes(11), std::chrono::minutes(10)), 1u);
+  EXPECT_EQ(discovery.ExpireStaleDevices(now + std::chrono::minutes(11), std::chrono::minutes(10)),
+            1u);
 
   auto left = discovery.GetDevices();
   ASSERT_EQ(left.size(), 1u);

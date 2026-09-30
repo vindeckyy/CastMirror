@@ -13,12 +13,12 @@ class LatencyHud {
   static void Render(CapturedVideoFrame& frame);
 
  private:
-  static void DrawChar(uint8_t* dst, int stride, int width, int height,
-                       int x, int y, char c, uint32_t color);
-  static void DrawString(uint8_t* dst, int stride, int width, int height,
-                         int x, int y, const char* str, uint32_t color);
-  static void DrawRect(uint8_t* dst, int stride, int width, int height,
-                       int x, int y, int w, int h, uint32_t bg_color);
+  static void DrawChar(uint8_t* dst, int stride, int width, int height, int x, int y, char c,
+                       uint32_t color);
+  static void DrawString(uint8_t* dst, int stride, int width, int height, int x, int y,
+                         const char* str, uint32_t color);
+  static void DrawRect(uint8_t* dst, int stride, int width, int height, int x, int y, int w, int h,
+                       uint32_t bg_color);
 };
 
 }  // namespace castcore

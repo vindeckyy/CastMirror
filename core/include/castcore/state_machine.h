@@ -10,7 +10,8 @@ namespace castcore {
 
 class StateMachine {
  public:
-  using StateCallback = std::function<void(SessionState old_state, SessionState new_state, const std::string& message)>;
+  using StateCallback = std::function<void(SessionState old_state, SessionState new_state,
+                                           const std::string& message)>;
 
   StateMachine();
   ~StateMachine();
@@ -30,15 +31,12 @@ class StateMachine {
            s == SessionState::kStreaming || s == SessionState::kReconnecting;
   }
 
-  bool IsStreaming() const {
-    return GetState() == SessionState::kStreaming;
-  }
+  bool IsStreaming() const { return GetState() == SessionState::kStreaming; }
 
   // Phase 0.5: assertion helper — verify IsActive() matches external capture state.
   // Call with display_capture->IsCapturing() (or synthetic equivalent).
   // Reports in Release as well as asserting in debug; see types.h.
-  void AssertCaptureInvariant(bool capture_running,
-                              const char* context = "StateMachine") const {
+  void AssertCaptureInvariant(bool capture_running, const char* context = "StateMachine") const {
     ::castcore::CheckCaptureInvariant(IsActive(), capture_running, context);
   }
 
@@ -56,6 +54,6 @@ class StateMachine {
   std::vector<StateCallback> callbacks_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_STATE_MACHINE_H_
+#endif  // CASTCORE_STATE_MACHINE_H_

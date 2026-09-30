@@ -16,11 +16,11 @@
 #include <cstdint>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #else
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #endif
 
 namespace castcore {
@@ -53,9 +53,9 @@ class CastTransport {
   // Phase 2 network hardening constants
   static constexpr int kPacingMaxBurst = 10;
   static constexpr int kPacingIntervalMs = 2;
-  static constexpr double kRttEwmaAlpha = 0.2;   // EWMA: rtt = 0.8*old + 0.2*sample
+  static constexpr double kRttEwmaAlpha = 0.2;  // EWMA: rtt = 0.8*old + 0.2*sample
   static constexpr double kRttEwmaKeep = 0.8;
-  static constexpr double kJitterEwmaAlpha = 0.1; // jitter = 0.9*old + 0.1*|sample-old|
+  static constexpr double kJitterEwmaAlpha = 0.1;  // jitter = 0.9*old + 0.1*|sample-old|
   static constexpr double kJitterEwmaKeep = 0.9;
   static constexpr int kRetransmitSuppressMs = 80;
 
@@ -96,9 +96,8 @@ class CastTransport {
   std::map<uint32_t, uint32_t> last_sent_frame_id_;
   // Suppress duplicate retransmissions for the same packet within a short
   // receiver retry interval: ssrc -> frame -> packet -> last send time.
-  std::map<uint32_t, std::map<uint32_t,
-      std::map<uint16_t, std::chrono::steady_clock::time_point>>> last_retransmit_time_;
-
+  std::map<uint32_t, std::map<uint32_t, std::map<uint16_t, std::chrono::steady_clock::time_point>>>
+      last_retransmit_time_;
 
   PliCallback pli_callback_;
   FeedbackCallback feedback_callback_;
@@ -126,6 +125,6 @@ class CastTransport {
   mutable double current_video_fps_ = 0.0;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_CAST_TRANSPORT_H_
+#endif  // CASTCORE_CAST_TRANSPORT_H_

@@ -19,7 +19,7 @@ struct VideoEncoderConfig {
   VideoCodec codec = VideoCodec::kH264;
   std::string profile = "high";
   std::string level = "4.2";
-  int gop_size = 0; // 0 = auto (intra_refresh avoids periodic IDRs)
+  int gop_size = 0;  // 0 = auto (intra_refresh avoids periodic IDRs)
   int playout_delay_ms = 200;
   int slices = 4;
   bool intra_refresh = true;
@@ -57,6 +57,6 @@ class VideoEncoderFactory {
   static std::unique_ptr<IVideoEncoder> Create(VideoCodec codec = VideoCodec::kH264);
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_VIDEO_ENCODER_H_
+#endif  // CASTCORE_VIDEO_ENCODER_H_

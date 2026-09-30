@@ -27,7 +27,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libxcomposite-dev libxdamage-dev \
-            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
             nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
 
       - name: Install GoogleTest (Ubuntu source package)
@@ -71,7 +71,7 @@ jobs:
             clang ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev \
             libxrandr-dev libxfixes-dev libxcomposite-dev libxdamage-dev \
-            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev \
             libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev
 
       - name: Build fuzzers
@@ -112,14 +112,17 @@ jobs:
             clang clang-tidy cmake ninja-build pkg-config protobuf-compiler \
             libprotobuf-dev libssl-dev libopus-dev libpulse-dev libx11-dev \
             libxext-dev libxrandr-dev libxfixes-dev libxcomposite-dev \
-            libxdamage-dev libva-dev libpipewire-0.3-dev libglib2.0-dev \
+            libxdamage-dev libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev \
             libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev \
             libgtest-dev
 
       # .clang-format and .clang-tidy are committed but were never run by any
       # workflow, so both configs were decorative.
+      # Pinned to the version the tree was formatted with; formatting output differs between
+      # clang-format releases, so an unpinned tool would fail on unchanged code.
       - name: clang-format check
         run: |
+          pip install --quiet clang-format==22.1.8
           find core app tools tests \( -name '*.cc' -o -name '*.h' \) | \
             xargs clang-format --dry-run -Werror
 
@@ -154,7 +157,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libxcomposite-dev libxdamage-dev \
-            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
             nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
 
       - name: Install GoogleTest (Ubuntu source package)
@@ -188,7 +191,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libxcomposite-dev libxdamage-dev \
-            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
             nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
 
       - name: Install GoogleTest (Ubuntu source package)
@@ -222,7 +225,7 @@ jobs:
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libxcomposite-dev libxdamage-dev \
-            libva-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
             nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb gcovr
 
       - name: Install GoogleTest (Ubuntu source package)
@@ -278,7 +281,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False \
             gcc-c++ cmake ninja-build pkgconf-pkg-config protobuf-compiler protobuf-devel \
             openssl-devel opus-devel pulseaudio-libs-devel libX11-devel libXext-devel libXrandr-devel \
-            libXfixes-devel libXcomposite-devel libXdamage-devel libva-devel pipewire-devel \
+            libXfixes-devel libXcomposite-devel libXdamage-devel libva-devel libdrm-devel pipewire-devel \
             glib2-devel ffmpeg-free-devel json-devel gtest-devel gtk4-devel libadwaita-devel xorg-x11-server-Xvfb
 
       - name: Configure
@@ -368,6 +371,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up MSYS2 UCRT64
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -391,4 +395,4 @@ jobs:
       # behaviour in the engine or the parsers fails the test.
       - name: Build and run the suite under UBSan
         shell: pwsh
-        run: ./scripts/run_ubsan.ps1 -Msys2Bin 'C:\msys64\ucrt64\bin'
+        run: ./scripts/run_ubsan.ps1 -Msys2Bin '${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin'

@@ -43,6 +43,6 @@ class SessionRecovery {
   std::chrono::steady_clock::time_point recovery_start_time_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_SESSION_RECOVERY_H_
+#endif  // CASTCORE_SESSION_RECOVERY_H_

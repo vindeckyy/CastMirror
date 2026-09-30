@@ -38,10 +38,9 @@ class DeviceDiscovery {
   void RemoveDevice(const std::string& device_id);
 
   // Utility to parse TXT record key-value pairs
-  static std::map<std::string, std::string> ParseTxtRecord(const std::vector<std::string>& txt_entries);
-  static CastDevice ParseFromMdnsData(const std::string& name,
-                                      const std::string& ip,
-                                      uint16_t port,
+  static std::map<std::string, std::string> ParseTxtRecord(
+      const std::vector<std::string>& txt_entries);
+  static CastDevice ParseFromMdnsData(const std::string& name, const std::string& ip, uint16_t port,
                                       const std::vector<std::string>& txt_entries);
 
   // Parse one mDNS response packet and merge any device it describes into the
@@ -69,6 +68,6 @@ class DeviceDiscovery {
   DevicesCallback callback_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_DEVICE_DISCOVERY_H_
+#endif  // CASTCORE_DEVICE_DISCOVERY_H_

@@ -28,7 +28,7 @@ class DeviceAuth {
 
   // Verify an X509 certificate chain against Cast Root Store
   static DeviceAuthResult VerifyPeerCertificate(X509* peer_cert,
-                                                STACK_OF(X509)* untrusted_chain = nullptr);
+                                                STACK_OF(X509) * untrusted_chain = nullptr);
 
   // OpenSSL verify callback that records why chain validation failed but
   // still accepts the handshake. Cast receivers always present a self-signed
@@ -56,8 +56,7 @@ class DeviceAuth {
   static DeviceAuthResult VerifyAuthResponse(
       const std::vector<uint8_t>& leaf_cert_der,
       const std::vector<std::vector<uint8_t>>& intermediates_der,
-      const std::vector<uint8_t>& signature,
-      const std::vector<uint8_t>& signature_input);
+      const std::vector<uint8_t>& signature, const std::vector<uint8_t>& signature_input);
 
   // Raw DER constants accessors for testing
   static const uint8_t* GetCastRootCaDer(size_t* len);

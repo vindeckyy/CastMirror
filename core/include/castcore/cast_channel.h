@@ -22,10 +22,9 @@ std::string RedactSecrets(const std::string& json);
 
 class CastChannel {
  public:
-  using MessageCallback = std::function<void(const std::string& ns,
-                                             const std::string& payload,
-                                             const std::string& src_id,
-                                             const std::string& dest_id)>;
+  using MessageCallback =
+      std::function<void(const std::string& ns, const std::string& payload,
+                         const std::string& src_id, const std::string& dest_id)>;
   using StatusCallback = std::function<void(bool is_connected, const std::string& error_msg)>;
 
   CastChannel();
@@ -46,13 +45,14 @@ class CastChannel {
   // handshake (empty when not connected or unavailable).
   std::vector<uint8_t> GetPeerCertificateDer() const;
 
-  bool SendCastMessage(const std::string& namespace_,
-                       const std::string& payload_utf8,
+  bool SendCastMessage(const std::string& namespace_, const std::string& payload_utf8,
                        const std::string& destination_id = kPlatformReceiverId,
                        const std::string& source_id = kPlatformSenderId);
 
-  bool ConnectVirtual(const std::string& destination_id, const std::string& source_id = kPlatformSenderId);
-  bool DisconnectVirtual(const std::string& destination_id, const std::string& source_id = kPlatformSenderId);
+  bool ConnectVirtual(const std::string& destination_id,
+                      const std::string& source_id = kPlatformSenderId);
+  bool DisconnectVirtual(const std::string& destination_id,
+                         const std::string& source_id = kPlatformSenderId);
 
   int LaunchApp(const std::string& app_id);
   int StopApp(const std::string& session_id);
@@ -74,10 +74,8 @@ class CastChannel {
   void ReceiveLoop();
   void HeartbeatLoop();
   bool SendRawPacket(const uint8_t* data, size_t length);
-  bool SendCastMessageBinary(const std::string& namespace_,
-                             const std::string& payload_binary,
-                             const std::string& destination_id,
-                             const std::string& source_id);
+  bool SendCastMessageBinary(const std::string& namespace_, const std::string& payload_binary,
+                             const std::string& destination_id, const std::string& source_id);
   void HandleDeviceAuthResponse(const std::string& payload_binary);
 
   std::string ip_address_;
@@ -111,6 +109,6 @@ class CastChannel {
   std::vector<uint8_t> auth_nonce_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_CAST_CHANNEL_H_
+#endif  // CASTCORE_CAST_CHANNEL_H_

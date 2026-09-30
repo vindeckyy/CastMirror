@@ -8,8 +8,8 @@ namespace castcore::gui {
 
 class Sparkline {
  public:
-  Sparkline(int max_points = 40, float min_val = 0.0f, float max_val = 100.0f,
-            double r = 0.0, double g = 0.82, double b = 1.0);
+  Sparkline(int max_points = 40, float min_val = 0.0f, float max_val = 100.0f, double r = 0.0,
+            double g = 0.82, double b = 1.0);
   ~Sparkline();
 
   Sparkline(const Sparkline&) = delete;
@@ -23,7 +23,8 @@ class Sparkline {
   void Reset();
 
  private:
-  static void DrawCallback(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data);
+  static void DrawCallback(GtkDrawingArea* area, cairo_t* cr, int width, int height,
+                           gpointer user_data);
   void Draw(cairo_t* cr, int width, int height);
 
   GtkWidget* drawing_area_ = nullptr;

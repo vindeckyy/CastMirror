@@ -118,8 +118,10 @@ void MediaFoundationVideoEncoder::PumpEvents(int wait_ms) {
     if (SUCCEEDED(hr) && ev) {
       MediaEventType type = MEUnknown;
       ev->GetType(&type);
-      if (type == METransformNeedInput) ++need_input_;
-      else if (type == METransformHaveOutput) ++have_output_;
+      if (type == METransformNeedInput)
+        ++need_input_;
+      else if (type == METransformHaveOutput)
+        ++have_output_;
       continue;  // keep draining whatever is queued
     }
     if (hr != MF_E_NO_EVENTS_AVAILABLE) return;  // generator shut down or failed
@@ -261,8 +263,11 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
   const HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
-                 MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
-                 &input_info, &output_info, &activates, &count);
+                               MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
+                               &input_info,
+                               &output_info,
+                               &activates,
+                               &count);
 
   bool configured = false;
   if (SUCCEEDED(hr) && count > 0) {
@@ -272,7 +277,8 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
         is_hardware_ = true;
       }
     }
-    for (UINT32 i = 0; i < count; ++i) activates[i]->Release();
+    for (UINT32 i = 0; i < count; ++i)
+      activates[i]->Release();
     CoTaskMemFree(activates);
   }
 
@@ -287,15 +293,15 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
   // configured type, so neither is re-queried per frame.
   RefreshOutputStreamInfo();
   if (!EnsureInputBuffer()) {
-    LOG_ERROR << "Could not allocate the Media Foundation input buffer for "
-              << config_.width << "x" << config_.height;
+    LOG_ERROR << "Could not allocate the Media Foundation input buffer for " << config_.width << "x"
+              << config_.height;
     Cleanup();
     return false;
   }
 
-  LOG_INFO << "Initialized Media Foundation H.264 Encoder ("
-           << EncoderName() << ", " << config_.width << "x" << config_.height
-           << " @ " << config_.framerate << "fps, " << config_.bitrate_kbps << "kbps)";
+  LOG_INFO << "Initialized Media Foundation H.264 Encoder (" << EncoderName() << ", "
+           << config_.width << "x" << config_.height << " @ " << config_.framerate << "fps, "
+           << config_.bitrate_kbps << "kbps)";
   return true;
 #endif
 }
@@ -318,8 +324,7 @@ bool MediaFoundationVideoEncoder::Reconfigure(const VideoEncoderConfig& config) 
 bool MediaFoundationVideoEncoder::ConvertInput(const CapturedVideoFrame& frame, uint8_t* dst) {
   if (dst == nullptr) return false;
   if (gpu_src_w_ != frame.width || gpu_src_h_ != frame.height) {
-    if (!gpu_processor_.Initialize(frame.width, frame.height,
-                                   config_.width, config_.height)) {
+    if (!gpu_processor_.Initialize(frame.width, frame.height, config_.width, config_.height)) {
       LOG_ERROR << "GpuProcessor init failed for " << frame.width << "x" << frame.height;
       return false;
     }
@@ -375,8 +380,8 @@ bool MediaFoundationVideoEncoder::RefreshOutputStreamInfo() {
   // means "unspecified", so fall back to a generous frame-sized bound; an
   // undersized buffer is still handled by the MF_E_BUFFER_TOO_SMALL retry.
   if (!output_provides_samples_ && output_buffer_size_ == 0) {
-    output_buffer_size_ = std::max<DWORD>(
-        output_info_.cbSize, static_cast<DWORD>(config_.width * config_.height));
+    output_buffer_size_ =
+        std::max<DWORD>(output_info_.cbSize, static_cast<DWORD>(config_.width * config_.height));
   }
   return have_output_info_;
 }
@@ -471,7 +476,8 @@ bool MediaFoundationVideoEncoder::DrainOutput(EncodedFrame& out_encoded_frame) {
   if (output_provides_samples_) {
     // The MFT allocated this sample; ProcessOutput handed us the reference, so
     // hold it until the copy below is done or it leaks.
-    mft_owned_sample.Attach(out.pSample);  // adopt, don't AddRef: that would leak one sample per frame
+    mft_owned_sample.Attach(
+        out.pSample);  // adopt, don't AddRef: that would leak one sample per frame
   }
   return CopyOutputSample(out.pSample, out_encoded_frame);
 }
@@ -495,15 +501,16 @@ bool MediaFoundationVideoEncoder::CopyOutputSample(IMFSample* sample,
     // bitstream. Some MFTs only publish them in the media type, so add them.
     if (!sequence_header_.empty() &&
         !HasSpsNal(out_encoded_frame.data.data(), out_encoded_frame.data.size())) {
-      out_encoded_frame.data.insert(out_encoded_frame.data.begin(),
-                                    sequence_header_.begin(), sequence_header_.end());
+      out_encoded_frame.data.insert(
+          out_encoded_frame.data.begin(), sequence_header_.begin(), sequence_header_.end());
     }
   }
   return true;
 }
 #endif
 
-bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, EncodedFrame& out_encoded_frame) {
+bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
+                                         EncodedFrame& out_encoded_frame) {
 #if !defined(_WIN32)
   (void)frame;
   (void)out_encoded_frame;
@@ -517,7 +524,8 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
     rtp_clock_origin_ = frame.timestamp;
     rtp_clock_origin_set_ = true;
   }
-  auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_);
+  auto elapsed =
+      std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_);
   uint32_t rtp_ts = static_cast<uint32_t>(elapsed.count() * 90 / 1000);
 
   // The MFT copies the input sample during ProcessInput, so one buffer and one

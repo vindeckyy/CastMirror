@@ -39,8 +39,7 @@ struct RtcpFeedback {
 
 class RtcpParser {
  public:
-  static bool ParseCompoundPacket(const uint8_t* data, size_t length,
-                                  uint32_t last_sent_frame_id,
+  static bool ParseCompoundPacket(const uint8_t* data, size_t length, uint32_t last_sent_frame_id,
                                   RtcpFeedback& out_feedback);
 
   static bool ParseCompoundPacket(const uint8_t* data, size_t length,
@@ -48,6 +47,6 @@ class RtcpParser {
                                   RtcpFeedback& out_feedback);
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_RTCP_PARSER_H_
+#endif  // CASTCORE_RTCP_PARSER_H_

@@ -45,10 +45,14 @@ struct WinRt {
     HMODULE combase = LoadLibraryW(L"combase.dll");
     HMODULE d3d11 = LoadLibraryW(L"d3d11.dll");
     if (!combase || !d3d11) return false;
-    get_factory = reinterpret_cast<RoGetActivationFactoryFn>(GetProcAddress(combase, "RoGetActivationFactory"));
-    create_string = reinterpret_cast<WindowsCreateStringFn>(GetProcAddress(combase, "WindowsCreateString"));
-    delete_string = reinterpret_cast<WindowsDeleteStringFn>(GetProcAddress(combase, "WindowsDeleteString"));
-    create_d3d_device = reinterpret_cast<CreateD3DDeviceFn>(GetProcAddress(d3d11, "CreateDirect3D11DeviceFromDXGIDevice"));
+    get_factory = reinterpret_cast<RoGetActivationFactoryFn>(
+        GetProcAddress(combase, "RoGetActivationFactory"));
+    create_string =
+        reinterpret_cast<WindowsCreateStringFn>(GetProcAddress(combase, "WindowsCreateString"));
+    delete_string =
+        reinterpret_cast<WindowsDeleteStringFn>(GetProcAddress(combase, "WindowsDeleteString"));
+    create_d3d_device = reinterpret_cast<CreateD3DDeviceFn>(
+        GetProcAddress(d3d11, "CreateDirect3D11DeviceFromDXGIDevice"));
     return get_factory && create_string && delete_string && create_d3d_device;
   }
 
@@ -56,9 +60,11 @@ struct WinRt {
   template <typename T>
   ComPtr<T> Factory(const wchar_t* runtime_class) const {
     HSTRING name = nullptr;
-    if (FAILED(create_string(runtime_class, static_cast<UINT32>(wcslen(runtime_class)), &name))) return nullptr;
+    if (FAILED(create_string(runtime_class, static_cast<UINT32>(wcslen(runtime_class)), &name)))
+      return nullptr;
     ComPtr<T> factory;
-    const HRESULT hr = get_factory(name, __uuidof(T), reinterpret_cast<void**>(factory.GetAddressOf()));
+    const HRESULT hr =
+        get_factory(name, __uuidof(T), reinterpret_cast<void**>(factory.GetAddressOf()));
     delete_string(name);
     return SUCCEEDED(hr) ? factory : nullptr;
   }
@@ -103,7 +109,8 @@ std::unique_ptr<WgcWindowSource> WgcWindowSource::Create(HWND hwnd) {
   if (!hwnd || !IsWindow(hwnd)) return nullptr;
   auto impl = std::make_unique<Impl>();
   if (!impl->winrt.Load()) {
-    LOG_INFO << "Windows.Graphics.Capture is not available; window capture will crop the desktop instead";
+    LOG_INFO << "Windows.Graphics.Capture is not available; window capture will crop the desktop "
+                "instead";
     return nullptr;
   }
   // WinRT objects need a multithreaded apartment on every thread that touches them.
@@ -116,8 +123,16 @@ std::unique_ptr<WgcWindowSource> WgcWindowSource::Create(HWND hwnd) {
     CoIncrementMTAUsage(&cookie);
   });
 
-  HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                                 nullptr, 0, D3D11_SDK_VERSION, &impl->device, nullptr, &impl->context);
+  HRESULT hr = D3D11CreateDevice(nullptr,
+                                 D3D_DRIVER_TYPE_HARDWARE,
+                                 nullptr,
+                                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                 nullptr,
+                                 0,
+                                 D3D11_SDK_VERSION,
+                                 &impl->device,
+                                 nullptr,
+                                 &impl->context);
   if (FAILED(hr)) {
     LOG_WARN << "WGC: could not create a D3D11 device: hr=0x" << std::hex << hr << std::dec;
     return nullptr;
@@ -131,25 +146,32 @@ std::unique_ptr<WgcWindowSource> WgcWindowSource::Create(HWND hwnd) {
     return nullptr;
   }
 
-  auto interop = impl->winrt.Factory<IGraphicsCaptureItemInterop>(L"Windows.Graphics.Capture.GraphicsCaptureItem");
+  auto interop = impl->winrt.Factory<IGraphicsCaptureItemInterop>(
+      L"Windows.Graphics.Capture.GraphicsCaptureItem");
   if (!interop) return nullptr;
-  hr = interop->CreateForWindow(hwnd, __uuidof(Capture::IGraphicsCaptureItem),
+  hr = interop->CreateForWindow(hwnd,
+                                __uuidof(Capture::IGraphicsCaptureItem),
                                 reinterpret_cast<void**>(impl->item.GetAddressOf()));
   if (FAILED(hr) || !impl->item) {
     LOG_INFO << "WGC: this window cannot be captured directly: hr=0x" << std::hex << hr << std::dec;
     return nullptr;
   }
-  if (FAILED(impl->item->get_Size(&impl->pool_size)) || impl->pool_size.Width <= 0 || impl->pool_size.Height <= 0) {
+  if (FAILED(impl->item->get_Size(&impl->pool_size)) || impl->pool_size.Width <= 0 ||
+      impl->pool_size.Height <= 0) {
     return nullptr;
   }
 
   auto statics = impl->winrt.Factory<Capture::IDirect3D11CaptureFramePoolStatics2>(
       L"Windows.Graphics.Capture.Direct3D11CaptureFramePool");
   if (!statics) return nullptr;
-  hr = statics->CreateFreeThreaded(impl->winrt_device.Get(), DX::DirectXPixelFormat_B8G8R8A8UIntNormalized, 2,
-                                   impl->pool_size, &impl->pool);
+  hr = statics->CreateFreeThreaded(impl->winrt_device.Get(),
+                                   DX::DirectXPixelFormat_B8G8R8A8UIntNormalized,
+                                   2,
+                                   impl->pool_size,
+                                   &impl->pool);
   if (FAILED(hr) || !impl->pool) return nullptr;
-  if (FAILED(impl->pool->CreateCaptureSession(impl->item.Get(), &impl->session)) || !impl->session) return nullptr;
+  if (FAILED(impl->pool->CreateCaptureSession(impl->item.Get(), &impl->session)) || !impl->session)
+    return nullptr;
 
   // The engine draws the pointer itself (it is a setting), so WGC must not draw a
   // second one. Older builds lack the option; the pointer is then drawn twice.
@@ -160,9 +182,10 @@ std::unique_ptr<WgcWindowSource> WgcWindowSource::Create(HWND hwnd) {
   // WGC only delivers a frame when the window changes. A window that has just
   // been shown, or that is idle, could otherwise leave the first frame blank until
   // something repaints it, so ask for one repaint now.
-  RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME);
-  LOG_INFO << "Capturing window with Windows.Graphics.Capture ("
-           << impl->pool_size.Width << "x" << impl->pool_size.Height << ")";
+  RedrawWindow(
+      hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW | RDW_FRAME);
+  LOG_INFO << "Capturing window with Windows.Graphics.Capture (" << impl->pool_size.Width << "x"
+           << impl->pool_size.Height << ")";
   return std::unique_ptr<WgcWindowSource>(new WgcWindowSource(std::move(impl)));
 }
 
@@ -178,7 +201,8 @@ bool WgcWindowSource::TryGetFrame(CapturedVideoFrame* out) {
   }
 
   ABI::Windows::Graphics::SizeInt32 content{};
-  if (FAILED(frame->get_ContentSize(&content)) || content.Width < 2 || content.Height < 2) return false;
+  if (FAILED(frame->get_ContentSize(&content)) || content.Width < 2 || content.Height < 2)
+    return false;
 
   ComPtr<D3D::IDirect3DSurface> surface;
   ComPtr<Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess> access;
@@ -209,15 +233,21 @@ bool WgcWindowSource::TryGetFrame(CapturedVideoFrame* out) {
   const int height = static_cast<int>(std::min<UINT>(content.Height, desc.Height)) & ~1;
   bool ok = false;
   D3D11_MAPPED_SUBRESOURCE mapped{};
-  if (width > 0 && height > 0 && SUCCEEDED(s.context->Map(s.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+  if (width > 0 && height > 0 &&
+      SUCCEEDED(s.context->Map(s.staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
     out->width = width;
     out->height = height;
     out->stride = width * 4;
     out->data.resize(static_cast<size_t>(out->stride) * height);
     out->timestamp = std::chrono::steady_clock::now();
     out->source_lost = false;
-    ok = ConvertToBgra8(static_cast<const uint8_t*>(mapped.pData), mapped.RowPitch, SourcePixelFormat::kBgra8,
-                        width, height, out->data.data(), static_cast<size_t>(out->stride));
+    ok = ConvertToBgra8(static_cast<const uint8_t*>(mapped.pData),
+                        mapped.RowPitch,
+                        SourcePixelFormat::kBgra8,
+                        width,
+                        height,
+                        out->data.data(),
+                        static_cast<size_t>(out->stride));
     s.context->Unmap(s.staging.Get(), 0);
   }
 
@@ -225,7 +255,8 @@ bool WgcWindowSource::TryGetFrame(CapturedVideoFrame* out) {
   // frames arrive scaled into the old one.
   if (content.Width != s.pool_size.Width || content.Height != s.pool_size.Height) {
     s.pool_size = content;
-    s.pool->Recreate(s.winrt_device.Get(), DX::DirectXPixelFormat_B8G8R8A8UIntNormalized, 2, content);
+    s.pool->Recreate(
+        s.winrt_device.Get(), DX::DirectXPixelFormat_B8G8R8A8UIntNormalized, 2, content);
   }
   return ok;
 }

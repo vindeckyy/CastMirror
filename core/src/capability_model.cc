@@ -8,12 +8,13 @@ namespace {
 
 std::string ToLower(const std::string& str) {
   std::string result = str;
-  std::transform(result.begin(), result.end(), result.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+  std::transform(result.begin(), result.end(), result.begin(), [](unsigned char c) {
+    return std::tolower(c);
+  });
   return result;
 }
 
-} // namespace
+}  // namespace
 
 DeviceCapabilities CapabilityModel::Evaluate(const CastDevice& device) {
   DeviceCapabilities caps;
@@ -21,15 +22,10 @@ DeviceCapabilities CapabilityModel::Evaluate(const CastDevice& device) {
 
   // Common resolutions
   caps.supported_resolutions = {
-    {3840, 2160},
-    {2560, 1440},
-    {1920, 1080},
-    {1280, 720},
-    {960, 540},
-    {640, 360}
-  };
+      {3840, 2160}, {2560, 1440}, {1920, 1080}, {1280, 720}, {960, 540}, {640, 360}};
 
-  if (model.find("nest hub") != std::string::npos || model.find("google home hub") != std::string::npos) {
+  if (model.find("nest hub") != std::string::npos ||
+      model.find("google home hub") != std::string::npos) {
     caps.device_family = "Nest Hub";
     caps.max_resolution = {1280, 720};
     caps.max_fps = 60;
@@ -43,13 +39,17 @@ DeviceCapabilities CapabilityModel::Evaluate(const CastDevice& device) {
     caps.h264_level = "5.1";
     caps.supports_vp9 = true;
   } else if (model.find("h2g2-42") != std::string::npos ||
-             (model.find("nc2-6a5") != std::string::npos && model.find("nc2-6a5-d") == std::string::npos)) {
+             (model.find("nc2-6a5") != std::string::npos &&
+              model.find("nc2-6a5-d") == std::string::npos)) {
     caps.device_family = "Chromecast Gen 1/2";
     caps.max_resolution = {1920, 1080};
     caps.max_fps = 30;
     caps.max_bitrate_kbps = 8000;
     caps.h264_level = "4.1";
-  } else if (model.find("google tv") != std::string::npos || model.find("streamer") != std::string::npos || model.find("android tv") != std::string::npos || model.find("bravia") != std::string::npos) {
+  } else if (model.find("google tv") != std::string::npos ||
+             model.find("streamer") != std::string::npos ||
+             model.find("android tv") != std::string::npos ||
+             model.find("bravia") != std::string::npos) {
     caps.device_family = "Chromecast with Google TV";
     caps.max_resolution = {3840, 2160};
     caps.max_fps = 60;
@@ -76,12 +76,9 @@ DeviceCapabilities CapabilityModel::Evaluate(const CastDevice& device) {
   return caps;
 }
 
-StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
-                                                    QualityPreset preset,
-                                                    int display_width,
-                                                    int display_height,
-                                                    int display_refresh_rate,
-                                                    int capture_fps) {
+StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device, QualityPreset preset,
+                                                    int display_width, int display_height,
+                                                    int display_refresh_rate, int capture_fps) {
   DeviceCapabilities caps = Evaluate(device);
   StreamStats stats;
   stats.active_codec = "h264";
@@ -101,7 +98,8 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
     case QualityPreset::kHigh:
       stats.current_resolution = {target_w, target_h};
       stats.current_framerate = target_fps;
-      stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, target_w >= 3840 ? 20000u : (target_fps >= 60 ? 12000u : 8000u));
+      stats.bitrate_kbps = std::min(
+          caps.max_bitrate_kbps, target_w >= 3840 ? 20000u : (target_fps >= 60 ? 12000u : 8000u));
       stats.target_delay_ms = 200;
       break;
 
@@ -116,7 +114,7 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
       stats.current_resolution = {std::min(target_w, 1280), std::min(target_h, 720)};
       stats.current_framerate = capture_fps > 0 ? target_fps : std::min(target_fps, 60);
       stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 5000u);
-      stats.target_delay_ms = 200; // Low latency mode
+      stats.target_delay_ms = 200;  // Low latency mode
       break;
 
     case QualityPreset::kGame:
@@ -132,7 +130,9 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
       // Picture quality over latency: a deeper buffer (400 ms) absorbs jitter
       // and the full bit budget goes to the picture.
       stats.current_resolution = {std::min(target_w, 1920), std::min(target_h, 1080)};
-      stats.current_framerate = capture_fps > 0 ? target_fps : std::min(target_fps, 30 > caps.max_fps ? caps.max_fps : 30);
+      stats.current_framerate = capture_fps > 0
+                                    ? target_fps
+                                    : std::min(target_fps, 30 > caps.max_fps ? caps.max_fps : 30);
       stats.bitrate_kbps = std::min(caps.max_bitrate_kbps, 16000u);
       stats.target_delay_ms = 400;
       break;
@@ -150,4 +150,4 @@ StreamStats CapabilityModel::GetRecommendedSettings(const CastDevice& device,
   return stats;
 }
 
-} // namespace castcore
+}  // namespace castcore

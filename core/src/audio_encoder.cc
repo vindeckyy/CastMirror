@@ -10,17 +10,15 @@ class OpusAudioEncoder : public IAudioEncoder {
  public:
   OpusAudioEncoder() = default;
 
-  ~OpusAudioEncoder() override {
-    Cleanup();
-  }
+  ~OpusAudioEncoder() override { Cleanup(); }
 
   bool Initialize(const AudioEncoderConfig& config) override {
     Cleanup();
     config_ = config;
 
     int error = 0;
-    encoder_ = opus_encoder_create(config_.sample_rate, config_.channels,
-                                   OPUS_APPLICATION_RESTRICTED_LOWDELAY, &error);
+    encoder_ = opus_encoder_create(
+        config_.sample_rate, config_.channels, OPUS_APPLICATION_RESTRICTED_LOWDELAY, &error);
     if (error != OPUS_OK || !encoder_) {
       LOG_ERROR << "Failed to create Opus encoder: " << opus_strerror(error);
       return false;
@@ -34,8 +32,8 @@ class OpusAudioEncoder : public IAudioEncoder {
     next_frame_id_ = 0;
     rtp_clock_origin_set_ = false;
 
-    LOG_INFO << "Initialized Opus Audio Encoder (" << config_.sample_rate
-             << " Hz, " << config_.channels << " ch, " << (config_.bitrate_bps / 1000) << " kbps)";
+    LOG_INFO << "Initialized Opus Audio Encoder (" << config_.sample_rate << " Hz, "
+             << config_.channels << " ch, " << (config_.bitrate_bps / 1000) << " kbps)";
 
     return true;
   }
@@ -47,9 +45,11 @@ class OpusAudioEncoder : public IAudioEncoder {
     int samples_per_channel = frame.samples_per_channel;
 
     std::vector<uint8_t> encoded_buffer(4000);
-    opus_int32 bytes_encoded = opus_encode(
-        encoder_, pcm, samples_per_channel,
-        encoded_buffer.data(), static_cast<opus_int32>(encoded_buffer.size()));
+    opus_int32 bytes_encoded = opus_encode(encoder_,
+                                           pcm,
+                                           samples_per_channel,
+                                           encoded_buffer.data(),
+                                           static_cast<opus_int32>(encoded_buffer.size()));
 
     if (bytes_encoded < 0) {
       LOG_ERROR << "Opus encode failed: " << opus_strerror(bytes_encoded);
@@ -61,13 +61,14 @@ class OpusAudioEncoder : public IAudioEncoder {
       rtp_clock_origin_ = frame.timestamp;
       rtp_clock_origin_set_ = true;
     }
-    int64_t capture_us = std::chrono::duration_cast<std::chrono::microseconds>(
-        frame.timestamp - rtp_clock_origin_).count();
+    int64_t capture_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_)
+            .count();
     if (capture_us < 0) {
       capture_us = 0;
     }
-    uint32_t rtp_ts = static_cast<uint32_t>(
-        (capture_us * static_cast<int64_t>(config_.sample_rate)) / 1000000);
+    uint32_t rtp_ts =
+        static_cast<uint32_t>((capture_us * static_cast<int64_t>(config_.sample_rate)) / 1000000);
 
     out_encoded_frame.dependency = FrameDependency::kKeyFrame;
     out_encoded_frame.frame_id = current_fid;
@@ -82,9 +83,7 @@ class OpusAudioEncoder : public IAudioEncoder {
     return true;
   }
 
-  const AudioEncoderConfig& GetConfig() const override {
-    return config_;
-  }
+  const AudioEncoderConfig& GetConfig() const override { return config_; }
 
   void SetBitrate(int bitrate_bps) override {
     if (bitrate_bps <= 0) {
@@ -120,4 +119,4 @@ std::unique_ptr<IAudioEncoder> AudioEncoderFactory::Create(AudioCodec codec) {
   return std::make_unique<OpusAudioEncoder>();
 }
 
-} // namespace castcore
+}  // namespace castcore

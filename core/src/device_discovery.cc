@@ -15,22 +15,22 @@
 #include <random>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #include <iphlpapi.h>
-  #pragma comment(lib, "iphlpapi.lib")
-  typedef int socklen_t;
-  #define close closesocket
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#pragma comment(lib, "iphlpapi.lib")
+typedef int socklen_t;
+#define close closesocket
 #else
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <ifaddrs.h>
-  #include <net/if.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #include <poll.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
 #endif
 
 namespace castcore {
@@ -109,10 +109,11 @@ bool CheckTcpPort(const std::string& ip, uint16_t port, int timeout_ms) {
   return connected;
 }
 // Helper: Query Chromecast Eureka Info (HTTP 8008)
-bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* out_model, std::string* out_id) {
+bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* out_model,
+                     std::string* out_id) {
   // Phase 2: 400ms timeout + 2 retries with jitter, strict JSON parse
-  constexpr int kMaxAttempts = 3; // initial + 2 retries
-  constexpr int kTimeoutUs = 400000; // 400ms
+  constexpr int kMaxAttempts = 3;  // initial + 2 retries
+  constexpr int kTimeoutUs = 400000;  // 400ms
   for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -129,8 +130,16 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     // struct timeval — passing a timeval is read as timeout=0 (infinite) and
     // can hang the probe forever.
     DWORD sock_timeout_ms = static_cast<DWORD>(kTimeoutUs / 1000);
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&sock_timeout_ms), sizeof(sock_timeout_ms));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sock_timeout_ms), sizeof(sock_timeout_ms));
+    setsockopt(fd,
+               SOL_SOCKET,
+               SO_RCVTIMEO,
+               reinterpret_cast<const char*>(&sock_timeout_ms),
+               sizeof(sock_timeout_ms));
+    setsockopt(fd,
+               SOL_SOCKET,
+               SO_SNDTIMEO,
+               reinterpret_cast<const char*>(&sock_timeout_ms),
+               sizeof(sock_timeout_ms));
 #else
     struct timeval tv{};
     tv.tv_sec = 0;
@@ -170,7 +179,8 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
       if (sel > 0 && FD_ISSET(fd, &setW) && !FD_ISSET(fd, &setE)) {
         int err = 0;
         socklen_t len = sizeof(err);
-        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &len) == 0 && err == 0) {
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&err), &len) == 0 &&
+            err == 0) {
           connected = true;
         }
       }
@@ -213,10 +223,13 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     ioctlsocket(fd, FIONBIO, &mode);
 #endif
 
-    std::string req = "GET /setup/eureka_info?params=name,device_info HTTP/1.1\r\n"
-                      "Host: " + ip + ":8008\r\n"
-                      "User-Agent: CastMirror\r\n"
-                      "Connection: close\r\n\r\n";
+    std::string req =
+        "GET /setup/eureka_info?params=name,device_info HTTP/1.1\r\n"
+        "Host: " +
+        ip +
+        ":8008\r\n"
+        "User-Agent: CastMirror\r\n"
+        "Connection: close\r\n\r\n";
 
     if (send(fd, req.data(), req.size(), 0) < 0) {
       close(fd);
@@ -304,7 +317,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
   return false;
 }
 
-} // namespace
+}  // namespace
 
 DeviceDiscovery::DeviceDiscovery() = default;
 
@@ -351,9 +364,7 @@ bool DeviceDiscovery::IsRunning() const {
 void DeviceDiscovery::TriggerScan() {
   force_mdns_query_ = true;
   if (ConfigStore::Instance().Get().subnet_scan_enabled) {
-    std::thread([this]() {
-      ProbeLocalSubnets();
-    }).detach();
+    std::thread([this]() { ProbeLocalSubnets(); }).detach();
   }
 }
 
@@ -385,26 +396,24 @@ void DeviceDiscovery::SetCallback(DevicesCallback callback) {
 
 void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
   CastDevice normalized = device;
-  const bool custom_endpoint = normalized.model_name == "Custom Chromecast" ||
-                               normalized.ip_address.rfind("127.", 0) == 0;
+  const bool custom_endpoint =
+      normalized.model_name == "Custom Chromecast" || normalized.ip_address.rfind("127.", 0) == 0;
   if (!custom_endpoint && normalized.port != 8009 && normalized.port != 8008) {
-    LOG_WARN << "Ignoring non-Cast SRV port " << normalized.port
-             << " for " << normalized.ip_address << "; using Cast control port 8009";
+    LOG_WARN << "Ignoring non-Cast SRV port " << normalized.port << " for " << normalized.ip_address
+             << "; using Cast control port 8009";
     normalized.port = 8009;
   }
-
 
   DevicesCallback cb;
   std::vector<CastDevice> current;
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = std::find_if(devices_.begin(), devices_.end(),
-                           [&](const CastDevice& d) {
-                             return (!normalized.id.empty() && d.id == normalized.id) ||
-                                    (normalized.id.empty() && d.ip_address == normalized.ip_address) ||
-                                    (d.ip_address == normalized.ip_address);
-                           });
+    auto it = std::find_if(devices_.begin(), devices_.end(), [&](const CastDevice& d) {
+      return (!normalized.id.empty() && d.id == normalized.id) ||
+             (normalized.id.empty() && d.ip_address == normalized.ip_address) ||
+             (d.ip_address == normalized.ip_address);
+    });
 
     if (it != devices_.end()) {
       it->id = normalized.id.empty() ? it->id : normalized.id;
@@ -418,9 +427,8 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
     } else {
       devices_.push_back(normalized);
       devices_.back().last_seen = std::chrono::steady_clock::now();
-      LOG_INFO << "Discovered Cast Device: " << normalized.name
-               << " (" << normalized.model_name << ") at "
-               << normalized.ip_address << ":" << normalized.port;
+      LOG_INFO << "Discovered Cast Device: " << normalized.name << " (" << normalized.model_name
+               << ") at " << normalized.ip_address << ":" << normalized.port;
     }
 
     current = devices_;
@@ -432,7 +440,6 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
   }
 }
 
-
 size_t DeviceDiscovery::ExpireStaleDevices(std::chrono::steady_clock::time_point now,
                                            std::chrono::seconds ttl) {
   DevicesCallback cb;
@@ -443,8 +450,8 @@ size_t DeviceDiscovery::ExpireStaleDevices(std::chrono::steady_clock::time_point
     for (auto it = devices_.begin(); it != devices_.end();) {
       const bool from_mdns = mdns_ids_.count(it->id) > 0;
       if (from_mdns && now - it->last_seen > ttl) {
-        LOG_INFO << "Device " << it->name << " has not been seen for "
-                 << ttl.count() << " s; removing it from the list";
+        LOG_INFO << "Device " << it->name << " has not been seen for " << ttl.count()
+                 << " s; removing it from the list";
         mdns_ids_.erase(it->id);
         it = devices_.erase(it);
         ++removed;
@@ -467,8 +474,8 @@ void DeviceDiscovery::RemoveDevice(const std::string& device_id) {
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = std::remove_if(devices_.begin(), devices_.end(),
-                             [&](const CastDevice& d) { return d.id == device_id; });
+    auto it = std::remove_if(
+        devices_.begin(), devices_.end(), [&](const CastDevice& d) { return d.id == device_id; });
     if (it != devices_.end()) {
       devices_.erase(it, devices_.end());
       current = devices_;
@@ -481,7 +488,8 @@ void DeviceDiscovery::RemoveDevice(const std::string& device_id) {
   }
 }
 
-std::map<std::string, std::string> DeviceDiscovery::ParseTxtRecord(const std::vector<std::string>& txt_entries) {
+std::map<std::string, std::string> DeviceDiscovery::ParseTxtRecord(
+    const std::vector<std::string>& txt_entries) {
   std::map<std::string, std::string> result;
   constexpr size_t kMaxEntrySize = 255;
   constexpr size_t kMaxKeySize = 64;
@@ -518,8 +526,7 @@ std::map<std::string, std::string> DeviceDiscovery::ParseTxtRecord(const std::ve
   return result;
 }
 
-CastDevice DeviceDiscovery::ParseFromMdnsData(const std::string& name,
-                                              const std::string& ip,
+CastDevice DeviceDiscovery::ParseFromMdnsData(const std::string& name, const std::string& ip,
                                               uint16_t port,
                                               const std::vector<std::string>& txt_entries) {
   auto txt_map = ParseTxtRecord(txt_entries);
@@ -553,14 +560,21 @@ CastDevice DeviceDiscovery::ParseFromMdnsData(const std::string& name,
 }
 
 void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
-  auto build_query = [](const std::vector<const char*>& labels, uint16_t qclass, uint8_t* out_buf) -> size_t {
+  auto build_query =
+      [](const std::vector<const char*>& labels, uint16_t qclass, uint8_t* out_buf) -> size_t {
     size_t offset = 0;
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x00; // ID
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x00; // Standard query
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x01; // QDCOUNT = 1
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x00; // ANCOUNT = 0
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x00; // NSCOUNT = 0
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x00; // ARCOUNT = 0
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x00;  // ID
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x00;  // Standard query
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x01;  // QDCOUNT = 1
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x00;  // ANCOUNT = 0
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x00;  // NSCOUNT = 0
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x00;  // ARCOUNT = 0
 
     for (const char* label : labels) {
       size_t len = std::strlen(label);
@@ -568,8 +582,9 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
       std::memcpy(&out_buf[offset], label, len);
       offset += len;
     }
-    out_buf[offset++] = 0x00; // Root terminator
-    out_buf[offset++] = 0x00; out_buf[offset++] = 0x0C; // QTYPE: PTR (12)
+    out_buf[offset++] = 0x00;  // Root terminator
+    out_buf[offset++] = 0x00;
+    out_buf[offset++] = 0x0C;  // QTYPE: PTR (12)
     out_buf[offset++] = static_cast<uint8_t>((qclass >> 8) & 0xFF);
     out_buf[offset++] = static_cast<uint8_t>(qclass & 0xFF);
     return offset;
@@ -581,16 +596,16 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
   inet_pton(AF_INET, kMdnsMulticastGroup, &dest_addr.sin_addr);
 
   uint8_t q_buf[512];
-  std::vector<std::vector<const char*>> service_targets = {
-      {"_googlecast", "_tcp", "local"},
-      {"_googlezone", "_tcp", "local"}
-  };
+  std::vector<std::vector<const char*>> service_targets = {{"_googlecast", "_tcp", "local"},
+                                                           {"_googlezone", "_tcp", "local"}};
 
   // Set Multicast TTL and Loopback
   unsigned char ttl = 255;
-  setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char*>(&ttl), sizeof(ttl));
+  setsockopt(
+      socket_fd, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char*>(&ttl), sizeof(ttl));
   unsigned char loop = 1;
-  setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_LOOP, reinterpret_cast<const char*>(&loop), sizeof(loop));
+  setsockopt(
+      socket_fd, IPPROTO_IP, IP_MULTICAST_LOOP, reinterpret_cast<const char*>(&loop), sizeof(loop));
 
   // Transmit on each active non-loopback IPv4 interface. This matters on
   // multi-NIC machines (Ethernet + WiFi + VPN/virtual adapters): the default
@@ -601,31 +616,54 @@ void DeviceDiscovery::SendMdnsQuery(int socket_fd) {
 
     struct in_addr if_addr{};
     if (inet_pton(AF_INET, iface.address.c_str(), &if_addr) <= 0) continue;
-    setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_IF,
-               reinterpret_cast<const char*>(&if_addr), sizeof(if_addr));
+    setsockopt(socket_fd,
+               IPPROTO_IP,
+               IP_MULTICAST_IF,
+               reinterpret_cast<const char*>(&if_addr),
+               sizeof(if_addr));
 
     for (const auto& target : service_targets) {
-      size_t len = build_query(target, 0x0001, q_buf); // QM (Multicast response)
-      sendto(socket_fd, reinterpret_cast<const char*>(q_buf), len, 0,
-             reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
-      size_t qlen = build_query(target, 0x8001, q_buf); // QU (Unicast response)
-      sendto(socket_fd, reinterpret_cast<const char*>(q_buf), qlen, 0,
-             reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
+      size_t len = build_query(target, 0x0001, q_buf);  // QM (Multicast response)
+      sendto(socket_fd,
+             reinterpret_cast<const char*>(q_buf),
+             len,
+             0,
+             reinterpret_cast<struct sockaddr*>(&dest_addr),
+             sizeof(dest_addr));
+      size_t qlen = build_query(target, 0x8001, q_buf);  // QU (Unicast response)
+      sendto(socket_fd,
+             reinterpret_cast<const char*>(q_buf),
+             qlen,
+             0,
+             reinterpret_cast<struct sockaddr*>(&dest_addr),
+             sizeof(dest_addr));
     }
   }
 
   // Default interface send
   struct in_addr any_addr{};
   any_addr.s_addr = htonl(INADDR_ANY);
-  setsockopt(socket_fd, IPPROTO_IP, IP_MULTICAST_IF, reinterpret_cast<const char*>(&any_addr), sizeof(any_addr));
+  setsockopt(socket_fd,
+             IPPROTO_IP,
+             IP_MULTICAST_IF,
+             reinterpret_cast<const char*>(&any_addr),
+             sizeof(any_addr));
 
   for (const auto& target : service_targets) {
     size_t len = build_query(target, 0x0001, q_buf);
-    sendto(socket_fd, reinterpret_cast<const char*>(q_buf), len, 0,
-           reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
+    sendto(socket_fd,
+           reinterpret_cast<const char*>(q_buf),
+           len,
+           0,
+           reinterpret_cast<struct sockaddr*>(&dest_addr),
+           sizeof(dest_addr));
     size_t qlen = build_query(target, 0x8001, q_buf);
-    sendto(socket_fd, reinterpret_cast<const char*>(q_buf), qlen, 0,
-           reinterpret_cast<struct sockaddr*>(&dest_addr), sizeof(dest_addr));
+    sendto(socket_fd,
+           reinterpret_cast<const char*>(q_buf),
+           qlen,
+           0,
+           reinterpret_cast<struct sockaddr*>(&dest_addr),
+           sizeof(dest_addr));
   }
 }
 
@@ -648,9 +686,10 @@ size_t SkipDnsName(const uint8_t* buf, size_t len, size_t offset) {
   return offset;
 }
 
-} // namespace
+}  // namespace
 
-void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip) {
+void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length,
+                                          const std::string& sender_ip) {
   if (length < 12) return;
   // Only responses describe devices. Other hosts' queries can carry known-answer
   // records, and our own multicast queries loop back to this socket.
@@ -673,7 +712,7 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
   size_t offset = 12;
   for (uint16_t q = 0; q < qdcount && offset < length; ++q) {
     offset = SkipDnsName(buffer, length, offset);
-    offset += 4; // QTYPE (2) + QCLASS (2)
+    offset += 4;  // QTYPE (2) + QCLASS (2)
   }
 
   for (size_t r = 0; r < total_records && offset < length; ++r) {
@@ -688,7 +727,7 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
 
     if (offset + rdlength > length) break;
 
-    if (rtype == 16) { // TXT Record
+    if (rtype == 16) {  // TXT Record
       size_t txt_pos = offset;
       size_t txt_end = offset + rdlength;
       while (txt_pos < txt_end) {
@@ -699,12 +738,12 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
           txt_pos += tlen;
         }
       }
-    } else if (rtype == 1 && rdlength == 4 && parsed_ip.empty()) { // A Record
+    } else if (rtype == 1 && rdlength == 4 && parsed_ip.empty()) {  // A Record
       char ip_buf[INET_ADDRSTRLEN];
       if (inet_ntop(AF_INET, &buffer[offset], ip_buf, sizeof(ip_buf))) {
         parsed_ip = ip_buf;
       }
-    } else if (rtype == 33 && rdlength >= 6) { // SRV Record
+    } else if (rtype == 33 && rdlength >= 6) {  // SRV Record
       uint16_t srv_port = (buffer[offset + 4] << 8) | buffer[offset + 5];
       if (srv_port == 8009 || srv_port == 8008) {
         parsed_port = srv_port;
@@ -730,7 +769,8 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
             val_end++;
           }
           if (val_end > val_start) {
-            std::string entry(reinterpret_cast<const char*>(&buffer[val_start]), val_end - val_start);
+            std::string entry(reinterpret_cast<const char*>(&buffer[val_start]),
+                              val_end - val_start);
             txt_entries.push_back(entry);
             seen_keys.insert(prefix);
           }
@@ -745,8 +785,8 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
     // must not show up as a phantom TV.
     const auto keys = ParseTxtRecord(txt_entries);
     if (!keys.count("id") && !keys.count("fn")) return;
-    CastDevice dev = ParseFromMdnsData(parsed_name, parsed_ip.empty() ? sender_ip : parsed_ip,
-                                       parsed_port, txt_entries);
+    CastDevice dev = ParseFromMdnsData(
+        parsed_name, parsed_ip.empty() ? sender_ip : parsed_ip, parsed_port, txt_entries);
     AddOrUpdateDevice(dev);
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -787,7 +827,8 @@ void DeviceDiscovery::DiscoveryLoop() {
       struct ip_mreq mreq{};
       inet_pton(AF_INET, kMdnsMulticastGroup, &mreq.imr_multiaddr);
       mreq.imr_interface.s_addr = htonl(INADDR_ANY);
-      setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
+      setsockopt(
+          fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&mreq), sizeof(mreq));
 
       // Join on each active non-loopback IPv4 interface so multicast replies
       // reach us no matter which NIC the Chromecasts are on.
@@ -796,13 +837,19 @@ void DeviceDiscovery::DiscoveryLoop() {
         struct ip_mreq if_mreq{};
         inet_pton(AF_INET, kMdnsMulticastGroup, &if_mreq.imr_multiaddr);
         if (inet_pton(AF_INET, iface.address.c_str(), &if_mreq.imr_interface) <= 0) continue;
-        setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, reinterpret_cast<const char*>(&if_mreq), sizeof(if_mreq));
+        setsockopt(fd,
+                   IPPROTO_IP,
+                   IP_ADD_MEMBERSHIP,
+                   reinterpret_cast<const char*>(&if_mreq),
+                   sizeof(if_mreq));
       }
 
       unsigned char ttl = 255;
-      setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char*>(&ttl), sizeof(ttl));
+      setsockopt(
+          fd, IPPROTO_IP, IP_MULTICAST_TTL, reinterpret_cast<const char*>(&ttl), sizeof(ttl));
       unsigned char loop = 1;
-      setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, reinterpret_cast<const char*>(&loop), sizeof(loop));
+      setsockopt(
+          fd, IPPROTO_IP, IP_MULTICAST_LOOP, reinterpret_cast<const char*>(&loop), sizeof(loop));
 
 #if defined(_WIN32)
       DWORD timeout_ms = 1000;
@@ -823,8 +870,9 @@ void DeviceDiscovery::DiscoveryLoop() {
     auto now = std::chrono::steady_clock::now();
 
     // Send mDNS query every 3 seconds or immediately on TriggerScan
-    if (fd >= 0 && (force_mdns_query_.exchange(false) ||
-                    std::chrono::duration_cast<std::chrono::seconds>(now - last_mdns_query).count() >= 3)) {
+    if (fd >= 0 &&
+        (force_mdns_query_.exchange(false) ||
+         std::chrono::duration_cast<std::chrono::seconds>(now - last_mdns_query).count() >= 3)) {
       SendMdnsQuery(fd);
       last_mdns_query = now;
     }
@@ -841,8 +889,12 @@ void DeviceDiscovery::DiscoveryLoop() {
       struct sockaddr_in src_addr{};
       socklen_t addr_len = sizeof(src_addr);
 
-      int bytes_read = recvfrom(fd, reinterpret_cast<char*>(buffer), sizeof(buffer), 0,
-                                reinterpret_cast<struct sockaddr*>(&src_addr), &addr_len);
+      int bytes_read = recvfrom(fd,
+                                reinterpret_cast<char*>(buffer),
+                                sizeof(buffer),
+                                0,
+                                reinterpret_cast<struct sockaddr*>(&src_addr),
+                                &addr_len);
 
       if (bytes_read > 0) {
         char ip_str[INET_ADDRSTRLEN];
@@ -875,13 +927,15 @@ void DeviceDiscovery::ProbeLocalSubnets() {
 
   // Remove duplicates
   std::sort(target_subnets.begin(), target_subnets.end());
-  target_subnets.erase(std::unique(target_subnets.begin(), target_subnets.end()), target_subnets.end());
+  target_subnets.erase(std::unique(target_subnets.begin(), target_subnets.end()),
+                       target_subnets.end());
 
   for (const auto& subnet_base : target_subnets) {
     // Phase 2: rate-limit subnet probe concurrency 32 rate 64 hosts/sec
     const int kBatchSize = 32;
     constexpr double kRatePerSec = 64.0;
-    const auto kMinBatchInterval = std::chrono::milliseconds(static_cast<int>(1000.0 * kBatchSize / kRatePerSec)); // 500ms per 32
+    const auto kMinBatchInterval = std::chrono::milliseconds(
+        static_cast<int>(1000.0 * kBatchSize / kRatePerSec));  // 500ms per 32
     for (int start_i = 1; start_i <= 254; start_i += kBatchSize) {
       if (!running_.load()) break;
       auto batch_start = std::chrono::steady_clock::now();
@@ -918,7 +972,9 @@ void DeviceDiscovery::ProbeLocalSubnets() {
       }
 
       for (auto& f : futures) {
-        try { f.get(); } catch (...) {}
+        try {
+          f.get();
+        } catch (...) {}
       }
       // Rate limit: ensure at most 64 hosts/sec
       auto batch_elapsed = std::chrono::steady_clock::now() - batch_start;
@@ -934,4 +990,4 @@ void DeviceDiscovery::ProbeLocalSubnets() {
   }
 }
 
-} // namespace castcore
+}  // namespace castcore

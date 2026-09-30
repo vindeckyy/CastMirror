@@ -39,9 +39,8 @@ void OnStatValueNotify(GObject* object, GParamSpec* /*pspec*/, gpointer user_dat
   const char* title = static_cast<const char*>(g_object_get_data(object, "cm-stat-title"));
   const char* value = gtk_label_get_text(GTK_LABEL(object));
   std::string accessible = std::string(title ? title : "Statistic") + ": " + (value ? value : "—");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(card),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, accessible.c_str(),
-                                 -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(card), GTK_ACCESSIBLE_PROPERTY_LABEL, accessible.c_str(), -1);
 }
 
 }  // namespace
@@ -97,9 +96,8 @@ GtkWidget* MakeInfoButton(const char* title, const char* help_text) {
 
   std::string accessible = std::string("About ") + (title ? title : "this setting");
   gtk_widget_set_tooltip_text(btn, accessible.c_str());
-  gtk_accessible_update_property(GTK_ACCESSIBLE(btn),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL, accessible.c_str(),
-                                 -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(btn), GTK_ACCESSIBLE_PROPERTY_LABEL, accessible.c_str(), -1);
 
   if (help_text && help_text[0] != '\0') {
     GtkWidget* popover = gtk_popover_new();
@@ -118,9 +116,7 @@ GtkWidget* MakeInfoButton(const char* title, const char* help_text) {
   return btn;
 }
 
-GtkWidget* MakeStatCard(const char* title,
-                        const char* icon_name,
-                        const char* help_text,
+GtkWidget* MakeStatCard(const char* title, const char* icon_name, const char* help_text,
                         GtkWidget** out_value_label) {
   GtkWidget* card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
   gtk_widget_add_css_class(card, "cm-stat-card");
@@ -156,8 +152,8 @@ GtkWidget* MakeStatCard(const char* title,
   gtk_label_set_xalign(GTK_LABEL(value_lbl), 0.0f);
   gtk_box_append(GTK_BOX(card), value_lbl);
 
-  g_object_set_data_full(G_OBJECT(value_lbl), "cm-stat-title",
-                         g_strdup(title ? title : "Statistic"), g_free);
+  g_object_set_data_full(
+      G_OBJECT(value_lbl), "cm-stat-title", g_strdup(title ? title : "Statistic"), g_free);
   g_signal_connect(value_lbl, "notify::label", G_CALLBACK(OnStatValueNotify), card);
   OnStatValueNotify(G_OBJECT(value_lbl), nullptr, card);
 
@@ -167,10 +163,8 @@ GtkWidget* MakeStatCard(const char* title,
   return card;
 }
 
-GtkWidget* MakeStatCardWithSparkline(const char* title,
-                                     const char* icon_name,
-                                     const char* help_text,
-                                     GtkWidget** out_value_label,
+GtkWidget* MakeStatCardWithSparkline(const char* title, const char* icon_name,
+                                     const char* help_text, GtkWidget** out_value_label,
                                      GtkWidget* sparkline_widget) {
   GtkWidget* card = MakeStatCard(title, icon_name, help_text, out_value_label);
   if (sparkline_widget) {

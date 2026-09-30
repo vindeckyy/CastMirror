@@ -29,8 +29,8 @@ int main(int argc, char** argv) {
     } else {
       LOG_INFO << "Found " << devices.size() << " device(s):";
       for (size_t i = 0; i < devices.size(); ++i) {
-        LOG_INFO << " [" << i << "] " << devices[i].name << " (" << devices[i].model_name
-                 << ") at " << devices[i].ip_address << ":" << devices[i].port;
+        LOG_INFO << " [" << i << "] " << devices[i].name << " (" << devices[i].model_name << ") at "
+                 << devices[i].ip_address << ":" << devices[i].port;
       }
       target_ip = devices[0].ip_address;
     }
@@ -40,14 +40,17 @@ int main(int argc, char** argv) {
   LOG_INFO << "Targeting Cast Device: " << target_ip << ":" << target_port;
 
   CastChannel channel;
-  channel.SetMessageCallback([](const std::string& ns, const std::string& payload,
-                                const std::string& src, const std::string& dest) {
+  channel.SetMessageCallback([](const std::string& ns,
+                                const std::string& payload,
+                                const std::string& src,
+                                const std::string& dest) {
     LOG_INFO << "[RECV] NS: " << ns << " from: " << src << " to: " << dest;
     LOG_INFO << "       Payload: " << payload;
   });
 
   if (!channel.Connect(target_ip, target_port)) {
-    LOG_ERROR << "Failed to connect to " << target_ip << ":" << target_port << " (ensure device is on or fake-receiver is running)";
+    LOG_ERROR << "Failed to connect to " << target_ip << ":" << target_port
+              << " (ensure device is on or fake-receiver is running)";
     return 1;
   }
 

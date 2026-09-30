@@ -33,7 +33,7 @@ TEST(PixelConvertTest, HalfToFloatKnownValues) {
 
 TEST(PixelConvertTest, Bgra8IsCopiedRowByRowHonouringPitch) {
   // 2x2 source with 12-byte pitch (4 bytes of padding per row).
-  const uint8_t src[24] = {1, 2, 3, 255, 4, 5, 6, 255, 9, 9, 9, 9,
+  const uint8_t src[24] = {1, 2, 3, 255, 4,  5,  6,  255, 9, 9, 9, 9,
                            7, 8, 9, 255, 10, 11, 12, 255, 9, 9, 9, 9};
   uint8_t dst[16] = {};
   ASSERT_TRUE(ConvertToBgra8(src, 12, SourcePixelFormat::kBgra8, 2, 2, dst, 8));
@@ -60,7 +60,7 @@ TEST(PixelConvertTest, Rgb10A2UnpacksToEightBitBgra) {
   ASSERT_TRUE(ConvertToBgra8(src, 4, SourcePixelFormat::kRgb10A2, 1, 1, dst, 4));
   EXPECT_EQ(dst[2], 255);  // R
   EXPECT_EQ(dst[1], 128);  // G
-  EXPECT_EQ(dst[0], 0);    // B
+  EXPECT_EQ(dst[0], 0);  // B
   EXPECT_EQ(dst[3], 255);
 }
 
@@ -90,7 +90,7 @@ TEST(PixelConvertTest, HdrHighlightsClipAndNegativesGoToBlack) {
   uint8_t dst[4] = {};
   ASSERT_TRUE(ConvertToBgra8(src, 8, SourcePixelFormat::kRgbaF16, 1, 1, dst, 4));
   EXPECT_EQ(dst[2], 255);  // R clipped
-  EXPECT_EQ(dst[1], 0);    // G negative
+  EXPECT_EQ(dst[1], 0);  // G negative
 }
 
 TEST(PixelConvertTest, HdrMidGreyIsSrgbEncodedNotLinear) {
@@ -108,7 +108,7 @@ TEST(PixelConvertTest, RejectsBadArguments) {
   uint8_t out[4] = {1, 2, 3, 4};
   EXPECT_FALSE(ConvertToBgra8(nullptr, 4, SourcePixelFormat::kBgra8, 1, 1, out, 4));
   EXPECT_FALSE(ConvertToBgra8(px, 4, SourcePixelFormat::kBgra8, 0, 1, out, 4));
-  EXPECT_FALSE(ConvertToBgra8(px, 3, SourcePixelFormat::kBgra8, 1, 1, out, 4));   // pitch too small
-  EXPECT_FALSE(ConvertToBgra8(px, 4, SourcePixelFormat::kRgbaF16, 1, 1, out, 4)); // needs 8 bytes
+  EXPECT_FALSE(ConvertToBgra8(px, 3, SourcePixelFormat::kBgra8, 1, 1, out, 4));  // pitch too small
+  EXPECT_FALSE(ConvertToBgra8(px, 4, SourcePixelFormat::kRgbaF16, 1, 1, out, 4));  // needs 8 bytes
   EXPECT_EQ(out[0], 1);  // untouched on failure
 }

@@ -25,14 +25,11 @@ class CapabilityModel {
  public:
   static DeviceCapabilities Evaluate(const CastDevice& device);
 
-  static StreamStats GetRecommendedSettings(const CastDevice& device,
-                                            QualityPreset preset,
-                                            int display_width,
-                                            int display_height,
-                                            int display_refresh_rate,
-                                            int capture_fps = 0);
+  static StreamStats GetRecommendedSettings(const CastDevice& device, QualityPreset preset,
+                                            int display_width, int display_height,
+                                            int display_refresh_rate, int capture_fps = 0);
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_CAPABILITY_MODEL_H_
+#endif  // CASTCORE_CAPABILITY_MODEL_H_

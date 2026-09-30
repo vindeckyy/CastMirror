@@ -12,13 +12,7 @@
 
 namespace castcore {
 
-enum class LogLevel {
-  kDebug = 0,
-  kInfo = 1,
-  kWarn = 2,
-  kError = 3,
-  kFatal = 4
-};
+enum class LogLevel { kDebug = 0, kInfo = 1, kWarn = 2, kError = 3, kFatal = 4 };
 
 class Logger {
  public:
@@ -44,9 +38,10 @@ class Logger {
   void SetVerboseJsonEnabled(bool enabled);
   bool IsVerboseJsonEnabled() const;
   void LogJson(const std::string& json_line);
-  void LogBreadcrumb(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms, uint32_t nack_count);
-  void LogBreadcrumbEx(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms, uint32_t nack_count,
-                       const std::string& pipeline, const std::string& stage);
+  void LogBreadcrumb(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms,
+                     uint32_t nack_count);
+  void LogBreadcrumbEx(uint32_t frame_id, int64_t encode_ms, uint32_t udp_bytes, double rtt_ms,
+                       uint32_t nack_count, const std::string& pipeline, const std::string& stage);
 
   void Log(LogLevel level, const char* file, int line, const std::string& message);
 
@@ -79,9 +74,7 @@ class LogMessage {
   LogMessage(LogLevel level, const char* file, int line)
       : level_(level), file_(file), line_(line) {}
 
-  ~LogMessage() {
-    Logger::Instance().Log(level_, file_, line_, stream_.str());
-  }
+  ~LogMessage() { Logger::Instance().Log(level_, file_, line_, stream_.str()); }
 
   template <typename T>
   LogMessage& operator<<(const T& val) {
@@ -96,12 +89,12 @@ class LogMessage {
   std::ostringstream stream_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
 #define LOG_DEBUG castcore::LogMessage(castcore::LogLevel::kDebug, __FILE__, __LINE__)
-#define LOG_INFO  castcore::LogMessage(castcore::LogLevel::kInfo,  __FILE__, __LINE__)
-#define LOG_WARN  castcore::LogMessage(castcore::LogLevel::kWarn,  __FILE__, __LINE__)
+#define LOG_INFO castcore::LogMessage(castcore::LogLevel::kInfo, __FILE__, __LINE__)
+#define LOG_WARN castcore::LogMessage(castcore::LogLevel::kWarn, __FILE__, __LINE__)
 #define LOG_ERROR castcore::LogMessage(castcore::LogLevel::kError, __FILE__, __LINE__)
 #define LOG_FATAL castcore::LogMessage(castcore::LogLevel::kFatal, __FILE__, __LINE__)
 
-#endif // CASTCORE_LOGGER_H_
+#endif  // CASTCORE_LOGGER_H_

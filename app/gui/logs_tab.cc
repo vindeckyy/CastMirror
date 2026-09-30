@@ -24,7 +24,8 @@ std::string GetLogDirectory() {
 
 std::string ToLower(const std::string& s) {
   std::string out = s;
-  std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c){ return std::tolower(c); });
+  std::transform(
+      out.begin(), out.end(), out.begin(), [](unsigned char c) { return std::tolower(c); });
   return out;
 }
 
@@ -60,16 +61,14 @@ void LogsTab::BuildUi() {
 
   const char* const levels[] = {"Debug", "Info", "Warn", "Error", nullptr};
   level_dropdown_ = gtk_drop_down_new_from_strings(levels);
-  gtk_accessible_update_property(GTK_ACCESSIBLE(level_dropdown_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                 "Minimum level",
-                                 -1);
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(level_dropdown_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Minimum level", -1);
 
   LogLevel current_lvl = Logger::Instance().GetMinLevel();
-  gtk_drop_down_set_selected(GTK_DROP_DOWN(level_dropdown_),
-                             static_cast<guint>(current_lvl));
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(level_dropdown_), static_cast<guint>(current_lvl));
 
-  g_signal_connect(level_dropdown_, "notify::selected",
+  g_signal_connect(level_dropdown_,
+                   "notify::selected",
                    G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer) {
                      guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(obj));
                      if (selected <= 3 && selected != GTK_INVALID_LIST_POSITION) {
@@ -84,11 +83,10 @@ void LogsTab::BuildUi() {
   gtk_search_entry_set_placeholder_text(GTK_SEARCH_ENTRY(filter_entry_), "Filter logs…");
   gtk_widget_set_size_request(filter_entry_, 240, -1);
   gtk_widget_set_tooltip_text(filter_entry_, "Filter displayed log lines");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(filter_entry_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                 "Filter logs",
-                                 -1);
-  g_signal_connect(filter_entry_, "search-changed",
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(filter_entry_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Filter logs", -1);
+  g_signal_connect(filter_entry_,
+                   "search-changed",
                    G_CALLBACK(+[](GtkSearchEntry*, gpointer user_data) {
                      auto* self = static_cast<LogsTab*>(user_data);
                      self->OnFilterChanged();
@@ -109,7 +107,8 @@ void LogsTab::BuildUi() {
                                  GTK_ACCESSIBLE_PROPERTY_LABEL,
                                  "Copy last 100 lines",
                                  -1);
-  g_signal_connect(copy_last_100_button_, "clicked",
+  g_signal_connect(copy_last_100_button_,
+                   "clicked",
                    G_CALLBACK(+[](GtkButton*, gpointer user_data) {
                      auto* self = static_cast<LogsTab*>(user_data);
                      self->OnCopyLast100Clicked();
@@ -122,11 +121,10 @@ void LogsTab::BuildUi() {
   gtk_widget_add_css_class(copy_button_, "flat");
   gtk_widget_set_size_request(copy_button_, 40, 40);
   gtk_widget_set_tooltip_text(copy_button_, "Copy all");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(copy_button_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                 "Copy all",
-                                 -1);
-  g_signal_connect(copy_button_, "clicked",
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(copy_button_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Copy all", -1);
+  g_signal_connect(copy_button_,
+                   "clicked",
                    G_CALLBACK(+[](GtkButton*, gpointer user_data) {
                      auto* self = static_cast<LogsTab*>(user_data);
                      self->OnCopyClicked();
@@ -139,11 +137,10 @@ void LogsTab::BuildUi() {
   gtk_widget_add_css_class(folder_button_, "flat");
   gtk_widget_set_size_request(folder_button_, 40, 40);
   gtk_widget_set_tooltip_text(folder_button_, "Open log folder");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(folder_button_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                 "Open log folder",
-                                 -1);
-  g_signal_connect(folder_button_, "clicked",
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(folder_button_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Open log folder", -1);
+  g_signal_connect(folder_button_,
+                   "clicked",
                    G_CALLBACK(+[](GtkButton*, gpointer) {
                      std::string dir = GetLogDirectory();
                      std::string uri = "file://" + dir;
@@ -157,11 +154,10 @@ void LogsTab::BuildUi() {
   gtk_widget_add_css_class(clear_button_, "flat");
   gtk_widget_set_size_request(clear_button_, 40, 40);
   gtk_widget_set_tooltip_text(clear_button_, "Clear view");
-  gtk_accessible_update_property(GTK_ACCESSIBLE(clear_button_),
-                                 GTK_ACCESSIBLE_PROPERTY_LABEL,
-                                 "Clear view",
-                                 -1);
-  g_signal_connect(clear_button_, "clicked",
+  gtk_accessible_update_property(
+      GTK_ACCESSIBLE(clear_button_), GTK_ACCESSIBLE_PROPERTY_LABEL, "Clear view", -1);
+  g_signal_connect(clear_button_,
+                   "clicked",
                    G_CALLBACK(+[](GtkButton*, gpointer user_data) {
                      auto* self = static_cast<LogsTab*>(user_data);
                      self->OnClearClicked();
@@ -177,7 +173,8 @@ void LogsTab::BuildUi() {
   gtk_widget_add_css_class(seed_warning_banner_, "is-warning");
   GtkWidget* warn_icon = gtk_image_new_from_icon_name("dialog-warning-symbolic");
   gtk_box_append(GTK_BOX(seed_warning_banner_), warn_icon);
-  GtkWidget* warn_lbl = gtk_label_new("Existing logs could not be read. New messages will still appear here.");
+  GtkWidget* warn_lbl =
+      gtk_label_new("Existing logs could not be read. New messages will still appear here.");
   gtk_label_set_wrap(GTK_LABEL(warn_lbl), TRUE);
   gtk_widget_set_halign(warn_lbl, GTK_ALIGN_START);
   gtk_box_append(GTK_BOX(seed_warning_banner_), warn_lbl);
@@ -186,7 +183,9 @@ void LogsTab::BuildUi() {
 
   // 3. Selectable wrapping path-help info label
   path_info_label_ = gtk_label_new(
-      "Live view of process logs. Session log: ~/.config/castmirror/castmirror-session.log  •  History: ~/.config/castmirror/castmirror.log  •  JSON sidecar: ~/.config/castmirror/castmirror.ndjson (when verbose_json enabled)");
+      "Live view of process logs. Session log: ~/.config/castmirror/castmirror-session.log  •  "
+      "History: ~/.config/castmirror/castmirror.log  •  JSON sidecar: "
+      "~/.config/castmirror/castmirror.ndjson (when verbose_json enabled)");
   gtk_widget_set_halign(path_info_label_, GTK_ALIGN_START);
   gtk_label_set_selectable(GTK_LABEL(path_info_label_), TRUE);
   gtk_label_set_wrap(GTK_LABEL(path_info_label_), TRUE);
@@ -195,9 +194,8 @@ void LogsTab::BuildUi() {
 
   // 4. Outlined full-height viewport with text view inside GtkOverlay
   scrolled_window_ = gtk_scrolled_window_new();
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolled_window_),
-                                 GTK_POLICY_AUTOMATIC,
-                                 GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_policy(
+      GTK_SCROLLED_WINDOW(scrolled_window_), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
   gtk_widget_add_css_class(scrolled_window_, "cm-section-card");
   gtk_widget_set_hexpand(scrolled_window_, TRUE);
   gtk_widget_set_vexpand(scrolled_window_, TRUE);
@@ -324,12 +322,8 @@ void LogsTab::ApplyFilter() {
       tag_name = "tag_error";
     }
     std::string text_with_nl = item.text + "\n";
-    gtk_text_buffer_insert_with_tags_by_name(text_buffer_,
-                                             &end_iter,
-                                             text_with_nl.c_str(),
-                                             -1,
-                                             tag_name,
-                                             nullptr);
+    gtk_text_buffer_insert_with_tags_by_name(
+        text_buffer_, &end_iter, text_with_nl.c_str(), -1, tag_name, nullptr);
   }
 
   UpdateBufferState();
@@ -390,7 +384,8 @@ void LogsTab::OnCopyLast100Clicked() {
         }
       }
     }
-    for (auto &l : combined) content += l + "\n";
+    for (auto& l : combined)
+      content += l + "\n";
   }
 
   if (content.empty()) {
@@ -418,7 +413,8 @@ void LogsTab::OnCopyLast100Clicked() {
   }
 
   if (!content.empty()) {
-    GtkWidget* src = copy_last_100_button_ ? copy_last_100_button_ : (copy_button_ ? copy_button_ : root_widget_);
+    GtkWidget* src = copy_last_100_button_ ? copy_last_100_button_
+                                           : (copy_button_ ? copy_button_ : root_widget_);
     GdkClipboard* clip = gtk_widget_get_clipboard(src);
     gdk_clipboard_set_text(clip, content.c_str());
     if (app_) {
@@ -512,9 +508,12 @@ void LogsTab::SeedInitialLogs() {
           if (line.empty()) continue;
           // Determine level heuristically from tags if possible, default Info
           LogLevel lvl = LogLevel::kInfo;
-          if (line.find("[DEBUG") != std::string::npos) lvl = LogLevel::kDebug;
-          else if (line.find("[WARN") != std::string::npos) lvl = LogLevel::kWarn;
-          else if (line.find("[ERROR") != std::string::npos) lvl = LogLevel::kError;
+          if (line.find("[DEBUG") != std::string::npos)
+            lvl = LogLevel::kDebug;
+          else if (line.find("[WARN") != std::string::npos)
+            lvl = LogLevel::kWarn;
+          else if (line.find("[ERROR") != std::string::npos)
+            lvl = LogLevel::kError;
           history_.push_back({lvl, line});
           if (history_.size() > kMaxHistory) history_.pop_front();
         }
@@ -539,11 +538,13 @@ void LogsTab::OnLogMessage(LogLevel level, const std::string& formatted_line) {
 
   if (!idle_scheduled_) {
     idle_scheduled_ = true;
-    idle_source_id_ = g_idle_add(+[](gpointer user_data) -> gboolean {
-      auto* self = static_cast<LogsTab*>(user_data);
-      self->FlushPendingLogs();
-      return G_SOURCE_REMOVE;
-    }, this);
+    idle_source_id_ = g_idle_add(
+        +[](gpointer user_data) -> gboolean {
+          auto* self = static_cast<LogsTab*>(user_data);
+          self->FlushPendingLogs();
+          return G_SOURCE_REMOVE;
+        },
+        this);
   }
 }
 
@@ -555,7 +556,7 @@ void LogsTab::FlushPendingLogs() {
     idle_scheduled_ = false;
     idle_source_id_ = 0;  // the idle that called us is about to be removed
     // Also push to history for filtering (preserve all, capped)
-    for (auto &item : to_drain) {
+    for (auto& item : to_drain) {
       history_.push_back(item);
       if (history_.size() > kMaxHistory) history_.pop_front();
     }
@@ -574,7 +575,8 @@ void LogsTab::FlushPendingLogs() {
   // Check if view is currently at bottom before appending
   bool at_bottom = true;
   if (scrolled_window_) {
-    GtkAdjustment* vadj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolled_window_));
+    GtkAdjustment* vadj =
+        gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scrolled_window_));
     if (vadj) {
       double value = gtk_adjustment_get_value(vadj);
       double upper = gtk_adjustment_get_upper(vadj);
@@ -603,12 +605,8 @@ void LogsTab::FlushPendingLogs() {
     }
 
     std::string text_with_nl = item.text + "\n";
-    gtk_text_buffer_insert_with_tags_by_name(text_buffer_,
-                                             &end_iter,
-                                             text_with_nl.c_str(),
-                                             -1,
-                                             tag_name,
-                                             nullptr);
+    gtk_text_buffer_insert_with_tags_by_name(
+        text_buffer_, &end_iter, text_with_nl.c_str(), -1, tag_name, nullptr);
   }
 
   UpdateBufferState();

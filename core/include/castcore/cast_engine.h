@@ -20,7 +20,8 @@ namespace castcore {
 class CastEngine {
  public:
   using DevicesChangedCallback = std::function<void(const std::vector<CastDevice>& devices)>;
-  using StateChangedCallback = std::function<void(SessionState old_state, SessionState new_state, const std::string& message)>;
+  using StateChangedCallback = std::function<void(SessionState old_state, SessionState new_state,
+                                                  const std::string& message)>;
   using StatsUpdatedCallback = std::function<void(const StreamStats& stats)>;
 
   static CastEngine& Instance();
@@ -36,17 +37,16 @@ class CastEngine {
   std::vector<WindowInfo> GetWindows() const;
   bool WindowCaptureSupported() const;
 
-  bool StartCasting(const std::string& device_id,
-                    int display_id = 0,
-                    QualityPreset preset = QualityPreset::kAuto,
-                    bool audio_enabled = true,
+  bool StartCasting(const std::string& device_id, int display_id = 0,
+                    QualityPreset preset = QualityPreset::kAuto, bool audio_enabled = true,
                     uint32_t bitrate_kbps = 0);
 
   bool StartCasting(const std::string& device_id, int display_id, const SessionOptions& options);
 
   // Source-aware entry point: capture a monitor or a single window. Sets
   // options.source and delegates to the (device, display_id, options) overload.
-  bool StartCasting(const std::string& device_id, const CaptureSource& source, const SessionOptions& options);
+  bool StartCasting(const std::string& device_id, const CaptureSource& source,
+                    const SessionOptions& options);
 
   bool StartCastingLastDevice();
   void StopCasting();
@@ -94,6 +94,6 @@ class CastEngine {
   std::mutex init_mutex_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_CAST_ENGINE_H_
+#endif  // CASTCORE_CAST_ENGINE_H_

@@ -67,7 +67,8 @@ struct AppConfig {
   bool verify_device_cert = true;
   bool latency_hud_enabled = false;
   bool show_cursor = true;  // draw the mouse pointer into the mirrored picture
-  bool global_hotkeys = false;  // system-wide start/stop, freeze and mute shortcuts (client feature)
+  bool global_hotkeys =
+      false;  // system-wide start/stop, freeze and mute shortcuts (client feature)
   std::string audio_process_name;  // exe name of the one app whose audio is shared; empty = all
   int reconnect_window_s = 30;  // seconds a dropped connection is retried (10-600)
   // UI color scheme preference ("", "light", "dark"). Empty means "follow the
@@ -96,8 +97,8 @@ struct SessionOverrides {
   std::optional<bool> enable_audio;
   std::optional<VideoCodec> video_codec;
   std::optional<uint32_t> video_bitrate_kbps;  // unset or 0 = the preset's bitrate
-  std::optional<int> target_delay_ms;          // unset or <= 0 = the configured delay
-  std::optional<int> capture_fps;              // unset or <= 0 = follow the display
+  std::optional<int> target_delay_ms;  // unset or <= 0 = the configured delay
+  std::optional<int> capture_fps;  // unset or <= 0 = follow the display
   std::optional<bool> verify_device_cert;
   std::optional<CaptureSource> source;
 };
@@ -112,8 +113,7 @@ struct SessionOverrides {
 // defaults and passes them in does not merely run one session with wrong
 // settings - it overwrites the user's saved ones. Routing every entry point
 // through one builder is what keeps that impossible.
-SessionOptions BuildSessionOptions(const AppConfig& cfg,
-                                   const SessionOverrides& overrides = {});
+SessionOptions BuildSessionOptions(const AppConfig& cfg, const SessionOverrides& overrides = {});
 
 // ---------------------------------------------------------------------------
 // Strict JSON getters, shared by ConfigStore::Load (config file) and the C
@@ -146,6 +146,6 @@ class ConfigStore {
   std::string config_path_;
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_CONFIG_H_
+#endif  // CASTCORE_CONFIG_H_

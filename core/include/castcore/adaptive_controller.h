@@ -9,7 +9,6 @@
 #include <mutex>
 #include <unordered_set>
 
-
 namespace castcore {
 
 struct LadderRung {
@@ -57,19 +56,38 @@ class AdaptiveController {
   // preserving the selected ladder rung and user bitrate cap.
   void ResetFeedbackWindow();
 
-
   // Periodic evaluation (e.g. every 1 second). Bitrate-only; resolution/fps stay put.
   bool CheckAdaptation(StreamStats& out_updated_settings);
 
   // Getters take state_mutex_: OnFeedback() runs on the RTCP thread while the
   // adaptation thread and the UI read these.
-  uint32_t GetCurrentBitrateKbps() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_bitrate_kbps_; }
-  int GetCurrentLadderIndex() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_rung_idx_; }
-  const std::vector<LadderRung>& GetLadder() const { return ladder_; }  // immutable after construction
-  Resolution GetCurrentResolution() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_resolution_; }
-  int GetCurrentFramerate() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return current_framerate_; }
-  double GetEwmaRttMs() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return ewma_rtt_ms_; }
-  double GetEwmaJitterMs() const { std::lock_guard<std::recursive_mutex> l(state_mutex_); return ewma_jitter_ms_; }
+  uint32_t GetCurrentBitrateKbps() const {
+    std::lock_guard<std::recursive_mutex> l(state_mutex_);
+    return current_bitrate_kbps_;
+  }
+  int GetCurrentLadderIndex() const {
+    std::lock_guard<std::recursive_mutex> l(state_mutex_);
+    return current_rung_idx_;
+  }
+  const std::vector<LadderRung>& GetLadder() const {
+    return ladder_;
+  }  // immutable after construction
+  Resolution GetCurrentResolution() const {
+    std::lock_guard<std::recursive_mutex> l(state_mutex_);
+    return current_resolution_;
+  }
+  int GetCurrentFramerate() const {
+    std::lock_guard<std::recursive_mutex> l(state_mutex_);
+    return current_framerate_;
+  }
+  double GetEwmaRttMs() const {
+    std::lock_guard<std::recursive_mutex> l(state_mutex_);
+    return ewma_rtt_ms_;
+  }
+  double GetEwmaJitterMs() const {
+    std::lock_guard<std::recursive_mutex> l(state_mutex_);
+    return ewma_jitter_ms_;
+  }
 
   // Test helpers for fast simulation without long sleep
   void SetEvaluationIntervalMsForTest(int ms) { eval_interval_ms_ = ms; }
@@ -96,7 +114,7 @@ class AdaptiveController {
   std::atomic<bool> enabled_{true};
   std::atomic<bool> allow_resolution_change_{true};
   uint32_t user_bitrate_cap_kbps_ = 0;
-  uint32_t custom_target_kbps_ = 0;   // user-selected bitrate held & ramped back to
+  uint32_t custom_target_kbps_ = 0;  // user-selected bitrate held & ramped back to
   uint32_t stability_cap_kbps_ = 0;
 
   // Phase 2 EWMA smoothing: rtt 0.8/0.2 jitter 0.9/0.1
@@ -130,6 +148,6 @@ class AdaptiveController {
   std::chrono::steady_clock::time_point last_floor_warning_time_{};
 };
 
-} // namespace castcore
+}  // namespace castcore
 
-#endif // CASTCORE_ADAPTIVE_CONTROLLER_H_
+#endif  // CASTCORE_ADAPTIVE_CONTROLLER_H_

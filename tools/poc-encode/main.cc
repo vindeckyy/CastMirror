@@ -44,26 +44,54 @@ static bool IsNumberWithSuffix(const std::string& s) {
   std::string t = s;
   if (t.back() == 's' || t.back() == 'S') t.pop_back();
   if (t.empty()) return false;
-  for (char c : t) if (!isdigit(c) && c!='-' ) return false;
+  for (char c : t)
+    if (!isdigit(c) && c != '-') return false;
   return true;
 }
 
 static int ParseDuration(const std::string& s) {
   std::string t = s;
-  if (!t.empty() && (t.back()=='s' || t.back()=='S')) t.pop_back();
-  try { return std::stoi(t); } catch(...) { return -1; }
+  if (!t.empty() && (t.back() == 's' || t.back() == 'S')) t.pop_back();
+  try {
+    return std::stoi(t);
+  } catch (...) {
+    return -1;
+  }
 }
 
 static void ApplyPreset(const std::string& preset, int& w, int& h, int& fps) {
   std::string p = preset;
-  for (auto& c : p) c = tolower(c);
-  if (p=="1080p60" || p=="1080p") { w=1920; h=1080; fps=60; }
-  else if (p=="1080p30") { w=1920; h=1080; fps=30; }
-  else if (p=="720p60" || p=="720p") { w=1280; h=720; fps=60; }
-  else if (p=="720p30") { w=1280; h=720; fps=30; }
-  else if (p=="4k60" || p=="2160p60" || p=="4k") { w=3840; h=2160; fps=60; }
-  else if (p=="4k30" || p=="2160p30") { w=3840; h=2160; fps=30; }
-  else if (p=="540p30") { w=960; h=540; fps=30; }
+  for (auto& c : p)
+    c = tolower(c);
+  if (p == "1080p60" || p == "1080p") {
+    w = 1920;
+    h = 1080;
+    fps = 60;
+  } else if (p == "1080p30") {
+    w = 1920;
+    h = 1080;
+    fps = 30;
+  } else if (p == "720p60" || p == "720p") {
+    w = 1280;
+    h = 720;
+    fps = 60;
+  } else if (p == "720p30") {
+    w = 1280;
+    h = 720;
+    fps = 30;
+  } else if (p == "4k60" || p == "2160p60" || p == "4k") {
+    w = 3840;
+    h = 2160;
+    fps = 60;
+  } else if (p == "4k30" || p == "2160p30") {
+    w = 3840;
+    h = 2160;
+    fps = 30;
+  } else if (p == "540p30") {
+    w = 960;
+    h = 540;
+    fps = 30;
+  }
 }
 
 int main(int argc, char** argv) {
@@ -81,38 +109,41 @@ int main(int argc, char** argv) {
   // Parse arguments (keep legacy: no args = 3s 1080p60)
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
-    if (arg=="--help" || arg=="-h") {
+    if (arg == "--help" || arg == "-h") {
       PrintHelp(argv[0]);
       return 0;
-    } else if (arg=="--width" && i+1 < argc) {
+    } else if (arg == "--width" && i + 1 < argc) {
       target_w = std::stoi(argv[++i]);
-    } else if (arg=="--height" && i+1 < argc) {
+    } else if (arg == "--height" && i + 1 < argc) {
       target_h = std::stoi(argv[++i]);
-    } else if (arg=="--fps" && i+1 < argc) {
+    } else if (arg == "--fps" && i + 1 < argc) {
       target_fps = std::stoi(argv[++i]);
-    } else if ((arg=="--duration" || arg=="-d") && i+1 < argc) {
+    } else if ((arg == "--duration" || arg == "-d") && i + 1 < argc) {
       duration_sec = ParseDuration(argv[++i]);
-    } else if (arg=="--bitrate" && i+1 < argc) {
+    } else if (arg == "--bitrate" && i + 1 < argc) {
       bitrate_kbps = static_cast<uint32_t>(std::stoi(argv[++i]));
-    } else if (arg=="--preset" && i+1 < argc) {
+    } else if (arg == "--preset" && i + 1 < argc) {
       ApplyPreset(argv[++i], target_w, target_h, target_fps);
-    } else if (arg=="--json" && i+1 < argc) {
+    } else if (arg == "--json" && i + 1 < argc) {
       json_path = argv[++i];
-    } else if (arg.rfind("--",0)==0) {
+    } else if (arg.rfind("--", 0) == 0) {
       LOG_WARN << "Unknown option: " << arg;
     } else {
       // Positional shorthands
       std::string low = arg;
-      for (auto& c: low) c = tolower(c);
-      if (low=="1080p60" || low=="1080p30" || low=="720p60" || low=="720p30" || low=="4k60" || low=="4k30" || low=="4k" || low=="720p" || low=="1080p" || low=="2160p60" || low=="2160p30" || low=="540p30") {
+      for (auto& c : low)
+        c = tolower(c);
+      if (low == "1080p60" || low == "1080p30" || low == "720p60" || low == "720p30" ||
+          low == "4k60" || low == "4k30" || low == "4k" || low == "720p" || low == "1080p" ||
+          low == "2160p60" || low == "2160p30" || low == "540p30") {
         ApplyPreset(low, target_w, target_h, target_fps);
       } else if (low.find('x') != std::string::npos) {
         // e.g. 1920x1080
         size_t xpos = low.find('x');
         try {
           target_w = std::stoi(low.substr(0, xpos));
-          target_h = std::stoi(low.substr(xpos+1));
-        } catch(...) {}
+          target_h = std::stoi(low.substr(xpos + 1));
+        } catch (...) {}
       } else if (IsNumberWithSuffix(arg)) {
         int d = ParseDuration(arg);
         if (d > 0) duration_sec = d;
@@ -129,8 +160,8 @@ int main(int argc, char** argv) {
 
   LOG_INFO << "Testing " << target_w << "x" << target_h << "@" << target_fps
            << " Low-Latency Capture and Encode pipeline for " << duration_sec << "s...";
-  LOG_INFO << "Config: " << target_w << "x" << target_h << " @" << target_fps
-           << "fps, " << bitrate_kbps << " kbps, duration " << duration_sec << "s";
+  LOG_INFO << "Config: " << target_w << "x" << target_h << " @" << target_fps << "fps, "
+           << bitrate_kbps << " kbps, duration " << duration_sec << "s";
 
   auto capturer = DisplayCaptureFactory::Create();
   auto audio_capturer = AudioCaptureFactory::Create();
@@ -220,8 +251,10 @@ int main(int argc, char** argv) {
       };
       p50_ms = percentile(0.50);
       p95_ms = percentile(0.95);
-      if (v_count > 0) avg_encode_ms = total_encode_time_ms.load() / v_count;
-      else avg_encode_ms = percentile(0.5);
+      if (v_count > 0)
+        avg_encode_ms = total_encode_time_ms.load() / v_count;
+      else
+        avg_encode_ms = percentile(0.5);
     } else if (v_count > 0) {
       avg_encode_ms = total_encode_time_ms.load() / v_count;
       p50_ms = avg_encode_ms;
@@ -229,10 +262,14 @@ int main(int argc, char** argv) {
     }
   }
   // Fallback if no samples but still frames counted (should not happen)
-  if (p50_ms==0 && avg_encode_ms>0) { p50_ms = avg_encode_ms; p95_ms = avg_encode_ms; }
+  if (p50_ms == 0 && avg_encode_ms > 0) {
+    p50_ms = avg_encode_ms;
+    p95_ms = avg_encode_ms;
+  }
 
   double avg_fps = duration_sec > 0 ? (v_count / static_cast<double>(duration_sec)) : 0.0;
-  double mbps = duration_sec > 0 ? (total_video_bytes.load() * 8.0) / (duration_sec * 1000.0 * 1000.0) : 0.0;
+  double mbps =
+      duration_sec > 0 ? (total_video_bytes.load() * 8.0) / (duration_sec * 1000.0 * 1000.0) : 0.0;
 
   LOG_INFO << "Benchmark Results:";
   LOG_INFO << "  Video Frames Encoded: " << v_count << " (" << avg_fps << " FPS)";
@@ -243,29 +280,38 @@ int main(int argc, char** argv) {
   LOG_INFO << "  Average Video Bitrate: " << mbps << " Mbps";
   // Machine-readable for bench harness (stripped of color by script)
   LOG_INFO << "BENCH_METRIC encode_ms_p50=" << p50_ms << " encode_ms_p95=" << p95_ms
-           << " encode_ms_avg=" << avg_encode_ms << " fps=" << avg_fps
-           << " frames=" << v_count << " bitrate_mbps=" << mbps;
+           << " encode_ms_avg=" << avg_encode_ms << " fps=" << avg_fps << " frames=" << v_count
+           << " bitrate_mbps=" << mbps;
   LOG_INFO << "BENCH_ENCODE_CSV " << p50_ms << "," << p95_ms << "," << avg_fps;
 
   // Also emit to stdout without logger prefix for simpler parsing (bench script greps both)
-  std::cout << "BENCH_ENCODE p50=" << p50_ms << " p95=" << p95_ms
-            << " avg=" << avg_encode_ms << " fps=" << avg_fps
-            << " frames=" << v_count << " duration=" << duration_sec << std::endl;
+  std::cout << "BENCH_ENCODE p50=" << p50_ms << " p95=" << p95_ms << " avg=" << avg_encode_ms
+            << " fps=" << avg_fps << " frames=" << v_count << " duration=" << duration_sec
+            << std::endl;
 
   if (!json_path.empty()) {
     try {
       FILE* f = fopen(json_path.c_str(), "w");
       if (f) {
-        fprintf(f, "{\"width\":%d,\"height\":%d,\"fps\":%d,\"duration_sec\":%d,"
-                   "\"frames\":%d,\"fps_measured\":%.3f,"
-                   "\"encode_ms_p50\":%.3f,\"encode_ms_p95\":%.3f,\"encode_ms_avg\":%.3f,"
-                   "\"bitrate_mbps\":%.3f}\n",
-                target_w, target_h, target_fps, duration_sec,
-                v_count, avg_fps, p50_ms, p95_ms, avg_encode_ms, mbps);
+        fprintf(f,
+                "{\"width\":%d,\"height\":%d,\"fps\":%d,\"duration_sec\":%d,"
+                "\"frames\":%d,\"fps_measured\":%.3f,"
+                "\"encode_ms_p50\":%.3f,\"encode_ms_p95\":%.3f,\"encode_ms_avg\":%.3f,"
+                "\"bitrate_mbps\":%.3f}\n",
+                target_w,
+                target_h,
+                target_fps,
+                duration_sec,
+                v_count,
+                avg_fps,
+                p50_ms,
+                p95_ms,
+                avg_encode_ms,
+                mbps);
         fclose(f);
         LOG_INFO << "Wrote JSON metrics to " << json_path;
       }
-    } catch(...) {}
+    } catch (...) {}
   }
 
   if (v_count > 30 && avg_encode_ms < 30.0) {

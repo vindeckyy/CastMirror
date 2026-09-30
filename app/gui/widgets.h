@@ -24,21 +24,14 @@ GtkWidget* MakeSectionHeader(const char* title, const char* one_liner = nullptr)
 
 GtkWidget* MakeInfoButton(const char* title, const char* help_text);
 
-GtkWidget* MakeStatCard(const char* title,
-                        const char* icon_name,
-                        const char* help_text,
+GtkWidget* MakeStatCard(const char* title, const char* icon_name, const char* help_text,
                         GtkWidget** out_value_label);
 
-GtkWidget* MakeStatCardWithSparkline(const char* title,
-                                     const char* icon_name,
-                                     const char* help_text,
-                                     GtkWidget** out_value_label,
+GtkWidget* MakeStatCardWithSparkline(const char* title, const char* icon_name,
+                                     const char* help_text, GtkWidget** out_value_label,
                                      GtkWidget* sparkline_widget);
 
-void UpdateStatusBadge(GtkWidget* pill,
-                       GtkWidget* dot,
-                       GtkWidget* label,
-                       SessionState state);
+void UpdateStatusBadge(GtkWidget* pill, GtkWidget* dot, GtkWidget* label, SessionState state);
 
 }  // namespace castcore::gui
 

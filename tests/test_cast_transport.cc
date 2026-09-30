@@ -7,10 +7,10 @@
 #include <cstring>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #include <timeapi.h>
-  #define close closesocket
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <timeapi.h>
+#define close closesocket
 
 struct GlobalWinsockInit : public ::testing::Environment {
   void SetUp() override {
@@ -23,13 +23,14 @@ struct GlobalWinsockInit : public ::testing::Environment {
     WSACleanup();
   }
 };
-::testing::Environment* const kWinsockEnv = ::testing::AddGlobalTestEnvironment(new GlobalWinsockInit);
+::testing::Environment* const kWinsockEnv =
+    ::testing::AddGlobalTestEnvironment(new GlobalWinsockInit);
 #else
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <poll.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <poll.h>
 #endif
 
 using namespace castcore;
@@ -39,9 +40,10 @@ namespace {
 std::vector<uint8_t> BuildPliPacket(uint32_t receiver_ssrc, uint32_t sender_ssrc) {
   // RTCP Payload-specific feedback (PT 206), FMT 1 (PLI), length 2 (12 bytes)
   std::vector<uint8_t> pkt(12, 0);
-  pkt[0] = 0x81; // V=2, P=0, FMT=1 (PLI)
+  pkt[0] = 0x81;  // V=2, P=0, FMT=1 (PLI)
   pkt[1] = 206;  // PT=206
-  pkt[2] = 0x00; pkt[3] = 0x02; // length = 2 (12 bytes total)
+  pkt[2] = 0x00;
+  pkt[3] = 0x02;  // length = 2 (12 bytes total)
   pkt[4] = static_cast<uint8_t>((receiver_ssrc >> 24) & 0xFF);
   pkt[5] = static_cast<uint8_t>((receiver_ssrc >> 16) & 0xFF);
   pkt[6] = static_cast<uint8_t>((receiver_ssrc >> 8) & 0xFF);
@@ -53,16 +55,15 @@ std::vector<uint8_t> BuildPliPacket(uint32_t receiver_ssrc, uint32_t sender_ssrc
   return pkt;
 }
 
-std::vector<uint8_t> BuildDuplicateNackPacket(uint32_t receiver_ssrc,
-                                              uint32_t sender_ssrc,
-                                              uint8_t frame_id,
-                                              uint16_t packet_id) {
+std::vector<uint8_t> BuildDuplicateNackPacket(uint32_t receiver_ssrc, uint32_t sender_ssrc,
+                                              uint8_t frame_id, uint16_t packet_id) {
   // CAST feedback with two identical loss fields. A receiver may repeat the
   // same NACK while the first retransmit is still in flight.
   std::vector<uint8_t> pkt(28, 0);
   pkt[0] = 0x8F;
   pkt[1] = 206;
-  pkt[2] = 0x00; pkt[3] = 0x06;
+  pkt[2] = 0x00;
+  pkt[3] = 0x06;
   pkt[4] = static_cast<uint8_t>((receiver_ssrc >> 24) & 0xFF);
   pkt[5] = static_cast<uint8_t>((receiver_ssrc >> 16) & 0xFF);
   pkt[6] = static_cast<uint8_t>((receiver_ssrc >> 8) & 0xFF);
@@ -71,10 +72,14 @@ std::vector<uint8_t> BuildDuplicateNackPacket(uint32_t receiver_ssrc,
   pkt[9] = static_cast<uint8_t>((sender_ssrc >> 16) & 0xFF);
   pkt[10] = static_cast<uint8_t>((sender_ssrc >> 8) & 0xFF);
   pkt[11] = static_cast<uint8_t>(sender_ssrc & 0xFF);
-  pkt[12] = 'C'; pkt[13] = 'A'; pkt[14] = 'S'; pkt[15] = 'T';
+  pkt[12] = 'C';
+  pkt[13] = 'A';
+  pkt[14] = 'S';
+  pkt[15] = 'T';
   pkt[16] = static_cast<uint8_t>(frame_id - 1);
   pkt[17] = 2;
-  pkt[18] = 0; pkt[19] = 200;
+  pkt[18] = 0;
+  pkt[19] = 200;
   for (size_t off : {size_t{20}, size_t{24}}) {
     pkt[off] = frame_id;
     pkt[off + 1] = static_cast<uint8_t>((packet_id >> 8) & 0xFF);
@@ -84,7 +89,7 @@ std::vector<uint8_t> BuildDuplicateNackPacket(uint32_t receiver_ssrc,
   return pkt;
 }
 
-} // namespace
+}  // namespace
 
 TEST(CastTransportTest, AcceptsRtcpFromTargetAndFiltersForeignIp) {
   // 1. Setup local receiver UDP socket
@@ -93,7 +98,7 @@ TEST(CastTransportTest, AcceptsRtcpFromTargetAndFiltersForeignIp) {
 
   struct sockaddr_in recv_addr{};
   recv_addr.sin_family = AF_INET;
-  recv_addr.sin_port = 0; // Ephemeral
+  recv_addr.sin_port = 0;  // Ephemeral
   inet_pton(AF_INET, "127.0.0.1", &recv_addr.sin_addr);
   ASSERT_EQ(bind(recv_fd, reinterpret_cast<struct sockaddr*>(&recv_addr), sizeof(recv_addr)), 0);
 
@@ -113,14 +118,22 @@ TEST(CastTransportTest, AcceptsRtcpFromTargetAndFiltersForeignIp) {
   uint8_t buf[256];
   struct sockaddr_in sender_addr{};
   socklen_t slen = sizeof(sender_addr);
-  ssize_t got = recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                         reinterpret_cast<struct sockaddr*>(&sender_addr), &slen);
+  ssize_t got = recvfrom(recv_fd,
+                         reinterpret_cast<char*>(buf),
+                         sizeof(buf),
+                         0,
+                         reinterpret_cast<struct sockaddr*>(&sender_addr),
+                         &slen);
   ASSERT_GT(got, 0);
 
   // 4. Send PLI RTCP packet from valid 127.0.0.1 address
   auto pli = BuildPliPacket(10001, 1);
-  ssize_t sent = sendto(recv_fd, reinterpret_cast<const char*>(pli.data()), pli.size(), 0,
-                        reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr));
+  ssize_t sent = sendto(recv_fd,
+                        reinterpret_cast<const char*>(pli.data()),
+                        pli.size(),
+                        0,
+                        reinterpret_cast<struct sockaddr*>(&sender_addr),
+                        sizeof(sender_addr));
   ASSERT_EQ(sent, static_cast<ssize_t>(pli.size()));
 
   // Wait up to 300ms for transport receive thread to process
@@ -137,10 +150,15 @@ TEST(CastTransportTest, AcceptsRtcpFromTargetAndFiltersForeignIp) {
   foreign_addr.sin_family = AF_INET;
   foreign_addr.sin_port = 0;
   ASSERT_GT(inet_pton(AF_INET, "127.0.0.2", &foreign_addr.sin_addr), 0);
-  ASSERT_EQ(bind(foreign_fd, reinterpret_cast<struct sockaddr*>(&foreign_addr), sizeof(foreign_addr)), 0);
+  ASSERT_EQ(
+      bind(foreign_fd, reinterpret_cast<struct sockaddr*>(&foreign_addr), sizeof(foreign_addr)), 0);
 
-  sendto(foreign_fd, reinterpret_cast<const char*>(pli.data()), pli.size(), 0,
-         reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr));
+  sendto(foreign_fd,
+         reinterpret_cast<const char*>(pli.data()),
+         pli.size(),
+         0,
+         reinterpret_cast<struct sockaddr*>(&sender_addr),
+         sizeof(sender_addr));
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   EXPECT_EQ(transport.GetStats().pli_received, valid_pli_count);
   close(foreign_fd);
@@ -166,8 +184,25 @@ TEST(CastTransportTest, ReportsRollingVideoFpsAfterRateChange) {
   auto send_video_frame = [&](uint32_t frame_id) {
     RtpPacket packet;
     packet.frame_id = frame_id;
-    packet.data = {0x80, 96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
-                   0x40, static_cast<uint8_t>(frame_id), 0, 0, 0, 0, 0};
+    packet.data = {0x80,
+                   96,
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   2,
+                   0x40,
+                   static_cast<uint8_t>(frame_id),
+                   0,
+                   0,
+                   0,
+                   0,
+                   0};
     ASSERT_TRUE(transport.SendPackets({packet}));
   };
 
@@ -212,14 +247,16 @@ TEST(CastTransportTest, SuppressesDuplicateNackRetransmitBurst) {
   RtpPacket packet;
   packet.frame_id = 10;
   packet.packet_id = 3;
-  packet.data = {0x80, 96, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2,
-                 0x40, 10, 0, 3, 0, 3, 9};
+  packet.data = {0x80, 96, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0x40, 10, 0, 3, 0, 3, 9};
   ASSERT_TRUE(transport.SendPackets({packet}));
 
 #if defined(_WIN32)
   DWORD timeout_ms = 100;
-  setsockopt(recv_fd, SOL_SOCKET, SO_RCVTIMEO,
-             reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+  setsockopt(recv_fd,
+             SOL_SOCKET,
+             SO_RCVTIMEO,
+             reinterpret_cast<const char*>(&timeout_ms),
+             sizeof(timeout_ms));
 #else
   struct timeval timeout{};
   timeout.tv_sec = 0;
@@ -230,21 +267,32 @@ TEST(CastTransportTest, SuppressesDuplicateNackRetransmitBurst) {
   uint8_t buf[256];
   struct sockaddr_in sender_addr{};
   socklen_t sender_len = sizeof(sender_addr);
-  ASSERT_GT(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                     reinterpret_cast<struct sockaddr*>(&sender_addr), &sender_len), 0);
+  ASSERT_GT(recvfrom(recv_fd,
+                     reinterpret_cast<char*>(buf),
+                     sizeof(buf),
+                     0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr),
+                     &sender_len),
+            0);
   // Drain an optional sender report emitted beside the initial RTP packet.
-  while (recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                  reinterpret_cast<struct sockaddr*>(&sender_addr), &sender_len) > 0) {}
+  while (recvfrom(recv_fd,
+                  reinterpret_cast<char*>(buf),
+                  sizeof(buf),
+                  0,
+                  reinterpret_cast<struct sockaddr*>(&sender_addr),
+                  &sender_len) > 0) {}
 
   auto nack = BuildDuplicateNackPacket(10001, 2, 10, 3);
-  ASSERT_EQ(sendto(recv_fd, reinterpret_cast<const char*>(nack.data()), nack.size(), 0,
-                   reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr)),
+  ASSERT_EQ(sendto(recv_fd,
+                   reinterpret_cast<const char*>(nack.data()),
+                   nack.size(),
+                   0,
+                   reinterpret_cast<struct sockaddr*>(&sender_addr),
+                   sizeof(sender_addr)),
             static_cast<ssize_t>(nack.size()));
 
-  ASSERT_GT(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                     nullptr, nullptr), 0);
-  EXPECT_LE(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                     nullptr, nullptr), 0)
+  ASSERT_GT(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0, nullptr, nullptr), 0);
+  EXPECT_LE(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0, nullptr, nullptr), 0)
       << "Duplicate NACK entries retransmitted the same RTP packet twice";
 
   transport.Stop();
@@ -278,9 +326,25 @@ TEST(CastTransportTest, PacingSmoothsPacketBursts) {
     pkt.frame_id = 42;
     pkt.packet_id = pid;
     pkt.max_packet_id = static_cast<uint16_t>(kBurstCount - 1);
-    pkt.data = {0x80, 96, 0, static_cast<uint8_t>(pid), 0, 0, 0, 1, 0, 0, 0, 2,
-                0x40, 42, static_cast<uint8_t>(pid >> 8), static_cast<uint8_t>(pid & 0xFF),
-                0, static_cast<uint8_t>(kBurstCount - 1), 0};
+    pkt.data = {0x80,
+                96,
+                0,
+                static_cast<uint8_t>(pid),
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                2,
+                0x40,
+                42,
+                static_cast<uint8_t>(pid >> 8),
+                static_cast<uint8_t>(pid & 0xFF),
+                0,
+                static_cast<uint8_t>(kBurstCount - 1),
+                0};
     packets.push_back(std::move(pkt));
   }
 
@@ -297,8 +361,11 @@ TEST(CastTransportTest, PacingSmoothsPacketBursts) {
   // Verify all 25 packets were received at the receiver socket
 #if defined(_WIN32)
   DWORD timeout_ms = 500;
-  setsockopt(recv_fd, SOL_SOCKET, SO_RCVTIMEO,
-             reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+  setsockopt(recv_fd,
+             SOL_SOCKET,
+             SO_RCVTIMEO,
+             reinterpret_cast<const char*>(&timeout_ms),
+             sizeof(timeout_ms));
 #else
   struct timeval timeout{};
   timeout.tv_sec = 0;
@@ -309,8 +376,7 @@ TEST(CastTransportTest, PacingSmoothsPacketBursts) {
   size_t received_count = 0;
   uint8_t buf[256];
   while (received_count < kBurstCount) {
-    ssize_t got = recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                           nullptr, nullptr);
+    ssize_t got = recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0, nullptr, nullptr);
     if (got <= 0) break;
     // Check if RTP packet (PT 96) or RTCP (PT 200)
     if (got >= 12 && (buf[1] & 0x7F) == 96) {
@@ -351,11 +417,14 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
     ioctlsocket(fd, FIONBIO, &mode);
 #else
     uint8_t dbuf[512];
-    while (recvfrom(fd, reinterpret_cast<char*>(dbuf), sizeof(dbuf), MSG_DONTWAIT, nullptr, nullptr) > 0) {}
+    while (
+        recvfrom(fd, reinterpret_cast<char*>(dbuf), sizeof(dbuf), MSG_DONTWAIT, nullptr, nullptr) >
+        0) {}
 #endif
   };
 
-  auto recv_with_timeout = [&](int fd, uint8_t* out_buf, size_t max_len, int timeout_ms) -> ssize_t {
+  auto recv_with_timeout =
+      [&](int fd, uint8_t* out_buf, size_t max_len, int timeout_ms) -> ssize_t {
 #if defined(_WIN32)
     struct pollfd pfd;
     pfd.fd = fd;
@@ -380,9 +449,25 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
     pkt.frame_id = 1;
     pkt.packet_id = pid;
     pkt.max_packet_id = 2;
-    pkt.data = {0x80, 96, 0, static_cast<uint8_t>(pid + 1), 0, 0, 0, 1, 0, 0, 0, 2,
-                0x40, 1, static_cast<uint8_t>(pid >> 8), static_cast<uint8_t>(pid & 0xFF),
-                0, 2, 0};
+    pkt.data = {0x80,
+                96,
+                0,
+                static_cast<uint8_t>(pid + 1),
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                2,
+                0x40,
+                1,
+                static_cast<uint8_t>(pid >> 8),
+                static_cast<uint8_t>(pid & 0xFF),
+                0,
+                2,
+                0};
     frame1_packets.push_back(std::move(pkt));
   }
   ASSERT_TRUE(transport.SendPackets(frame1_packets));
@@ -392,8 +477,13 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
   socklen_t sender_len = sizeof(sender_addr);
 
   // Discover sender address from first packet
-  ASSERT_GT(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                     reinterpret_cast<struct sockaddr*>(&sender_addr), &sender_len), 0);
+  ASSERT_GT(recvfrom(recv_fd,
+                     reinterpret_cast<char*>(buf),
+                     sizeof(buf),
+                     0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr),
+                     &sender_len),
+            0);
   drain_socket(recv_fd);
 
   // 2. Start sending a large Frame 2 (30 packets) in a background thread
@@ -403,9 +493,25 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
     pkt.frame_id = 2;
     pkt.packet_id = pid;
     pkt.max_packet_id = 29;
-    pkt.data = {0x80, 96, 0, static_cast<uint8_t>(pid + 10), 0, 0, 0, 2, 0, 0, 0, 2,
-                0x40, 2, static_cast<uint8_t>(pid >> 8), static_cast<uint8_t>(pid & 0xFF),
-                0, 29, 0};
+    pkt.data = {0x80,
+                96,
+                0,
+                static_cast<uint8_t>(pid + 10),
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                0,
+                2,
+                0x40,
+                2,
+                static_cast<uint8_t>(pid >> 8),
+                static_cast<uint8_t>(pid & 0xFF),
+                0,
+                29,
+                0};
     frame2_packets.push_back(std::move(pkt));
   }
 
@@ -421,8 +527,12 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
 
   // 3. Immediately send NACK for Frame 1, Packet 1
   auto nack = BuildDuplicateNackPacket(10001, 2, 1, 1);
-  ssize_t sent_nack = sendto(recv_fd, reinterpret_cast<const char*>(nack.data()), nack.size(), 0,
-                             reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr));
+  ssize_t sent_nack = sendto(recv_fd,
+                             reinterpret_cast<const char*>(nack.data()),
+                             nack.size(),
+                             0,
+                             reinterpret_cast<struct sockaddr*>(&sender_addr),
+                             sizeof(sender_addr));
   ASSERT_EQ(sent_nack, static_cast<ssize_t>(nack.size()));
 
   // 4. Verify that the retransmitted packet for Frame 1, Packet 1 is received promptly
@@ -446,8 +556,12 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
   // 5. Test suppression window: immediate duplicate NACK must be suppressed
   drain_socket(recv_fd);
 
-  sent_nack = sendto(recv_fd, reinterpret_cast<const char*>(nack.data()), nack.size(), 0,
-                     reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr));
+  sent_nack = sendto(recv_fd,
+                     reinterpret_cast<const char*>(nack.data()),
+                     nack.size(),
+                     0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr),
+                     sizeof(sender_addr));
   ASSERT_EQ(sent_nack, static_cast<ssize_t>(nack.size()));
 
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -464,8 +578,12 @@ TEST(CastTransportTest, PrioritizesNackRetransmits) {
   // 6. After waiting beyond kRetransmitSuppressMs (80ms), NACK retransmission must succeed
   std::this_thread::sleep_for(std::chrono::milliseconds(90));
   drain_socket(recv_fd);
-  sent_nack = sendto(recv_fd, reinterpret_cast<const char*>(nack.data()), nack.size(), 0,
-                     reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr));
+  sent_nack = sendto(recv_fd,
+                     reinterpret_cast<const char*>(nack.data()),
+                     nack.size(),
+                     0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr),
+                     sizeof(sender_addr));
   ASSERT_EQ(sent_nack, static_cast<ssize_t>(nack.size()));
 
   bool got_after_suppress = false;
@@ -487,14 +605,14 @@ TEST(CastTransportTest, RetransmitCacheBoundedTo500msWorthOfFrames) {
   CastTransport transport;
   ASSERT_TRUE(transport.Start("127.0.0.1", 34599));
 
-  uint32_t ssrc = 2; // video SSRC
+  uint32_t ssrc = 2;  // video SSRC
   for (uint32_t fid = 0; fid < 80; ++fid) {
     RtpPacket pkt;
     pkt.frame_id = fid;
     pkt.packet_id = 0;
     pkt.max_packet_id = 0;
     pkt.data.resize(100, 0);
-    pkt.data[1] = 96; // Video payload type
+    pkt.data[1] = 96;  // Video payload type
     // Write RTP timestamp (fid * 1500 ticks @ 90kHz = 16.6ms / frame = 60fps)
     uint32_t ts = fid * 1500;
     pkt.data[4] = (ts >> 24) & 0xFF;
@@ -551,8 +669,8 @@ uint16_t SocketPort(int fd) {
 int64_t ReceiveSenderReportUnixUs(int fd) {
 #if defined(_WIN32)
   DWORD timeout_ms = 500;
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
-             reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
+  setsockopt(
+      fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&timeout_ms), sizeof(timeout_ms));
 #else
   struct timeval timeout{};
   timeout.tv_sec = 0;
@@ -577,14 +695,13 @@ int64_t ReceiveSenderReportUnixUs(int fd) {
 // CAST feedback (PT 206, FMT 15) with a checkpoint id and no loss fields. The
 // 8-bit checkpoint is expanded by the parser against the last frame id it has
 // seen for the media SSRC.
-std::vector<uint8_t> BuildCastCheckpointPacket(uint32_t receiver_ssrc,
-                                               uint32_t sender_ssrc,
-                                               uint8_t checkpoint_id_8,
-                                               uint16_t playout_delay_ms) {
+std::vector<uint8_t> BuildCastCheckpointPacket(uint32_t receiver_ssrc, uint32_t sender_ssrc,
+                                               uint8_t checkpoint_id_8, uint16_t playout_delay_ms) {
   std::vector<uint8_t> pkt(24, 0);
   pkt[0] = 0x8F;
   pkt[1] = 206;
-  pkt[2] = 0x00; pkt[3] = 0x05;  // length 5 -> 24 bytes
+  pkt[2] = 0x00;
+  pkt[3] = 0x05;  // length 5 -> 24 bytes
   pkt[4] = static_cast<uint8_t>((receiver_ssrc >> 24) & 0xFF);
   pkt[5] = static_cast<uint8_t>((receiver_ssrc >> 16) & 0xFF);
   pkt[6] = static_cast<uint8_t>((receiver_ssrc >> 8) & 0xFF);
@@ -593,7 +710,10 @@ std::vector<uint8_t> BuildCastCheckpointPacket(uint32_t receiver_ssrc,
   pkt[9] = static_cast<uint8_t>((sender_ssrc >> 16) & 0xFF);
   pkt[10] = static_cast<uint8_t>((sender_ssrc >> 8) & 0xFF);
   pkt[11] = static_cast<uint8_t>(sender_ssrc & 0xFF);
-  pkt[12] = 'C'; pkt[13] = 'A'; pkt[14] = 'S'; pkt[15] = 'T';
+  pkt[12] = 'C';
+  pkt[13] = 'A';
+  pkt[14] = 'S';
+  pkt[15] = 'T';
   pkt[16] = checkpoint_id_8;
   pkt[17] = 0;  // no loss fields
   pkt[18] = static_cast<uint8_t>((playout_delay_ms >> 8) & 0xFF);
@@ -627,10 +747,10 @@ TEST(CastTransportTest, SenderReportNtpReflectsFrameCaptureTime) {
                              (send_start.time_since_epoch() + send_end.time_since_epoch()) / 2)
                              .count();
   const int64_t sr_age_us = now_us - sr_unix_us;
-  EXPECT_GE(sr_age_us, 190000) << "SR NTP instant is not 250 ms in the past (age "
-                               << sr_age_us << " us)";
-  EXPECT_LE(sr_age_us, 310000) << "SR NTP instant is not 250 ms in the past (age "
-                               << sr_age_us << " us)";
+  EXPECT_GE(sr_age_us, 190000) << "SR NTP instant is not 250 ms in the past (age " << sr_age_us
+                               << " us)";
+  EXPECT_LE(sr_age_us, 310000) << "SR NTP instant is not 250 ms in the past (age " << sr_age_us
+                               << " us)";
 
   transport.Stop();
   close(recv_fd);
@@ -691,15 +811,24 @@ TEST(CastTransportTest, TruncatedCheckpointCannotEvictInFlightFrame) {
   uint8_t buf[256];
   struct sockaddr_in sender_addr{};
   socklen_t sender_len = sizeof(sender_addr);
-  ASSERT_GT(recvfrom(recv_fd, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                     reinterpret_cast<struct sockaddr*>(&sender_addr), &sender_len), 0);
+  ASSERT_GT(recvfrom(recv_fd,
+                     reinterpret_cast<char*>(buf),
+                     sizeof(buf),
+                     0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr),
+                     &sender_len),
+            0);
 
   // 8-bit checkpoint 24 expands to frame 24, which is 20 frames ahead of the
   // newest frame we have actually sent (4). The receive loop must not erase
   // frame 4 — the newest in-flight frame.
   auto fb = BuildCastCheckpointPacket(10001, ssrc, /*checkpoint_id_8=*/24, 200);
-  ASSERT_EQ(sendto(recv_fd, reinterpret_cast<const char*>(fb.data()), fb.size(), 0,
-                   reinterpret_cast<struct sockaddr*>(&sender_addr), sizeof(sender_addr)),
+  ASSERT_EQ(sendto(recv_fd,
+                   reinterpret_cast<const char*>(fb.data()),
+                   fb.size(),
+                   0,
+                   reinterpret_cast<struct sockaddr*>(&sender_addr),
+                   sizeof(sender_addr)),
             static_cast<ssize_t>(fb.size()));
 
   // Wait for the receive loop to act on the feedback.
@@ -715,7 +844,6 @@ TEST(CastTransportTest, TruncatedCheckpointCannotEvictInFlightFrame) {
   transport.Stop();
   close(recv_fd);
 }
-
 
 TEST(RedactSecretsTest, HidesAesKeyAndIvMask) {
   const std::string offer =

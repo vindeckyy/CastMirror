@@ -23,18 +23,18 @@
 #include <vector>
 
 #if defined(_WIN32)
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #define close closesocket
-  #ifndef SHUT_RDWR
-    #define SHUT_RDWR SD_BOTH
-  #endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#define close closesocket
+#ifndef SHUT_RDWR
+#define SHUT_RDWR SD_BOTH
+#endif
 #else
-  #include <sys/types.h>
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #endif
 
 #include <openssl/ssl.h>
@@ -91,7 +91,10 @@ class TestReceiverServer {
       close(dummy_u);
     }
 
-    if (udp_fd_ >= 0) { close(udp_fd_); udp_fd_ = -1; }
+    if (udp_fd_ >= 0) {
+      close(udp_fd_);
+      udp_fd_ = -1;
+    }
     if (tls_thread_.joinable()) tls_thread_.join();
     if (udp_thread_.joinable()) udp_thread_.join();
   }
@@ -132,21 +135,31 @@ class TestReceiverServer {
     size_t count = std::min(packets.size(), size_t{32});
     size_t pkt_len = 20 + count * 4;
     std::vector<uint8_t> rtcp(pkt_len, 0);
-    rtcp[0] = 0x8F; // V=2, FMT=15 (CAST)
+    rtcp[0] = 0x8F;  // V=2, FMT=15 (CAST)
     rtcp[1] = 206;  // PT=206
     uint16_t words = static_cast<uint16_t>((pkt_len / 4) - 1);
     rtcp[2] = static_cast<uint8_t>((words >> 8) & 0xFF);
     rtcp[3] = static_cast<uint8_t>(words & 0xFF);
 
     // Receiver SSRC (10002), Sender SSRC (2)
-    rtcp[4] = 0x00; rtcp[5] = 0x00; rtcp[6] = 0x27; rtcp[7] = 0x12;
-    rtcp[8] = 0x00; rtcp[9] = 0x00; rtcp[10] = 0x00; rtcp[11] = 0x02;
+    rtcp[4] = 0x00;
+    rtcp[5] = 0x00;
+    rtcp[6] = 0x27;
+    rtcp[7] = 0x12;
+    rtcp[8] = 0x00;
+    rtcp[9] = 0x00;
+    rtcp[10] = 0x00;
+    rtcp[11] = 0x02;
 
     // 'CAST'
-    rtcp[12] = 'C'; rtcp[13] = 'A'; rtcp[14] = 'S'; rtcp[15] = 'T';
+    rtcp[12] = 'C';
+    rtcp[13] = 'A';
+    rtcp[14] = 'S';
+    rtcp[15] = 'T';
     rtcp[16] = static_cast<uint8_t>(frame_id > 0 ? (frame_id - 1) & 0xFF : 0);
     rtcp[17] = static_cast<uint8_t>(count);
-    rtcp[18] = 0x01; rtcp[19] = 0x90; // 400ms delay
+    rtcp[18] = 0x01;
+    rtcp[19] = 0x90;  // 400ms delay
 
     for (size_t i = 0; i < count; ++i) {
       size_t off = 20 + i * 4;
@@ -157,8 +170,12 @@ class TestReceiverServer {
     }
 
     std::lock_guard<std::mutex> lock(sender_mutex_);
-    sendto(udp_fd_, reinterpret_cast<const char*>(rtcp.data()), rtcp.size(), 0,
-           reinterpret_cast<const struct sockaddr*>(&sender_addr_), sizeof(sender_addr_));
+    sendto(udp_fd_,
+           reinterpret_cast<const char*>(rtcp.data()),
+           rtcp.size(),
+           0,
+           reinterpret_cast<const struct sockaddr*>(&sender_addr_),
+           sizeof(sender_addr_));
   }
 
   void TriggerPictureLossIndicator() {
@@ -166,13 +183,26 @@ class TestReceiverServer {
     ApplySimulatedJitter();
 
     uint8_t pli[12] = {
-      0x81, 206, 0x00, 0x02,
-      0x00, 0x00, 0x27, 0x12, // Receiver SSRC 10002
-      0x00, 0x00, 0x00, 0x02  // Sender SSRC 2
+        0x81,
+        206,
+        0x00,
+        0x02,
+        0x00,
+        0x00,
+        0x27,
+        0x12,  // Receiver SSRC 10002
+        0x00,
+        0x00,
+        0x00,
+        0x02  // Sender SSRC 2
     };
     std::lock_guard<std::mutex> lock(sender_mutex_);
-    sendto(udp_fd_, reinterpret_cast<const char*>(pli), sizeof(pli), 0,
-           reinterpret_cast<const struct sockaddr*>(&sender_addr_), sizeof(sender_addr_));
+    sendto(udp_fd_,
+           reinterpret_cast<const char*>(pli),
+           sizeof(pli),
+           0,
+           reinterpret_cast<const struct sockaddr*>(&sender_addr_),
+           sizeof(sender_addr_));
   }
 
  private:
@@ -195,13 +225,20 @@ class TestReceiverServer {
     ApplySimulatedJitter();
 
     uint8_t rtcp[32]{};
-    rtcp[0] = 0x81; // V=2, RC=1
+    rtcp[0] = 0x81;  // V=2, RC=1
     rtcp[1] = 201;  // RR
-    rtcp[2] = 0x00; rtcp[3] = 0x07; // Length = 7 words (32 bytes)
-    rtcp[4] = 0x00; rtcp[5] = 0x00; rtcp[6] = 0x27; rtcp[7] = 0x12; // Receiver SSRC = 10002
+    rtcp[2] = 0x00;
+    rtcp[3] = 0x07;  // Length = 7 words (32 bytes)
+    rtcp[4] = 0x00;
+    rtcp[5] = 0x00;
+    rtcp[6] = 0x27;
+    rtcp[7] = 0x12;  // Receiver SSRC = 10002
 
     // Report block
-    rtcp[8] = 0x00; rtcp[9] = 0x00; rtcp[10] = 0x00; rtcp[11] = 0x02; // Sender SSRC = 2
+    rtcp[8] = 0x00;
+    rtcp[9] = 0x00;
+    rtcp[10] = 0x00;
+    rtcp[11] = 0x02;  // Sender SSRC = 2
     double loss_rate = simulated_loss_rate_.load();
     rtcp[12] = static_cast<uint8_t>(std::clamp(static_cast<int>(loss_rate * 256.0), 0, 255));
     uint32_t dropped = packets_dropped_.load();
@@ -218,8 +255,12 @@ class TestReceiverServer {
     rtcp[23] = static_cast<uint8_t>(jitter_val & 0xFF);
 
     std::lock_guard<std::mutex> lock(sender_mutex_);
-    sendto(udp_fd_, reinterpret_cast<const char*>(rtcp), sizeof(rtcp), 0,
-           reinterpret_cast<const struct sockaddr*>(&sender_addr_), sizeof(sender_addr_));
+    sendto(udp_fd_,
+           reinterpret_cast<const char*>(rtcp),
+           sizeof(rtcp),
+           0,
+           reinterpret_cast<const struct sockaddr*>(&sender_addr_),
+           sizeof(sender_addr_));
   }
 
   SSL_CTX* CreateCtx() {
@@ -271,7 +312,8 @@ class TestReceiverServer {
         }
         char err_buf[256];
         ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-        LOG_INFO << "[TestReceiver] SSL_read closed: r=" << r << ", err=" << err << " (" << err_buf << ")";
+        LOG_INFO << "[TestReceiver] SSL_read closed: r=" << r << ", err=" << err << " (" << err_buf
+                 << ")";
         return false;
       }
       read_bytes += r;
@@ -279,7 +321,8 @@ class TestReceiverServer {
     return true;
   }
 
-  void SendMsg(SSL* ssl, const std::string& ns, const std::string& payload, const std::string& src, const std::string& dest) {
+  void SendMsg(SSL* ssl, const std::string& ns, const std::string& payload, const std::string& src,
+               const std::string& dest) {
     proto::CastMessage msg;
     msg.set_protocol_version(proto::CastMessage::CASTV2_1_0);
     msg.set_source_id(src);
@@ -309,14 +352,16 @@ class TestReceiverServer {
 
     server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
-    setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+    setsockopt(
+        server_fd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 #if defined(SO_REUSEPORT)
-    setsockopt(server_fd_, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&opt), sizeof(opt));
+    setsockopt(
+        server_fd_, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&opt), sizeof(opt));
 #endif
 
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = 0; // Dynamic ephemeral port
+    addr.sin_port = 0;  // Dynamic ephemeral port
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
     if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
@@ -374,7 +419,11 @@ class TestReceiverServer {
             LOG_INFO << "[TestReceiver] Received NS: " << ns << " Payload: " << payload;
 
             if (ns == kNamespaceHeartbeat) {
-              SendMsg(ssl, kNamespaceHeartbeat, "{\"type\":\"PONG\"}", in_msg.destination_id(), in_msg.source_id());
+              SendMsg(ssl,
+                      kNamespaceHeartbeat,
+                      "{\"type\":\"PONG\"}",
+                      in_msg.destination_id(),
+                      in_msg.source_id());
             } else if (ns == kNamespaceReceiver) {
               try {
                 auto j = nlohmann::json::parse(payload);
@@ -418,7 +467,11 @@ class TestReceiverServer {
                     ans["answer"]["sendIndexes"] = nlohmann::json::array({0, 1});
                     ans["answer"]["ssrcs"] = nlohmann::json::array({10001, 10002});
                   }
-                  SendMsg(ssl, kNamespaceWebrtc, ans.dump(), in_msg.destination_id(), in_msg.source_id());
+                  SendMsg(ssl,
+                          kNamespaceWebrtc,
+                          ans.dump(),
+                          in_msg.destination_id(),
+                          in_msg.source_id());
                 }
               } catch (...) {}
             }
@@ -438,7 +491,7 @@ class TestReceiverServer {
     udp_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = 0; // Dynamic ephemeral UDP port
+    addr.sin_port = 0;  // Dynamic ephemeral UDP port
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
     if (bind(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
@@ -458,8 +511,12 @@ class TestReceiverServer {
     std::uniform_real_distribution<double> dist(0.0, 1.0);
 
     while (running_.load()) {
-      ssize_t r = recvfrom(udp_fd_, reinterpret_cast<char*>(buf), sizeof(buf), 0,
-                           reinterpret_cast<struct sockaddr*>(&saddr), &slen);
+      ssize_t r = recvfrom(udp_fd_,
+                           reinterpret_cast<char*>(buf),
+                           sizeof(buf),
+                           0,
+                           reinterpret_cast<struct sockaddr*>(&saddr),
+                           &slen);
       if (r > 0) {
         {
           std::lock_guard<std::mutex> lock(sender_mutex_);
@@ -613,8 +670,8 @@ TEST(CastE2ETest, ReconnectRestartsVideoPipelineWithoutCrash) {
   server.DisconnectClient();
   ASSERT_TRUE(wait_until([&] { return engine.GetState() == SessionState::kReconnecting; }, 3000));
   ASSERT_TRUE(wait_until([&] { return engine.GetState() == SessionState::kStreaming; }, 8000));
-  EXPECT_TRUE(wait_until(
-      [&] { return server.GetVideoPacketsReceived() > video_before_disconnect; }, 2000))
+  EXPECT_TRUE(
+      wait_until([&] { return server.GetVideoPacketsReceived() > video_before_disconnect; }, 2000))
       << "Video RTP did not resume after reconnect";
 
   engine.StopCasting();
@@ -627,7 +684,7 @@ TEST(CastE2ETest, ReconnectRestartsVideoPipelineWithoutCrash) {
 
 TEST(CastE2ETest, PacedStreamingUnderSyntheticLoss) {
   TestReceiverServer server;
-  server.SetSimulatedLossRate(0.05); // 5% synthetic packet loss
+  server.SetSimulatedLossRate(0.05);  // 5% synthetic packet loss
   server.Start();
 
   auto& engine = CastEngine::Instance();
@@ -956,7 +1013,6 @@ TEST(CastE2ETest, FrozenStreamSurvivesStallDetectorWindow) {
   server.Stop();
 }
 
-
 // Regression: state callbacks fire from inside Start()/Stop(). Reading stats or
 // state from them used to self-deadlock on the session/engine mutexes, and a
 // StopCasting() racing a still-connecting Start() could free the session under it.
@@ -1089,7 +1145,8 @@ TEST(CastE2ETest, SoakStreamDoesNotLeakMemoryOrHandles) {
   int samples = 0;
   while (std::chrono::steady_clock::now() < end) {
     std::this_thread::sleep_for(std::chrono::seconds(10));
-    ASSERT_EQ(engine.GetState(), SessionState::kStreaming) << "the stream must stay up for the whole soak";
+    ASSERT_EQ(engine.GetState(), SessionState::kStreaming)
+        << "the stream must stay up for the whole soak";
     auto [ws, handles] = sample();
     if (std::chrono::steady_clock::now() < warmup_end) {
       baseline_ws = ws;
@@ -1098,24 +1155,31 @@ TEST(CastE2ETest, SoakStreamDoesNotLeakMemoryOrHandles) {
     peak_ws = std::max(peak_ws, ws);
     peak_handles = std::max(peak_handles, handles);
     if (++samples % 6 == 0) {
-      std::fprintf(stderr, "[soak] %3d s  working set %6.1f MB  handles %u  frames %llu\n",
+      std::fprintf(stderr,
+                   "[soak] %3d s  working set %6.1f MB  handles %u  frames %llu\n",
                    static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
-                                        std::chrono::steady_clock::now() - start).count()),
-                   ws / 1048576.0, static_cast<unsigned>(handles),
+                                        std::chrono::steady_clock::now() - start)
+                                        .count()),
+                   ws / 1048576.0,
+                   static_cast<unsigned>(handles),
                    static_cast<unsigned long long>(engine.GetStats().frames_sent));
     }
   }
 
   const StreamStats stats = engine.GetStats();
   engine.StopCasting();
-  EXPECT_GT(stats.frames_sent, static_cast<uint64_t>(minutes) * 60 * 10) << "frames must keep flowing";
+  EXPECT_GT(stats.frames_sent, static_cast<uint64_t>(minutes) * 60 * 10)
+      << "frames must keep flowing";
   // After the warm-up the working set may wander, but it must not climb: allow 64 MB
   // (allocator slack, stats windows) and 40 extra handles (sockets in flight).
   EXPECT_LT(peak_ws, baseline_ws + 64u * 1048576u) << "working set kept growing";
   EXPECT_LT(peak_handles, baseline_handles + 40u) << "handle count kept growing";
-  std::fprintf(stderr, "[soak] done: baseline %.1f MB / %u handles, peak %.1f MB / %u handles\n",
-               baseline_ws / 1048576.0, static_cast<unsigned>(baseline_handles),
-               peak_ws / 1048576.0, static_cast<unsigned>(peak_handles));
+  std::fprintf(stderr,
+               "[soak] done: baseline %.1f MB / %u handles, peak %.1f MB / %u handles\n",
+               baseline_ws / 1048576.0,
+               static_cast<unsigned>(baseline_handles),
+               peak_ws / 1048576.0,
+               static_cast<unsigned>(peak_handles));
 
   engine.Shutdown();
   ConfigStore::Instance().Mutable() = saved_cfg;

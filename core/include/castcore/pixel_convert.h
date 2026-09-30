@@ -11,10 +11,10 @@ namespace castcore {
 // drivers use 10-bit; reading those as 8-bit BGRA (what the capture path used to
 // do) produces solid noise.
 enum class SourcePixelFormat {
-  kBgra8,     // B8G8R8A8: copied as is
-  kRgba8,     // R8G8B8A8: red and blue swapped
-  kRgb10A2,   // R10G10B10A2, unsigned normalized
-  kRgbaF16,   // R16G16B16A16 float, scRGB: linear, 1.0 = 80 nits
+  kBgra8,  // B8G8R8A8: copied as is
+  kRgba8,  // R8G8B8A8: red and blue swapped
+  kRgb10A2,  // R10G10B10A2, unsigned normalized
+  kRgbaF16,  // R16G16B16A16 float, scRGB: linear, 1.0 = 80 nits
 };
 
 // SDR white is where "100% white" sits inside an HDR desktop, as a multiple of
@@ -25,8 +25,8 @@ constexpr float kDefaultSdrWhiteRatio = 2.5f;
 // is mapped so SDR white becomes 255 and anything brighter clips (a highlight
 // that clips is still a picture; noise is not). Returns false for unsupported
 // arguments and leaves dst untouched.
-bool ConvertToBgra8(const uint8_t* src, size_t src_pitch, SourcePixelFormat fmt,
-                    int width, int height, uint8_t* dst, size_t dst_pitch,
+bool ConvertToBgra8(const uint8_t* src, size_t src_pitch, SourcePixelFormat fmt, int width,
+                    int height, uint8_t* dst, size_t dst_pitch,
                     float sdr_white_ratio = kDefaultSdrWhiteRatio);
 
 // IEEE 754 half to single precision. Exposed for tests.

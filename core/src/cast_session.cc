@@ -28,9 +28,7 @@ int64_t SteadyNowMs() {
 }
 
 int64_t SteadyUs(std::chrono::steady_clock::time_point tp) {
-  return std::chrono::duration_cast<std::chrono::microseconds>(
-             tp.time_since_epoch())
-      .count();
+  return std::chrono::duration_cast<std::chrono::microseconds>(tp.time_since_epoch()).count();
 }
 
 // Reports a violated capture/session invariant. types.h cannot include
@@ -40,8 +38,7 @@ int64_t SteadyUs(std::chrono::steady_clock::time_point tp) {
 // This matters in Release: the check used to be a bare assert(), which
 // NDEBUG compiled out, so "capture must not run outside a session" was never
 // actually verified in a shipped build.
-void ReportCaptureInvariantViolation(bool is_active, bool capture_running,
-                                     const char* context) {
+void ReportCaptureInvariantViolation(bool is_active, bool capture_running, const char* context) {
   LOG_ERROR << "CAPTURE INVARIANT VIOLATED in " << (context ? context : "unknown")
             << ": IsActive()=" << (is_active ? "true" : "false")
             << " capture_running=" << (capture_running ? "true" : "false")
@@ -56,8 +53,7 @@ const bool g_reporter_installed = [] {
 }  // namespace
 
 CastSession::CastSession(StateMachine& state_machine)
-    : state_machine_(state_machine),
-      recovery_(30) {
+    : state_machine_(state_machine), recovery_(30) {
   (void)g_reporter_installed;
 }
 
@@ -93,12 +89,8 @@ void CastSession::SetErrorCallback(ErrorCallback callback) {
   error_callback_ = std::move(callback);
 }
 
-bool CastSession::Start(const CastDevice& device,
-                       int display_id,
-                       QualityPreset preset,
-                       bool enable_audio,
-                       VideoCodec video_codec,
-                       uint32_t bitrate_kbps) {
+bool CastSession::Start(const CastDevice& device, int display_id, QualityPreset preset,
+                        bool enable_audio, VideoCodec video_codec, uint32_t bitrate_kbps) {
   SessionOptions options;
   options.preset = preset;
   options.enable_audio = enable_audio;
@@ -200,8 +192,11 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     }
 
     std::unique_lock<std::mutex> wlk(wm_mutex);
-    if (!wm_cv.wait_for(wlk, std::chrono::seconds(60), [&] { return got_first_frame || stop_requested_.load(); })) {
-      state_machine_.TransitionTo(SessionState::kFailed, "Screen share permission denied or timed out");
+    if (!wm_cv.wait_for(wlk, std::chrono::seconds(60), [&] {
+          return got_first_frame || stop_requested_.load();
+        })) {
+      state_machine_.TransitionTo(SessionState::kFailed,
+                                  "Screen share permission denied or timed out");
       Stop();
       return false;
     }
@@ -257,8 +252,8 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
     // congestion and receiver disconnects before adaptive can react.
     current_stats_.bitrate_kbps = std::min(current_stats_.bitrate_kbps, bitrate_cap_kbps);
     LOG_INFO << "Using video bitrate cap " << bitrate_cap_kbps << " kbps for "
-             << QualityPresetToString(preset_) << "; starting at "
-             << current_stats_.bitrate_kbps << " kbps";
+             << QualityPresetToString(preset_) << "; starting at " << current_stats_.bitrate_kbps
+             << " kbps";
   }
   adaptive_controller_.Initialize(current_stats_, preset_);
   adaptive_controller_.SetEnabled(options_.adaptive_enabled);
@@ -267,13 +262,15 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
   lock.unlock();
 
   if (!NegotiateControlPlane()) {
-    state_machine_.TransitionTo(SessionState::kFailed, "Initial connection failed to " + device.name);
+    state_machine_.TransitionTo(SessionState::kFailed,
+                                "Initial connection failed to " + device.name);
     Stop();
     return false;
   }
 
   if (!StartStreamingMedia()) {
-    state_machine_.TransitionTo(SessionState::kFailed, "Failed to start the local capture and encoding pipeline");
+    state_machine_.TransitionTo(SessionState::kFailed,
+                                "Failed to start the local capture and encoding pipeline");
     Stop();
     return false;
   }
@@ -290,24 +287,27 @@ bool CastSession::NegotiateControlPlane() {
   audio_keys_ = enable_audio_ ? MirroringNegotiator::GenerateRandomKeys() : StreamEncryptionKeys{};
 
   cast_channel_ = std::make_unique<CastChannel>();
-  cast_channel_->SetMessageCallback([this](const std::string& ns, const std::string& payload,
-                                          const std::string& src, const std::string& dest) {
-    OnChannelMessage(ns, payload, src, dest);
-  });
-  cast_channel_->SetStatusCallback([this](bool connected, const std::string& err) {
-    OnChannelStatus(connected, err);
-  });
+  cast_channel_->SetMessageCallback(
+      [this](const std::string& ns,
+             const std::string& payload,
+             const std::string& src,
+             const std::string& dest) { OnChannelMessage(ns, payload, src, dest); });
+  cast_channel_->SetStatusCallback(
+      [this](bool connected, const std::string& err) { OnChannelStatus(connected, err); });
 
   const bool reconnecting = state_machine_.GetState() == SessionState::kReconnecting;
-  state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
-      "Opening a secure Cast channel to " + target_device_.name + " (" + target_device_.ip_address + ":" + std::to_string(target_device_.port) + ")");
+  state_machine_.TransitionTo(
+      reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
+      "Opening a secure Cast channel to " + target_device_.name + " (" + target_device_.ip_address +
+          ":" + std::to_string(target_device_.port) + ")");
 
   cast_channel_->SetVerifyDeviceCert(options_.verify_device_cert);
   if (!cast_channel_->Connect(target_device_.ip_address, target_device_.port)) {
     return false;
   }
 
-  state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
+  state_machine_.TransitionTo(
+      reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
       "Authenticating " + target_device_.name);
 
   {
@@ -320,12 +320,13 @@ bool CastSession::NegotiateControlPlane() {
     }
   }
 
-  state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
+  state_machine_.TransitionTo(
+      reconnecting ? SessionState::kReconnecting : SessionState::kConnecting,
       "Launching the TV's built-in mirroring app on " + target_device_.name);
 
-
   const char* app_id = (enable_audio_ && !target_device_.HasVideoOut())
-      ? kCastMirroringAudioOnlyAppId : kCastMirroringAudioVideoAppId;
+                           ? kCastMirroringAudioOnlyAppId
+                           : kCastMirroringAudioVideoAppId;
 
   {
     std::lock_guard<std::mutex> lk(cv_mutex_);
@@ -339,7 +340,9 @@ bool CastSession::NegotiateControlPlane() {
   launch_request_id_ = cast_channel_->LaunchApp(app_id);
 
   {
-    int launch_s = ConfigStore::Instance().Get().launch_timeout_s > 0 ? ConfigStore::Instance().Get().launch_timeout_s : 8;
+    int launch_s = ConfigStore::Instance().Get().launch_timeout_s > 0
+                       ? ConfigStore::Instance().Get().launch_timeout_s
+                       : 8;
     std::unique_lock<std::mutex> lk(cv_mutex_);
     if (!cv_.wait_for(lk, std::chrono::seconds(launch_s), [this] {
           return launch_received_ || stop_requested_.load() || fail_requested_.load();
@@ -353,27 +356,37 @@ bool CastSession::NegotiateControlPlane() {
     return false;
   }
 
-  state_machine_.TransitionTo(reconnecting ? SessionState::kReconnecting : SessionState::kNegotiating,
+  state_machine_.TransitionTo(
+      reconnecting ? SessionState::kReconnecting : SessionState::kNegotiating,
       "Agreeing picture size, codec, and encryption with the TV");
-
 
   cast_channel_->SetAppTransportId(app_transport_id_);
   cast_channel_->ConnectVirtual(app_transport_id_, "streaming_sender");
 
   offer_seq_num_ = 1001;
-  int audio_bps = options_.audio_bitrate_bps > 0 ? static_cast<int>(options_.audio_bitrate_bps) : 192000;
-  std::string offer_json = MirroringNegotiator::CreateOfferJson(
-      offer_seq_num_, current_stats_, enable_audio_, video_keys_, audio_keys_, video_codec_,
-      current_stats_.target_delay_ms, audio_bps);
+  int audio_bps =
+      options_.audio_bitrate_bps > 0 ? static_cast<int>(options_.audio_bitrate_bps) : 192000;
+  std::string offer_json = MirroringNegotiator::CreateOfferJson(offer_seq_num_,
+                                                                current_stats_,
+                                                                enable_audio_,
+                                                                video_keys_,
+                                                                audio_keys_,
+                                                                video_codec_,
+                                                                current_stats_.target_delay_ms,
+                                                                audio_bps);
 
   LOG_INFO << "Sending OFFER to Mirroring App (transportId: " << app_transport_id_ << ")...";
-  cast_channel_->SendCastMessage(kNamespaceWebrtc, offer_json, app_transport_id_, "streaming_sender");
+  cast_channel_->SendCastMessage(
+      kNamespaceWebrtc, offer_json, app_transport_id_, "streaming_sender");
 
   {
-    int answer_s = ConfigStore::Instance().Get().answer_timeout_s > 0 ? ConfigStore::Instance().Get().answer_timeout_s : 5;
+    int answer_s = ConfigStore::Instance().Get().answer_timeout_s > 0
+                       ? ConfigStore::Instance().Get().answer_timeout_s
+                       : 5;
     std::unique_lock<std::mutex> lk(cv_mutex_);
     if (!cv_.wait_for(lk, std::chrono::seconds(answer_s), [this] {
-          return answer_received_ || answer_failed_ || stop_requested_.load() || fail_requested_.load();
+          return answer_received_ || answer_failed_ || stop_requested_.load() ||
+                 fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for ANSWER from " << target_device_.name;
       return false;
@@ -397,14 +410,14 @@ bool CastSession::StartStreamingMedia() {
     audio_crypto_ = std::make_shared<FrameCrypto>(audio_keys_.aes_key, audio_keys_.aes_iv_mask);
   }
 
-  video_packetizer_ = std::make_shared<RtpPacketizer>(
-      negotiated_params_.video_stream.rtp_payload_type,
-      negotiated_params_.video_stream.sender_ssrc);
+  video_packetizer_ =
+      std::make_shared<RtpPacketizer>(negotiated_params_.video_stream.rtp_payload_type,
+                                      negotiated_params_.video_stream.sender_ssrc);
 
   if (enable_audio_) {
-    audio_packetizer_ = std::make_shared<RtpPacketizer>(
-        negotiated_params_.audio_stream.rtp_payload_type,
-        negotiated_params_.audio_stream.sender_ssrc);
+    audio_packetizer_ =
+        std::make_shared<RtpPacketizer>(negotiated_params_.audio_stream.rtp_payload_type,
+                                        negotiated_params_.audio_stream.sender_ssrc);
   }
 
   {
@@ -446,8 +459,8 @@ bool CastSession::StartStreamingMedia() {
   venc_cfg.framerate = current_stats_.current_framerate;
   venc_cfg.bitrate_kbps = current_stats_.bitrate_kbps;
   venc_cfg.codec = video_codec_;
-  venc_cfg.playout_delay_ms = current_stats_.target_delay_ms > 0
-                                 ? current_stats_.target_delay_ms : 200;
+  venc_cfg.playout_delay_ms =
+      current_stats_.target_delay_ms > 0 ? current_stats_.target_delay_ms : 200;
 
   video_encoder_ = VideoEncoderFactory::Create(video_codec_);
   if (!video_encoder_ || !video_encoder_->Initialize(venc_cfg)) {
@@ -467,18 +480,18 @@ bool CastSession::StartStreamingMedia() {
   // come from the source (WASAPI QPC position / DXGI LastPresentTime) and can
   // predate this call; encoders clamp negative offsets to zero, which would
   // shift the first frames of one stream and break their relative alignment.
-  auto shared_clock_origin =
-      std::chrono::steady_clock::now() - std::chrono::milliseconds(500);
+  auto shared_clock_origin = std::chrono::steady_clock::now() - std::chrono::milliseconds(500);
   video_encoder_->SetClockOrigin(shared_clock_origin);
 
   if (enable_audio_) {
     AudioEncoderConfig aenc_cfg;
     aenc_cfg.sample_rate = 48000;
     aenc_cfg.channels = 2;
-    aenc_cfg.bitrate_bps = options_.audio_bitrate_bps > 0 ? static_cast<int>(options_.audio_bitrate_bps) : 192000;
+    aenc_cfg.bitrate_bps =
+        options_.audio_bitrate_bps > 0 ? static_cast<int>(options_.audio_bitrate_bps) : 192000;
     aenc_cfg.codec = AudioCodec::kOpus;
-    aenc_cfg.playout_delay_ms = current_stats_.target_delay_ms > 0
-                                   ? current_stats_.target_delay_ms : 200;
+    aenc_cfg.playout_delay_ms =
+        current_stats_.target_delay_ms > 0 ? current_stats_.target_delay_ms : 200;
 
     audio_encoder_ = AudioEncoderFactory::Create(AudioCodec::kOpus);
     if (!audio_encoder_ || !audio_encoder_->Initialize(aenc_cfg)) {
@@ -504,9 +517,8 @@ bool CastSession::StartStreamingMedia() {
         audio_capture_ = AudioCaptureFactory::Create();
         audio_capture_->SetTargetProcess(target_pid);
         audio_capture_->SetHostSilence(options_.silence_host_speakers);
-        audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
-          ProcessAudioFrame(af);
-        });
+        audio_capture_->SetAudioCallback(
+            [this](const CapturedAudioFrame& af) { ProcessAudioFrame(af); });
       }
     }
   }
@@ -531,9 +543,8 @@ bool CastSession::StartStreamingMedia() {
       if (SyntheticCaptureAllowed()) {
         LOG_WARN << "Audio capture failed; using synthetic audio (test mode)";
         audio_capture_ = AudioCaptureFactory::CreateSynthetic();
-        audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
-          ProcessAudioFrame(af);
-        });
+        audio_capture_->SetAudioCallback(
+            [this](const CapturedAudioFrame& af) { ProcessAudioFrame(af); });
         audio_capture_->Start(48000, 2);
       } else {
         // Keep the picture going. The adaptation loop already sends silence
@@ -547,9 +558,8 @@ bool CastSession::StartStreamingMedia() {
   // Always replace the callback. The Wayland pre-OFFER callback captures local
   // size-probe state by reference and must not survive beyond Start().
   display_capture_->SetShowCursor(options_.show_cursor);
-  display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
-    QueueCapturedVideoFrame(vf);
-  });
+  display_capture_->SetFrameCallback(
+      [this](const CapturedVideoFrame& vf) { QueueCapturedVideoFrame(vf); });
   if (!display_capture_->IsCapturing() &&
       !display_capture_->Start(source_, current_stats_.current_framerate)) {
     if (!SyntheticCaptureAllowed()) {
@@ -561,17 +571,17 @@ bool CastSession::StartStreamingMedia() {
         std::lock_guard<std::mutex> cb_lock(callbacks_mutex_);
         cb = error_callback_;
       }
-      if (cb) cb("Could not capture the screen. Another app may be blocking capture, or the display is locked.");
+      if (cb)
+        cb("Could not capture the screen. Another app may be blocking capture, or the display is "
+           "locked.");
       StopMediaPipeline();
       return false;
     }
     LOG_WARN << "Display capture backend failed; using synthetic capture (test mode)";
     display_capture_ = DisplayCaptureFactory::CreateSynthetic(
-        current_stats_.current_resolution.width,
-        current_stats_.current_resolution.height);
-    display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
-      QueueCapturedVideoFrame(vf);
-    });
+        current_stats_.current_resolution.width, current_stats_.current_resolution.height);
+    display_capture_->SetFrameCallback(
+        [this](const CapturedVideoFrame& vf) { QueueCapturedVideoFrame(vf); });
     if (!display_capture_->Start(source_, current_stats_.current_framerate)) {
       LOG_ERROR << "Failed to start display capture";
       StopMediaPipeline();
@@ -599,7 +609,6 @@ bool CastSession::StartStreamingMedia() {
   return true;
 }
 
-
 void CastSession::QueueCapturedVideoFrame(CapturedVideoFrame frame) {
   if (!is_streaming_.load() || stop_requested_.load()) {
     return;
@@ -623,7 +632,9 @@ void CastSession::VideoEncodeLoop() {
   const HRESULT com_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   struct ComScope {
     bool owned;
-    ~ComScope() { if (owned) CoUninitialize(); }
+    ~ComScope() {
+      if (owned) CoUninitialize();
+    }
   } com_scope{SUCCEEDED(com_hr)};
 #endif
   while (is_streaming_.load() && !stop_requested_.load()) {
@@ -631,8 +642,7 @@ void CastSession::VideoEncodeLoop() {
     {
       std::unique_lock<std::mutex> lock(video_queue_mutex_);
       video_queue_cv_.wait(lock, [this] {
-        return pending_video_frame_.has_value() ||
-               !is_streaming_.load() || stop_requested_.load();
+        return pending_video_frame_.has_value() || !is_streaming_.load() || stop_requested_.load();
       });
       if (!is_streaming_.load() || stop_requested_.load()) {
         break;
@@ -664,8 +674,7 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
   // The capturer signals that the source disappeared (e.g. the shared window
   // was closed). Fail the session with a clear message instead of stalling.
   if (vf.source_lost) {
-    FailSession(source_.IsWindow() ? "Shared window was closed"
-                                   : "Capture source was lost");
+    FailSession(source_.IsWindow() ? "Shared window was closed" : "Capture source was lost");
     return;
   }
 
@@ -722,10 +731,11 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
   if (Logger::Instance().IsVerboseJsonEnabled()) {
     StreamStats st = transport->GetStats();
     // Use steady duration for pipeline if needed, but spec requires encode_ms
-    Logger::Instance().LogBreadcrumb(raw_frame.frame_id, encode_ms, udp_bytes, st.round_trip_time_ms, st.nacks_received);
+    Logger::Instance().LogBreadcrumb(
+        raw_frame.frame_id, encode_ms, udp_bytes, st.round_trip_time_ms, st.nacks_received);
     // Also emit detailed extended breadcrumb for debugging (same file, extra context)
     // Keep line-oriented JSON: each line is a JSON object
-    (void)pipeline_start; // suppress unused warning if not used elsewhere
+    (void)pipeline_start;  // suppress unused warning if not used elsewhere
   }
 }
 
@@ -805,18 +815,15 @@ void CastSession::MaybeLogSessionStats() {
   }
   last_session_log_ = now;
   StreamStats s = GetStats();
-  LOG_INFO << "Session stats: frames=" << s.frames_sent
-           << " nack=" << s.nacks_received
-           << " pli=" << s.pli_received
-           << " loss=" << (s.packet_loss_fraction * 100.0) << "%"
+  LOG_INFO << "Session stats: frames=" << s.frames_sent << " nack=" << s.nacks_received
+           << " pli=" << s.pli_received << " loss=" << (s.packet_loss_fraction * 100.0) << "%"
            << " bitrate=" << s.bitrate_kbps << "kbps"
-           << " fps=" << s.current_fps
-           << " audio_ok=" << (enable_audio_ ? "yes" : "off");
+           << " fps=" << s.current_fps << " audio_ok=" << (enable_audio_ ? "yes" : "off");
   const int64_t offset_samples = av_offset_count_.exchange(0);
   const int64_t offset_sum = av_offset_sum_us_.exchange(0);
   if (offset_samples > 0) {
-    LOG_INFO << "A/V capture offset avg: " << (offset_sum / offset_samples)
-             << " us over " << offset_samples << " samples";
+    LOG_INFO << "A/V capture offset avg: " << (offset_sum / offset_samples) << " us over "
+             << offset_samples << " samples";
   }
 }
 
@@ -854,8 +861,10 @@ void CastSession::AdaptationLoop() {
       int sleep_sec = std::min(8, 1 << std::max(0, recovery_.GetAttemptCount() - 1));
       // Phase 0.5 audit: verify matrix allows this transition.
       if (state_machine_.CanTransitionTo(SessionState::kReconnecting)) {
-        state_machine_.TransitionTo(SessionState::kReconnecting,
-            "Wi-Fi glitch — retry " + std::to_string(recovery_.GetAttemptCount()) + " to " + target_device_.name + " in " + std::to_string(sleep_sec) + "s");
+        state_machine_.TransitionTo(
+            SessionState::kReconnecting,
+            "Wi-Fi glitch — retry " + std::to_string(recovery_.GetAttemptCount()) + " to " +
+                target_device_.name + " in " + std::to_string(sleep_sec) + "s");
       } else {
         LOG_WARN << "AdaptationLoop: invalid Reconnecting transition from "
                  << SessionStateToString(state_machine_.GetState());
@@ -866,8 +875,8 @@ void CastSession::AdaptationLoop() {
       }
       if (stop_requested_.load()) return;
 
-      LOG_INFO << "Attempting session recovery (attempt #" << recovery_.GetAttemptCount()
-               << ") to " << target_device_.name << " at " << target_device_.ip_address << "...";
+      LOG_INFO << "Attempting session recovery (attempt #" << recovery_.GetAttemptCount() << ") to "
+               << target_device_.name << " at " << target_device_.ip_address << "...";
 
       fail_requested_ = false;
       if (NegotiateControlPlane() && StartStreamingMedia()) {
@@ -878,7 +887,8 @@ void CastSession::AdaptationLoop() {
         last_session_log_ = std::chrono::steady_clock::now();
         // Audit: CanTransitionTo check for Streaming after recovery.
         if (state_machine_.CanTransitionTo(SessionState::kStreaming)) {
-          state_machine_.TransitionTo(SessionState::kStreaming, "Your display is on " + target_device_.name);
+          state_machine_.TransitionTo(SessionState::kStreaming,
+                                      "Your display is on " + target_device_.name);
         } else {
           LOG_WARN << "AdaptationLoop: cannot transition to Streaming from "
                    << SessionStateToString(state_machine_.GetState());
@@ -894,7 +904,9 @@ void CastSession::AdaptationLoop() {
     }
 
     for (int i = 0; i < 10; ++i) {
-      if (!is_streaming_.load() || stop_requested_.load() || fail_requested_.load() || recovery_.IsRecovering()) break;
+      if (!is_streaming_.load() || stop_requested_.load() || fail_requested_.load() ||
+          recovery_.IsRecovering())
+        break;
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     if (stop_requested_.load()) break;
@@ -930,7 +942,8 @@ void CastSession::AdaptationLoop() {
         auto now = std::chrono::steady_clock::now();
         if (last_video_stall_warn_.time_since_epoch().count() == 0 ||
             now - last_video_stall_warn_ >= std::chrono::seconds(2)) {
-          LOG_WARN << "Video stall: no frame sent for " << (now_ms - last_v) << "ms; forcing keyframe";
+          LOG_WARN << "Video stall: no frame sent for " << (now_ms - last_v)
+                   << "ms; forcing keyframe";
           last_video_stall_warn_ = now;
         }
         if (!video_stalling_) {
@@ -993,11 +1006,10 @@ void CastSession::AdaptationLoop() {
         std::lock_guard<std::mutex> elock(video_encoder_mutex_);
         if (video_encoder_) {
           const auto& enc_cfg = video_encoder_->GetConfig();
-          const bool config_changed =
-              enc_cfg.width != updated.current_resolution.width ||
-              enc_cfg.height != updated.current_resolution.height ||
-              enc_cfg.framerate != updated.current_framerate ||
-              enc_cfg.bitrate_kbps != updated.bitrate_kbps;
+          const bool config_changed = enc_cfg.width != updated.current_resolution.width ||
+                                      enc_cfg.height != updated.current_resolution.height ||
+                                      enc_cfg.framerate != updated.current_framerate ||
+                                      enc_cfg.bitrate_kbps != updated.bitrate_kbps;
           if (config_changed) {
             VideoEncoderConfig new_cfg = enc_cfg;
             new_cfg.width = updated.current_resolution.width & ~1;
@@ -1005,7 +1017,7 @@ void CastSession::AdaptationLoop() {
             new_cfg.framerate = updated.current_framerate;
             new_cfg.bitrate_kbps = updated.bitrate_kbps;
             new_cfg.playout_delay_ms = updated.target_delay_ms;
-            new_cfg.gop_size = 0; // let encoder pick (intra_refresh => large GOP)
+            new_cfg.gop_size = 0;  // let encoder pick (intra_refresh => large GOP)
             reconfigure_failed = !video_encoder_->Reconfigure(new_cfg);
             if (!reconfigure_failed) {
               // A clean IDR prevents decoder artifacts after any VAAPI/x264
@@ -1025,8 +1037,7 @@ void CastSession::AdaptationLoop() {
       }
 
       LOG_INFO << "Adaptive encode -> " << updated.current_resolution.width << "x"
-               << updated.current_resolution.height << " @"
-               << updated.current_framerate << "fps, "
+               << updated.current_resolution.height << " @" << updated.current_framerate << "fps, "
                << updated.bitrate_kbps << " kbps";
     }
   }
@@ -1047,10 +1058,12 @@ void CastSession::RequestReconnect(const std::string& reason) {
   fail_requested_ = false;
   // Phase 0.5 audit: ensure TransitionTo caller is valid against matrix.
   if (state_machine_.CanTransitionTo(SessionState::kReconnecting)) {
-    state_machine_.TransitionTo(SessionState::kReconnecting, "Reconnecting to " + target_device_.name);
+    state_machine_.TransitionTo(SessionState::kReconnecting,
+                                "Reconnecting to " + target_device_.name);
   } else {
-    LOG_WARN << "RequestReconnect: Cannot transition " << SessionStateToString(state_machine_.GetState())
-             << " -> Reconnecting (" << reason << "); failing session instead";
+    LOG_WARN << "RequestReconnect: Cannot transition "
+             << SessionStateToString(state_machine_.GetState()) << " -> Reconnecting (" << reason
+             << "); failing session instead";
     // Fall back to Failed if reconnect state invalid (e.g., from Idle)
     FailSession(reason);
     return;
@@ -1150,9 +1163,8 @@ void CastSession::SetLiveVideoBitrateKbps(uint32_t kbps) {
   // emergency downshifts start from the right place.
   adaptive_controller_.ResetRungForBitrate(kbps);
 
-  const uint32_t target_kbps = options_.adaptive_enabled
-      ? adaptive_controller_.GetCurrentBitrateKbps()
-      : kbps;
+  const uint32_t target_kbps =
+      options_.adaptive_enabled ? adaptive_controller_.GetCurrentBitrateKbps() : kbps;
   if (target_kbps == current_stats_.bitrate_kbps) {
     LOG_INFO << "Video bitrate cap updated to " << kbps
              << " kbps; encoder remains at adaptive target " << target_kbps << " kbps";
@@ -1176,8 +1188,8 @@ void CastSession::SetLiveVideoBitrateKbps(uint32_t kbps) {
     return;
   }
   current_stats_.bitrate_kbps = target_kbps;
-  LOG_INFO << "Video bitrate cap updated to " << kbps
-           << " kbps; encoder target is " << target_kbps << " kbps";
+  LOG_INFO << "Video bitrate cap updated to " << kbps << " kbps; encoder target is " << target_kbps
+           << " kbps";
 }
 
 void CastSession::SetLiveAudioBitrateBps(uint32_t bps) {
@@ -1277,15 +1289,17 @@ void CastSession::Stop() {
     SessionState cur = state_machine_.GetState();
     if (cur == SessionState::kStopping) {
       if (state_machine_.CanTransitionTo(SessionState::kFailed)) {
-        state_machine_.TransitionTo(SessionState::kFailed,
-                                    fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
+        state_machine_.TransitionTo(
+            SessionState::kFailed,
+            fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
       } else {
         LOG_WARN << "Stop(): cannot transition Stopping -> Failed, falling back to Idle";
         state_machine_.TransitionTo(SessionState::kIdle, "Cast Stopped (fallback)");
       }
     } else {
-      state_machine_.TransitionTo(SessionState::kFailed,
-                                  fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
+      state_machine_.TransitionTo(
+          SessionState::kFailed,
+          fail_reason_.empty() ? "Connection lost — tap Cast to retry" : fail_reason_);
     }
   } else {
     SessionState cur = state_machine_.GetState();
@@ -1328,7 +1342,7 @@ void CastSession::Stop() {
 }
 
 void CastSession::OnChannelMessage(const std::string& ns, const std::string& payload,
-                                  const std::string& src_id, const std::string& dest_id) {
+                                   const std::string& src_id, const std::string& dest_id) {
   (void)dest_id;
   if (ns == kNamespaceReceiver) {
     HandleReceiverStatus(payload);
@@ -1378,8 +1392,7 @@ void CastSession::HandleReceiverStatus(const std::string& payload) {
           app_session_id_ = app.value("sessionId", "");
           app_transport_id_ = app.value("transportId", "");
           LOG_INFO << "Mirroring App confirmed running! appId: " << app_id
-                   << ", sessionId: " << app_session_id_
-                   << ", transportId: " << app_transport_id_;
+                   << ", sessionId: " << app_session_id_ << ", transportId: " << app_transport_id_;
           std::lock_guard<std::mutex> lk(cv_mutex_);
           launch_received_ = true;
           cv_.notify_all();
@@ -1399,12 +1412,13 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
       // reconnect) must not be taken as the reply to the one we just sent.
       if (j.contains("seqNum") && j["seqNum"].is_number_integer() &&
           j["seqNum"].get<int>() != offer_seq_num_) {
-        LOG_WARN << "Ignoring ANSWER for seqNum " << j["seqNum"].get<int>()
-                 << " (expected " << offer_seq_num_ << ")";
+        LOG_WARN << "Ignoring ANSWER for seqNum " << j["seqNum"].get<int>() << " (expected "
+                 << offer_seq_num_ << ")";
         return;
       }
       NegotiatedSessionParams params;
-      const bool ok = MirroringNegotiator::ParseAnswerJson(payload, video_keys_, audio_keys_, params);
+      const bool ok =
+          MirroringNegotiator::ParseAnswerJson(payload, video_keys_, audio_keys_, params);
       std::lock_guard<std::mutex> lk(cv_mutex_);
       if (ok) {
         negotiated_params_ = params;
@@ -1417,7 +1431,8 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
       int seq = j.value("seqNum", 0);
       std::string status_json = MirroringNegotiator::CreateStatusJson(seq, GetStats());
       if (cast_channel_ && !app_transport_id_.empty()) {
-        cast_channel_->SendCastMessage(kNamespaceWebrtc, status_json, app_transport_id_, "streaming_sender");
+        cast_channel_->SendCastMessage(
+            kNamespaceWebrtc, status_json, app_transport_id_, "streaming_sender");
       }
     }
   } catch (...) {}
@@ -1443,7 +1458,8 @@ StreamStats CastSession::GetStats() const {
   s.target_delay_ms = adaptive_controller_.GetPlayoutDelayMs();
   if (auto transport = Transport()) {
     StreamStats t_stats = transport->GetStats();
-    s.current_fps = t_stats.current_fps > 0 ? t_stats.current_fps : current_stats_.current_framerate;
+    s.current_fps =
+        t_stats.current_fps > 0 ? t_stats.current_fps : current_stats_.current_framerate;
     s.packets_sent = t_stats.packets_sent;
     s.frames_sent = t_stats.frames_sent;
     s.nacks_received = t_stats.nacks_received;
@@ -1463,9 +1479,7 @@ StreamStats CastSession::GetStats() const {
   }
   s.device_name = target_device_.name;
   s.device_ip = target_device_.ip_address;
-  s.display_name = source_.name.empty()
-                       ? ("Display " + std::to_string(source_.id))
-                       : source_.name;
+  s.display_name = source_.name.empty() ? ("Display " + std::to_string(source_.id)) : source_.name;
   s.source_kind = CaptureSourceKindToString(source_.kind);
   s.adaptive_rung_index = adaptive_controller_.GetCurrentLadderIndex();
   s.adaptive_rung_count = static_cast<int>(adaptive_controller_.GetLadder().size());
@@ -1480,7 +1494,8 @@ StreamStats CastSession::GetStats() const {
   }
 
   if (s.packet_loss_fraction >= 0.05) {
-    s.health_hint = "Wi-Fi is dropping packets. Adaptive is lowering quality so the picture stays smooth.";
+    s.health_hint =
+        "Wi-Fi is dropping packets. Adaptive is lowering quality so the picture stays smooth.";
   } else if (s.round_trip_time_ms >= 80) {
     s.health_hint = "The TV is answering slowly. Try 5 GHz Wi-Fi or move closer to the router.";
   } else if (s.encoder_name == "libx264") {
@@ -1492,4 +1507,4 @@ StreamStats CastSession::GetStats() const {
   return s;
 }
 
-} // namespace castcore
+}  // namespace castcore
