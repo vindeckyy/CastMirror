@@ -15,7 +15,7 @@ Windows-focused release-readiness pass.
 - The Media Foundation encoder never worked on GPU hardware encoders, which are asynchronous MFTs. It now unlocks them, disables B-frames, guarantees SPS/PPS on key frames, and falls back to x264 if it never produces a frame.
 - Frame ids advanced when the encoder produced nothing, so the receiver stalled until the next key frame.
 - A failed screen capture silently streamed a test pattern to the TV. It now stops with an error.
-- HDR desktops (16-bit float surfaces) were read as 8-bit and sent as noise. They are tone-mapped to SDR.
+- Capture read every desktop surface as 8-bit BGRA. Microsoft documents that desktop duplication delivers BGRA, but a driver that hands back 16-bit float, 10-bit or RGBA surfaces would have produced noise. Those formats are now converted (float is tone-mapped to SDR), and an unknown format stops capture with an error. This is defensive: it has not been seen on an HDR display.
 - Audio stopped for good when the default playback device changed. Capture now follows the new device and restarts if it dies.
 - 24-bit and 32-bit audio devices were read as 16-bit, and surround sound dropped everything but the front pair.
 - RTCP packets that only carried NACKs pulled the smoothed round-trip time and loss toward zero, hiding real congestion.
@@ -56,7 +56,7 @@ Windows-focused release-readiness pass.
 - The HTTP/CAF fallback server. It bound every interface without authentication and its session path would terminate the process.
 
 ### Known gaps
-- The async Media Foundation path and the HDR path have unit or simulated coverage only. They need a run on NVIDIA, AMD and Intel hardware and on an HDR display.
+- The async Media Foundation path and the HDR path have unit or simulated coverage only. The Media Foundation path needs a run on NVIDIA, AMD and Intel hardware.
 - Rotated (portrait) monitors are captured without rotation correction.
 - Window capture still crops the monitor image, so windows in front of the shared window appear in it.
 - The app is English only.

@@ -55,7 +55,7 @@ Optional system-wide shortcuts (Settings, Desktop integration, Global shortcuts)
 ## What it does
 
 - Discovers Cast devices over mDNS. If your router blocks mDNS, an opt-in subnet scan finds them directly.
-- Captures a monitor with DXGI Desktop Duplication at a steady 30 or 60 fps, even when nothing on screen changes. HDR desktops are tone-mapped to SDR.
+- Captures a monitor with DXGI Desktop Duplication at a steady 30 or 60 fps, even when nothing on screen changes. If a driver hands back HDR or 10-bit surfaces, they are converted to SDR.
 - Captures system audio with WASAPI loopback, follows the default speakers when you switch to headphones, and folds 5.1 and 7.1 down to stereo.
 - Encodes H.264 on the GPU through Media Foundation and falls back to x264 on the CPU when the GPU encoder doesn't produce frames. Audio is Opus.
 - Sends the same encrypted Cast RTP stream Chrome's "Cast screen" uses. The control connection is TLS on port 8009, and each device proves its identity against the Cast root certificates.
