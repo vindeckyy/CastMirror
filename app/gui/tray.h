@@ -3,6 +3,7 @@
 
 #include <gio/gio.h>
 #include <string>
+#include <thread>
 #include "castcore/types.h"
 
 namespace castcore::gui {
@@ -25,6 +26,10 @@ class TrayManager {
 
  private:
   void OnConnectionChanged(bool connected);
+  // Runs StartCastingLastDevice() off the main thread and owns that thread so
+  // the engine is never torn down underneath it.
+  void StartCastingLastDeviceAsync();
+  void JoinCastLastThread();
 
   GuiApp* app_ = nullptr;
   void* indicator_ = nullptr;
@@ -37,6 +42,7 @@ class TrayManager {
   bool created_ = false;
   bool connected_ = false;
   std::string current_stop_label_;
+  std::thread cast_last_thread_;
 };
 
 }  // namespace castcore::gui

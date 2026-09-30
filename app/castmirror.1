@@ -1,0 +1,96 @@
+.\" Manpage for castmirror. Apache-2.0. See NOTICE for the GPL implications of
+.\" distributing a binary linked against libx264.
+.TH CASTMIRROR 1 "2026-09-23" "CastMirror 1.0.0" "User Commands"
+.SH NAME
+castmirror \- send a display or window to a Google Cast receiver
+.SH SYNOPSIS
+.B castmirror
+.RI [ options ]
+.SH DESCRIPTION
+.B castmirror
+is the interactive and flag-driven command line front end to the CastMirror
+core. It discovers Google Cast, Android TV and Nest receivers on the local
+network, captures a display or a single window, encodes H.264 video with VAAPI
+or FFmpeg libx264 and Opus audio, and streams the result over the Cast
+Streaming protocol (CAST/CST2 RTP over UDP with compound RTCP).
+.PP
+Run with no options to enter the interactive prompt.
+.SH OPTIONS
+.TP
+.BI \-\-device " <IP or ID>"
+Target receiver by IP address or Cast device UUID. Implies non-interactive mode.
+.TP
+.BI \-\-display " <ID>"
+Display or monitor index to capture. Default is 0.
+.TP
+.BI \-\-window " <ID>"
+Share a single window, identified by its X11 XID. Use
+.B \-\-list-windows
+to enumerate IDs.
+.TP
+.B \-\-list-windows
+List capturable windows and exit.
+.TP
+.B \-\-list-displays
+List available displays and exit.
+.TP
+.BI \-\-preset " <preset>"
+Quality preset: Auto, High, Balanced, Smooth, Game or Cinema. Default is Auto.
+Game requests a 150 ms target playout delay; Cinema requests 400 ms.
+.TP
+.B \-\-no-audio
+Disable audio mirroring.
+.TP
+.BI \-\-bitrate " <kbps>"
+Custom video bitrate ceiling in kilobits per second.
+.TP
+.BI \-\-codec " <h264|vp8>"
+Select the video codec. Default is h264.
+.TP
+.B \-\-low-latency
+Force a 200 ms target playout delay.
+.TP
+.B \-\-no-verify
+Bypass Cast device certificate verification. Development escape hatch; do not
+use it on an untrusted network.
+.TP
+.BI \-\-auth-probe " <IP>"
+Connect to a device, run the device authentication challenge and exit.
+.TP
+.B \-\-help
+Show the help message and exit.
+.SH ENVIRONMENT
+.TP
+.B CASTMIRROR_FORCE_SOFTWARE_ENCODE=1
+Force FFmpeg libx264 software encoding even where VAAPI hardware encoding is
+available.
+.TP
+.B CASTMIRROR_FORCE_X11=1
+Force X11 capture instead of the Wayland xdg-desktop-portal ScreenCast path.
+.TP
+.B CASTMIRROR_CONFIG_DIR=/path/to/dir
+Read and write
+.I config.json
+in this directory instead of the default per-user location.
+.SH FILES
+.TP
+.I ~/.config/castmirror/config.json
+Persisted settings.
+.TP
+.I ~/.config/castmirror/castmirror.log
+Rotating debug log.
+.SH EXAMPLES
+.PP
+.nf
+castmirror \-\-device 192.168.1.150 \-\-display 0 \-\-preset High
+castmirror \-\-device 192.168.1.150 \-\-no-audio
+castmirror \-\-list-windows
+.fi
+.SH SEE ALSO
+.BR castmirror-gui (1),
+.BR ffmpeg (1),
+.BR pactl (1)
+.SH NOTES
+Distributing a compiled CastMirror binary linked against GPL-licensed libx264
+generally requires treating that binary as GPL. See the NOTICE file shipped
+with the source.

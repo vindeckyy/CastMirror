@@ -15,6 +15,7 @@
 #include "castcore/logger.h"
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <cstdlib>
 #include <thread>
@@ -27,16 +28,55 @@ namespace castcore::gui {
 
 namespace {
 
-struct StatePayload {
+// Marshals a call onto the main context, gated by a liveness token, so a call
+// posted by a worker thread can never dereference a destroyed GuiApp.
+struct MainCall {
+  LivenessToken alive;
   GuiApp* app = nullptr;
-  SessionState state = SessionState::kIdle;
-  std::string message;
+  std::function<void(GuiApp&)> fn;
 };
 
-struct StartFailPayload {
+gboolean RunMainCall(gpointer data) {
+  std::unique_ptr<MainCall> call(static_cast<MainCall*>(data));
+  if (Alive(call->alive) && call->app) {
+    call->fn(*call->app);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+void PostToMain(GuiApp* app, const LivenessToken& alive, std::function<void(GuiApp&)> fn) {
+  g_main_context_invoke(nullptr, RunMainCall, new MainCall{alive, app, std::move(fn)});
+}
+
+// Owns a modal action block for the lifetime of a dialog. The block is released
+// exactly once: when the dialog emits "closed", or when its signal closure is
+// destroyed - which happens even if the dialog is torn down without ever
+// closing. Without this a dialog whose async callback never runs strands the
+// counter and RefreshWindowActionSensitivity() disables every window action.
+struct ModalBlock {
   GuiApp* app = nullptr;
-  std::string err;
+  LivenessToken alive;
+  bool released = false;
 };
+
+void ReleaseModalBlock(ModalBlock* block) {
+  if (!block || block->released) {
+    return;
+  }
+  block->released = true;
+  if (Alive(block->alive) && block->app) {
+    block->app->PopModalActionBlock();
+  }
+}
+
+void OnModalDialogClosed(AdwDialog*, gpointer user_data) {
+  ReleaseModalBlock(static_cast<ModalBlock*>(user_data));
+}
+
+void FreeModalBlock(gpointer data, GClosure*) {
+  ReleaseModalBlock(static_cast<ModalBlock*>(data));
+  delete static_cast<ModalBlock*>(data);
+}
 
 bool IsGenericIdleStopMessage(const std::string& msg) {
   return msg.empty() || msg == "Cast Stopped";
@@ -90,6 +130,11 @@ GuiApp::GuiApp(AdwApplication* application) : application_(application) {
 }
 
 GuiApp::~GuiApp() {
+  // Clear the liveness token before anything else is torn down: from here on,
+  // every pending async callback bails out instead of touching a member.
+  if (alive_) {
+    *alive_ = false;
+  }
   Shutdown();
 }
 
@@ -355,33 +400,49 @@ void GuiApp::SetupActions() {
 void GuiApp::SetupEngineCallbacks() {
   auto& engine = CastEngine::Instance();
 
-  engine.SetOnStateChanged([this](SessionState, SessionState new_s, const std::string& msg) {
-    auto* payload = new StatePayload{this, new_s, msg};
-    g_main_context_invoke(nullptr, +[](gpointer p) -> gboolean {
-      std::unique_ptr<StatePayload> pl(static_cast<StatePayload*>(p));
-      if (pl->app && !pl->app->is_quitting_) {
-        pl->app->UpdateStateUi(pl->state, pl->message);
+  // The token is captured by value; `self` is only ever dereferenced behind
+  // Alive(), so a callback firing after teardown is a no-op.
+  const LivenessToken alive = alive_;
+  GuiApp* const self = this;
+
+  engine.SetOnStateChanged([alive, self](SessionState, SessionState new_s, const std::string& msg) {
+    if (!Alive(alive)) {
+      return;
+    }
+    PostToMain(self, alive, [new_s, msg](GuiApp& app) {
+      if (!app.is_quitting_) {
+        app.UpdateStateUi(new_s, msg);
       }
-      return G_SOURCE_REMOVE;
-    }, payload);
+    });
   });
 
-  engine.GetDiscovery().SetCallback([this](const std::vector<CastDevice>&) {
-    g_main_context_invoke(nullptr, +[](gpointer user_data) -> gboolean {
-      auto* self = static_cast<GuiApp*>(user_data);
-      if (!self->is_quitting_ && self->cast_tab_) {
-        self->cast_tab_->RefreshDevices();
+  engine.GetDiscovery().SetCallback([alive, self](const std::vector<CastDevice>&) {
+    if (!Alive(alive)) {
+      return;
+    }
+    PostToMain(self, alive, [](GuiApp& app) {
+      if (!app.is_quitting_ && app.cast_tab_) {
+        app.cast_tab_->RefreshDevices();
       }
-      return G_SOURCE_REMOVE;
-    }, this);
+    });
   });
 }
 
 void GuiApp::SetupLoggerCallback() {
-  Logger::Instance().SetCallback([this](LogLevel level, const std::string& formatted_line) {
-    if (logs_tab_ && !is_quitting_) {
-      logs_tab_->OnLogMessage(level, formatted_line);
+  // The logger callback runs on whatever thread logged, so it must not touch a
+  // widget from here: marshal to the main context exactly like the engine
+  // callbacks, and gate on a liveness token rather than on raw `this`.
+  const LivenessToken alive = alive_;
+  GuiApp* const self = this;
+  Logger::Instance().SetCallback([alive, self](LogLevel level, const std::string& formatted_line) {
+    if (!Alive(alive)) {
+      return;
     }
+    PostToMain(self, alive, [level, formatted_line](GuiApp& app) {
+      if (app.logs_tab_ && !app.is_quitting_) {
+        app.logs_tab_->OnLogMessage(level, formatted_line);
+      }
+    });
   });
 }
 
@@ -430,12 +491,15 @@ void GuiApp::Shutdown() {
     rescan_timer_id_ = 0;
   }
 
-  CastEngine::Instance().StopCasting();
-  CastEngine::Instance().Shutdown();
-
+  // Tear the tray down first: DestroyIndicator() joins the tray's cast-last
+  // worker so it cannot race the engine teardown below.
   if (tray_manager_) {
     tray_manager_->DestroyIndicator();
   }
+
+  CastEngine::Instance().StopCasting();
+  CastEngine::Instance().Shutdown();
+
   NotificationManager::Shutdown();
 }
 
@@ -451,15 +515,19 @@ void GuiApp::OnPageAction(const char* page_name) {
   SwitchToPage(page_name);
 }
 
-void GuiApp::SyncAudioEnabled(bool enabled) {
-  if (settings_tab_) {
-    settings_tab_->SyncAudioSwitch(enabled);
+void GuiApp::SyncFreeze(bool frozen) {
+  freeze_active_ = frozen;
+  CastEngine::Instance().SetFreezeStream(frozen);
+  if (live_tab_) {
+    live_tab_->SetFreezeUi(frozen);
   }
 }
 
-void GuiApp::SyncSilenceHost(bool enabled) {
-  if (settings_tab_) {
-    settings_tab_->SyncSilenceSwitch(enabled);
+void GuiApp::SyncMute(bool muted) {
+  mute_active_ = muted;
+  CastEngine::Instance().SetLiveAudioMuted(muted);
+  if (live_tab_) {
+    live_tab_->SetMuteUi(muted);
   }
 }
 
@@ -491,6 +559,15 @@ void GuiApp::PopModalActionBlock() {
     --modal_action_block_count_;
   }
   RefreshWindowActionSensitivity();
+}
+
+void GuiApp::OwnModalDialog(AdwDialog* dialog) {
+  if (!dialog) {
+    return;
+  }
+  auto* block = new ModalBlock{this, alive_};
+  g_signal_connect_data(dialog, "closed", G_CALLBACK(OnModalDialogClosed), block,
+                        FreeModalBlock, G_CONNECT_DEFAULT);
 }
 
 void GuiApp::OnDestinationSelectionChanged() {
@@ -623,36 +700,31 @@ void GuiApp::TriggerCastAction() {
   LOG_INFO << "[UI] Starting Cast Session to device id " << device_id
            << " (source: " << CaptureSourceKindToString(source.kind) << " id=" << source.id << ")...";
 
-  std::thread([this, device_id, source, opts]() {
+  std::thread([alive = alive_, self = this, device_id, source, opts]() {
     bool ok = CastEngine::Instance().StartCasting(device_id, source, opts);
     if (ok) {
       return;
     }
-    auto* payload = new StartFailPayload();
-    payload->app = this;
-    payload->err = CastEngine::Instance().GetLastError();
-    if (payload->err.empty()) {
-      payload->err = CastEngine::Instance().GetStateMachine().GetLastMessage();
+    std::string err = CastEngine::Instance().GetLastError();
+    if (err.empty()) {
+      err = CastEngine::Instance().GetStateMachine().GetLastMessage();
     }
-    g_main_context_invoke(nullptr, +[](gpointer user_data) -> gboolean {
-      std::unique_ptr<StartFailPayload> pl(static_cast<StartFailPayload*>(user_data));
-      auto* self = pl->app;
-      if (!self || self->is_quitting_) {
-        return G_SOURCE_REMOVE;
-      }
-      std::string last_err = self->last_failed_message_;
+    if (!Alive(alive)) {
+      return;  // the GUI is gone; there is nobody left to report to
+    }
+    PostToMain(self, alive, [err](GuiApp& app) {
+      std::string last_err = app.last_failed_message_;
       if (IsGenericIdleStopMessage(last_err)) {
-        last_err = pl->err;
+        last_err = err;
       }
       if (IsGenericIdleStopMessage(last_err)) {
         last_err = "The TV could not be reached. Ensure it is powered on and on the same Wi-Fi.";
       }
-      if (self->live_tab_) {
-        self->live_tab_->UpdateSessionState(SessionState::kFailed, last_err);
+      if (app.live_tab_) {
+        app.live_tab_->UpdateSessionState(SessionState::kFailed, last_err);
       }
-      self->PresentAlert("Could not start casting", last_err.c_str());
-      return G_SOURCE_REMOVE;
-    }, payload);
+      app.PresentAlert("Could not start casting", last_err.c_str());
+    });
   }).detach();
 }
 
@@ -674,18 +746,8 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
   const bool scanning_idle = scan_in_progress_ && !session_active;
 
   if (scanning_idle) {
-    gtk_widget_remove_css_class(status_badge_, "is-idle");
-    gtk_widget_remove_css_class(status_badge_, "is-progress");
-    gtk_widget_remove_css_class(status_badge_, "is-live");
-    gtk_widget_remove_css_class(status_badge_, "is-warning");
-    gtk_widget_remove_css_class(status_badge_, "is-error");
-    gtk_widget_add_css_class(status_badge_, "is-progress");
-    gtk_widget_remove_css_class(status_badge_dot_, "is-idle");
-    gtk_widget_remove_css_class(status_badge_dot_, "is-progress");
-    gtk_widget_remove_css_class(status_badge_dot_, "is-live");
-    gtk_widget_remove_css_class(status_badge_dot_, "is-warning");
-    gtk_widget_remove_css_class(status_badge_dot_, "is-error");
-    gtk_widget_add_css_class(status_badge_dot_, "is-progress");
+    SetSemanticClass(status_badge_, "is-progress");
+    SetSemanticClass(status_badge_dot_, "is-progress");
     gtk_label_set_text(GTK_LABEL(status_badge_lbl_), "Finding devices");
   } else {
     UpdateStatusBadge(status_badge_, status_badge_dot_, status_badge_lbl_, new_state);
@@ -743,6 +805,10 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
       gtk_spinner_stop(GTK_SPINNER(spinner_));
       gtk_widget_set_visible(spinner_, FALSE);
       active_session_audio_enabled_ = false;
+      // The engine has ended the session; the live controls are no longer
+      // authoritative.
+      freeze_active_ = false;
+      mute_active_ = false;
       OnDestinationSelectionChanged();
       break;
   }
@@ -853,7 +919,10 @@ void GuiApp::ApplyPrimaryAction(const char* label,
     gtk_widget_remove_css_class(cast_button_, "suggested-action");
     gtk_widget_remove_css_class(cast_button_, "destructive-action");
     gtk_widget_add_css_class(cast_button_, destructive ? "destructive-action" : "suggested-action");
-    gtk_widget_set_sensitive(cast_button_, sensitive);
+    // Sensitivity has exactly one authority: the "win.cast" action, which
+    // RefreshWindowActionSensitivity() owns. Setting it here as well let the
+    // button stay clickable while win.cast was disabled.
+    (void)sensitive;
   }
 }
 
@@ -863,9 +932,7 @@ void GuiApp::PresentAlert(const char* heading, const char* body) {
   adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "ok");
   adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "ok");
   PushModalActionBlock();
-  g_signal_connect(dialog, "closed", G_CALLBACK(+[](AdwDialog*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->PopModalActionBlock();
-  }), this);
+  OwnModalDialog(dialog);
   adw_dialog_present(dialog, window_);
 }
 
@@ -879,9 +946,7 @@ void GuiApp::ShowAboutDialog() {
   adw_about_dialog_set_license(ADW_ABOUT_DIALOG(dialog), copy::kAboutLicense);
   adw_about_dialog_set_comments(ADW_ABOUT_DIALOG(dialog), copy::kAboutComments);
   PushModalActionBlock();
-  g_signal_connect(dialog, "closed", G_CALLBACK(+[](AdwDialog*, gpointer user_data) {
-    static_cast<GuiApp*>(user_data)->PopModalActionBlock();
-  }), this);
+  OwnModalDialog(dialog);
   adw_dialog_present(dialog, window_);
 }
 

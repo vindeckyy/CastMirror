@@ -70,13 +70,44 @@ GtkWidget* MakeCircularGlyph(const char* icon_name, int box_px, int icon_px) {
   return box;
 }
 
+// "saved" is the legacy marker; "Custom Chromecast" is the modern one. Every
+// surface must treat them identically or a saved device renders two different
+// subtitles before and after the first refresh.
+bool IsSavedDeviceModel(const std::string& model_name) {
+  return model_name == "saved" || model_name == "Custom Chromecast";
+}
+
+// Shows the check-mark on the selected row and toggles the row highlight.
+void ApplyRowSelection(GtkWidget* row, GtkWidget* select_icon, bool is_selected) {
+  if (select_icon) {
+    gtk_widget_set_visible(select_icon, is_selected);
+  }
+  if (is_selected) {
+    gtk_widget_add_css_class(row, "is-selected");
+  } else {
+    gtk_widget_remove_css_class(row, "is-selected");
+  }
+}
+
+std::string FormatCapabilitySummary(const DeviceCapabilities& caps) {
+  std::ostringstream ss;
+  ss << "Up to " << caps.max_resolution.width << " × " << caps.max_resolution.height
+     << " at " << caps.max_fps << " fps · " << (caps.max_bitrate_kbps / 1000) << " Mbps";
+  return ss.str();
+}
+
 }  // namespace
 
 CastTab::CastTab(GuiApp* app) : app_(app) {
   BuildUi();
 }
 
-CastTab::~CastTab() = default;
+CastTab::~CastTab() {
+  // The repeating window-refresh timeout dereferences `this` on every tick and
+  // returns G_SOURCE_CONTINUE. GuiApp::Shutdown only owns stats_timer_id_ and
+  // rescan_timer_id_, so this destructor is the single owner of the source.
+  StopWindowRefreshTimer();
+}
 
 void CastTab::BuildUi() {
   GtkWidget* scroller = gtk_scrolled_window_new();
@@ -248,24 +279,14 @@ void CastTab::BuildUi() {
   gtk_widget_add_css_class(source_screen_btn_, "cm-segmented-btn");
   gtk_widget_set_hexpand(source_screen_btn_, TRUE);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_screen_btn_), TRUE);
-  g_signal_connect(source_screen_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
-    auto* self = static_cast<CastTab*>(user_data);
-    if (gtk_toggle_button_get_active(btn)) {
-      self->OnSourceKindChanged(CaptureSourceKind::kMonitor);
-    }
-  }), this);
+  g_signal_connect(source_screen_btn_, "toggled", G_CALLBACK(OnSourceScreenToggled), this);
   gtk_box_append(GTK_BOX(source_toggle_box_), source_screen_btn_);
 
   source_window_btn_ = gtk_toggle_button_new_with_label("Window");
   gtk_widget_add_css_class(source_window_btn_, "cm-segmented-btn");
   gtk_widget_set_hexpand(source_window_btn_, TRUE);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), FALSE);
-  g_signal_connect(source_window_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
-    auto* self = static_cast<CastTab*>(user_data);
-    if (gtk_toggle_button_get_active(btn)) {
-      self->OnSourceKindChanged(CaptureSourceKind::kWindow);
-    }
-  }), this);
+  g_signal_connect(source_window_btn_, "toggled", G_CALLBACK(OnSourceWindowToggled), this);
   gtk_box_append(GTK_BOX(source_toggle_box_), source_window_btn_);
   gtk_box_append(GTK_BOX(disp_section_), source_toggle_box_);
 
@@ -469,9 +490,8 @@ void CastTab::BuildUi() {
     self->SaveSelectedDeviceProfile();
     ConfigStore::Instance().Save();
 
-    std::ostringstream val_ss;
-    val_ss << std::fixed << std::setprecision(1) << mbps << " Mbps";
-    gtk_label_set_text(GTK_LABEL(self->inline_bitrate_val_lbl_), val_ss.str().c_str());
+    gtk_label_set_text(GTK_LABEL(self->inline_bitrate_val_lbl_),
+                       FormatMbps(mbps).c_str());
     self->UpdateBitrateNote();
 
     if (self->app_) {
@@ -485,12 +505,7 @@ void CastTab::BuildUi() {
   // Set initial preset active
   selected_preset_ = ConfigStore::Instance().Get().quality_preset;
   updating_ui_ = true;
-  if (selected_preset_ == QualityPreset::kCinema) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_cinema_btn_), TRUE);
-  else if (selected_preset_ == QualityPreset::kGame) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_game_btn_), TRUE);
-  else if (selected_preset_ == QualityPreset::kHigh) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_high_btn_), TRUE);
-  else if (selected_preset_ == QualityPreset::kBalanced) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_balanced_btn_), TRUE);
-  else if (selected_preset_ == QualityPreset::kSmooth) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_smooth_btn_), TRUE);
-  else gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_auto_btn_), TRUE);
+  SetPresetButtons(selected_preset_);
   updating_ui_ = false;
 
   uint32_t init_kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(selected_preset_);
@@ -499,23 +514,49 @@ void CastTab::BuildUi() {
 
 void CastTab::SyncInlineBitrate(uint32_t kbps) {
   if (!inline_bitrate_scale_ || !inline_bitrate_val_lbl_) return;
+  // Save / restore: this may run inside a wider update that already holds the
+  // guard, so never clear a flag we did not set.
+  const bool prev = updating_ui_;
   updating_ui_ = true;
   double mbps = kbps / 1000.0;
   gtk_range_set_value(GTK_RANGE(inline_bitrate_scale_), mbps);
-  std::ostringstream ss;
-  ss << std::fixed << std::setprecision(1) << mbps << " Mbps";
-  gtk_label_set_text(GTK_LABEL(inline_bitrate_val_lbl_), ss.str().c_str());
+  gtk_label_set_text(GTK_LABEL(inline_bitrate_val_lbl_), FormatMbps(mbps).c_str());
   UpdateBitrateNote();
-  updating_ui_ = false;
+  updating_ui_ = prev;
 }
 
 void CastTab::UpdateBitrateNote() {
   uint32_t kbps = ConfigStore::Instance().Get().GetPresetBitrateKbps(selected_preset_);
   std::ostringstream ss;
-  ss << "Holds at " << std::fixed << std::setprecision(1) << (kbps / 1000.0)
-     << " Mbps · drops on congestion, ramps back automatically";
+  ss << "Holds at " << FormatMbps(kbps / 1000.0)
+     << " · drops on congestion, ramps back automatically";
   if (bitrate_note_lbl_) {
     gtk_label_set_text(GTK_LABEL(bitrate_note_lbl_), ss.str().c_str());
+  }
+}
+
+void CastTab::SetPresetButtons(QualityPreset preset) {
+  if (preset == QualityPreset::kCinema) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_cinema_btn_), TRUE);
+  else if (preset == QualityPreset::kGame) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_game_btn_), TRUE);
+  else if (preset == QualityPreset::kHigh) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_high_btn_), TRUE);
+  else if (preset == QualityPreset::kBalanced) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_balanced_btn_), TRUE);
+  else if (preset == QualityPreset::kSmooth) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_smooth_btn_), TRUE);
+  else gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_auto_btn_), TRUE);
+}
+
+void CastTab::OnSourceScreenToggled(GtkToggleButton* btn, gpointer user_data) {
+  auto* self = static_cast<CastTab*>(user_data);
+  if (self->updating_ui_) return;
+  if (gtk_toggle_button_get_active(btn)) {
+    self->OnSourceKindChanged(CaptureSourceKind::kMonitor);
+  }
+}
+
+void CastTab::OnSourceWindowToggled(GtkToggleButton* btn, gpointer user_data) {
+  auto* self = static_cast<CastTab*>(user_data);
+  if (self->updating_ui_) return;
+  if (gtk_toggle_button_get_active(btn)) {
+    self->OnSourceKindChanged(CaptureSourceKind::kWindow);
   }
 }
 
@@ -575,7 +616,7 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
     dev_icon = "computer-symbolic";
   } else if (lower_model.find("tv") != std::string::npos || lower_model.find("streamer") != std::string::npos || lower_model.find("google") != std::string::npos) {
     dev_icon = "tv-symbolic";
-  } else if (dev.model_name == "saved" || dev.model_name == "Custom Chromecast") {
+  } else if (IsSavedDeviceModel(dev.model_name)) {
     dev_icon = "bookmark-symbolic";
   }
   GtkWidget* device_glyph = MakeCircularGlyph(dev_icon, 48, 22);
@@ -597,7 +638,7 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
   gtk_box_append(GTK_BOX(text_box), w.title_lbl);
 
   // Subtitle 1
-  std::string sub1 = (dev.model_name == "saved" || dev.model_name == "Custom Chromecast")
+  std::string sub1 = IsSavedDeviceModel(dev.model_name)
                          ? ("Saved display · " + dev.ip_address)
                          : (dev.model_name + " · " + dev.ip_address);
   w.sub1_lbl = gtk_label_new(sub1.c_str());
@@ -608,10 +649,7 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
 
   // Subtitle 2
   DeviceCapabilities caps = CapabilityModel::Evaluate(dev);
-  std::ostringstream ss2;
-  ss2 << "Up to " << caps.max_resolution.width << " × " << caps.max_resolution.height
-      << " at " << caps.max_fps << " fps · " << (caps.max_bitrate_kbps / 1000) << " Mbps";
-  w.sub2_lbl = gtk_label_new(ss2.str().c_str());
+  w.sub2_lbl = gtk_label_new(FormatCapabilitySummary(caps).c_str());
   gtk_widget_set_halign(w.sub2_lbl, GTK_ALIGN_START);
   gtk_label_set_ellipsize(GTK_LABEL(w.sub2_lbl), PANGO_ELLIPSIZE_END);
   gtk_widget_add_css_class(w.sub2_lbl, "dim-label");
@@ -654,9 +692,7 @@ CastTab::DeviceRowWidgets CastTab::CreateDeviceRow(const CastDevice& dev, int ra
   gtk_box_append(GTK_BOX(w.status_pill), w.status_lbl);
   gtk_box_append(GTK_BOX(right_box), w.status_pill);
 
-  w.select_icon = gtk_image_new_from_icon_name("object-select-symbolic");
-  gtk_image_set_pixel_size(GTK_IMAGE(w.select_icon), 18);
-  gtk_widget_set_visible(w.select_icon, FALSE);
+  w.select_icon = MakeSelectIcon();
   gtk_box_append(GTK_BOX(right_box), w.select_icon);
 
   gtk_box_append(GTK_BOX(row_box), right_box);
@@ -729,9 +765,7 @@ CastTab::DisplayRowWidgets CastTab::CreateDisplayRow(const DisplayInfo& disp, in
     gtk_box_append(GTK_BOX(right_box), w.primary_pill);
   }
 
-  w.select_icon = gtk_image_new_from_icon_name("object-select-symbolic");
-  gtk_image_set_pixel_size(GTK_IMAGE(w.select_icon), 18);
-  gtk_widget_set_visible(w.select_icon, FALSE);
+  w.select_icon = MakeSelectIcon();
   gtk_box_append(GTK_BOX(right_box), w.select_icon);
 
   gtk_box_append(GTK_BOX(row_box), right_box);
@@ -768,16 +802,13 @@ void CastTab::RefreshDevices() {
 
       gtk_label_set_text(GTK_LABEL(w.title_lbl), d.name.c_str());
 
-      std::string sub1 = (d.model_name == "Custom Chromecast")
+      std::string sub1 = IsSavedDeviceModel(d.model_name)
                              ? ("Saved display · " + d.ip_address)
                              : (d.model_name + " · " + d.ip_address);
       gtk_label_set_text(GTK_LABEL(w.sub1_lbl), sub1.c_str());
 
       DeviceCapabilities caps = CapabilityModel::Evaluate(d);
-      std::ostringstream ss2;
-      ss2 << "Up to " << caps.max_resolution.width << " × " << caps.max_resolution.height
-          << " at " << caps.max_fps << " fps · " << (caps.max_bitrate_kbps / 1000) << " Mbps";
-      gtk_label_set_text(GTK_LABEL(w.sub2_lbl), ss2.str().c_str());
+      gtk_label_set_text(GTK_LABEL(w.sub2_lbl), FormatCapabilitySummary(caps).c_str());
 
       std::string status_text;
       const char* status_state_class = "is-idle";
@@ -844,15 +875,7 @@ void CastTab::RefreshDevices() {
   }
 
   for (auto& [id, w] : device_row_widgets_) {
-    bool is_selected = (id == selected_device_id_);
-    if (w.select_icon) {
-      gtk_widget_set_visible(w.select_icon, is_selected);
-    }
-    if (is_selected) {
-      gtk_widget_add_css_class(w.row, "is-selected");
-    } else {
-      gtk_widget_remove_css_class(w.row, "is-selected");
-    }
+    ApplyRowSelection(w.row, w.select_icon, id == selected_device_id_);
   }
 
   if (remove_btn_) {
@@ -947,15 +970,7 @@ void CastTab::RefreshDisplays() {
     }
 
     for (auto& [id, w] : display_row_widgets_) {
-      bool is_selected = (id == selected_display_id_);
-      if (w.select_icon) {
-        gtk_widget_set_visible(w.select_icon, is_selected);
-      }
-      if (is_selected) {
-        gtk_widget_add_css_class(w.row, "is-selected");
-      } else {
-        gtk_widget_remove_css_class(w.row, "is-selected");
-      }
+      ApplyRowSelection(w.row, w.select_icon, id == selected_display_id_);
     }
   }
 
@@ -983,12 +998,7 @@ void CastTab::OnDeviceRowSelected(GtkListBox*, GtkListBoxRow* row) {
       if (profile.has_value()) {
         selected_preset_ = profile->preset;
         updating_ui_ = true;
-        if (selected_preset_ == QualityPreset::kCinema) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_cinema_btn_), TRUE);
-        else if (selected_preset_ == QualityPreset::kGame) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_game_btn_), TRUE);
-        else if (selected_preset_ == QualityPreset::kHigh) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_high_btn_), TRUE);
-        else if (selected_preset_ == QualityPreset::kBalanced) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_balanced_btn_), TRUE);
-        else if (selected_preset_ == QualityPreset::kSmooth) gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_smooth_btn_), TRUE);
-        else gtk_check_button_set_active(GTK_CHECK_BUTTON(preset_auto_btn_), TRUE);
+        SetPresetButtons(selected_preset_);
         updating_ui_ = false;
 
         uint32_t kbps = profile->bitrate_kbps > 0 ? profile->bitrate_kbps : cfg.GetPresetBitrateKbps(selected_preset_);
@@ -1004,15 +1014,7 @@ void CastTab::OnDeviceRowSelected(GtkListBox*, GtkListBoxRow* row) {
   }
 
   for (auto& [id, w] : device_row_widgets_) {
-    bool is_selected = (id == selected_device_id_);
-    if (w.select_icon) {
-      gtk_widget_set_visible(w.select_icon, is_selected);
-    }
-    if (is_selected) {
-      gtk_widget_add_css_class(w.row, "is-selected");
-    } else {
-      gtk_widget_remove_css_class(w.row, "is-selected");
-    }
+    ApplyRowSelection(w.row, w.select_icon, id == selected_device_id_);
   }
 
   if (remove_btn_) {
@@ -1039,15 +1041,7 @@ void CastTab::OnDisplayRowSelected(GtkListBox*, GtkListBoxRow* row) {
   ConfigStore::Instance().Save();
 
   for (auto& [disp_id, w] : display_row_widgets_) {
-    bool is_selected = (disp_id == selected_display_id_);
-    if (w.select_icon) {
-      gtk_widget_set_visible(w.select_icon, is_selected);
-    }
-    if (is_selected) {
-      gtk_widget_add_css_class(w.row, "is-selected");
-    } else {
-      gtk_widget_remove_css_class(w.row, "is-selected");
-    }
+    ApplyRowSelection(w.row, w.select_icon, disp_id == selected_display_id_);
   }
 
   app_->OnDestinationSelectionChanged();
@@ -1108,9 +1102,7 @@ CastTab::WindowRowWidgets CastTab::CreateWindowRow(const WindowInfo& win, int ra
 
   GtkWidget* right_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_widget_set_valign(right_box, GTK_ALIGN_CENTER);
-  w.select_icon = gtk_image_new_from_icon_name("object-select-symbolic");
-  gtk_image_set_pixel_size(GTK_IMAGE(w.select_icon), 18);
-  gtk_widget_set_visible(w.select_icon, FALSE);
+  w.select_icon = MakeSelectIcon();
   gtk_box_append(GTK_BOX(right_box), w.select_icon);
   gtk_box_append(GTK_BOX(row_box), right_box);
 
@@ -1166,10 +1158,7 @@ void CastTab::RefreshWindows() {
       gtk_list_box_select_row(GTK_LIST_BOX(window_list_box_), GTK_LIST_BOX_ROW(it->second.row));
     }
     for (auto& [id, w] : window_row_widgets_) {
-      bool is_selected = (id == selected_window_id_);
-      if (w.select_icon) gtk_widget_set_visible(w.select_icon, is_selected);
-      if (is_selected) gtk_widget_add_css_class(w.row, "is-selected");
-      else gtk_widget_remove_css_class(w.row, "is-selected");
+      ApplyRowSelection(w.row, w.select_icon, id == selected_window_id_);
     }
   }
 
@@ -1182,9 +1171,9 @@ void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
   // Mutual exclusion: only one toggle active at a time.
   if (kind == CaptureSourceKind::kMonitor) {
     if (source_window_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_window_btn_))) {
-      g_signal_handlers_block_by_func(source_window_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+      g_signal_handlers_block_by_func(source_window_btn_, (gpointer)OnSourceWindowToggled, this);
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), FALSE);
-      g_signal_handlers_unblock_by_func(source_window_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+      g_signal_handlers_unblock_by_func(source_window_btn_, (gpointer)OnSourceWindowToggled, this);
     }
     StopWindowRefreshTimer();
     gtk_widget_set_visible(display_list_box_, TRUE);
@@ -1193,9 +1182,9 @@ void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
     if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, TRUE);
   } else {
     if (source_screen_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_screen_btn_))) {
-      g_signal_handlers_block_by_func(source_screen_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+      g_signal_handlers_block_by_func(source_screen_btn_, (gpointer)OnSourceScreenToggled, this);
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_screen_btn_), FALSE);
-      g_signal_handlers_unblock_by_func(source_screen_btn_, (void*)+[](GtkToggleButton*, gpointer){}, this);
+      g_signal_handlers_unblock_by_func(source_screen_btn_, (gpointer)OnSourceScreenToggled, this);
     }
     gtk_widget_set_visible(display_list_box_, FALSE);
     if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, FALSE);
@@ -1237,10 +1226,7 @@ void CastTab::OnWindowRowSelected(GtkListBox*, GtkListBoxRow* row) {
   ConfigStore::Instance().Save();
 
   for (auto& [wid, w] : window_row_widgets_) {
-    bool is_selected = (wid == selected_window_id_);
-    if (w.select_icon) gtk_widget_set_visible(w.select_icon, is_selected);
-    if (is_selected) gtk_widget_add_css_class(w.row, "is-selected");
-    else gtk_widget_remove_css_class(w.row, "is-selected");
+    ApplyRowSelection(w.row, w.select_icon, wid == selected_window_id_);
   }
 
   app_->OnDestinationSelectionChanged();

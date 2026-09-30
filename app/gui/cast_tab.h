@@ -94,6 +94,14 @@ class CastTab {
   void OnPresetChanged(QualityPreset preset);
   void SaveSelectedDeviceProfile();
 
+  // Named (non-lambda) handlers so g_signal_handlers_block_by_func can match
+  // the exact (func, data) pair that was connected.
+  static void OnSourceScreenToggled(GtkToggleButton* btn, gpointer user_data);
+  static void OnSourceWindowToggled(GtkToggleButton* btn, gpointer user_data);
+
+  // Applies the preset -> check-button mapping in one place.
+  void SetPresetButtons(QualityPreset preset);
+
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;
   GtkWidget* dev_section_ = nullptr;

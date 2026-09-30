@@ -10,7 +10,7 @@
     "--socket=pulseaudio",
     "--share=network",
     "--share=ipc",
-    "--talk-name=org.freedesktop.portal.*",
+    "--talk-name=org.freedesktop.portal.Desktop",
     "--talk-name=org.a11y.Bus",
     "--filesystem=xdg-config/castmirror:rw",
     "--filesystem=xdg-run/pipewire-0:ro",
@@ -23,14 +23,14 @@
       "buildsystem": "cmake-ninja",
       "config-opts": [
         "-DCMAKE_BUILD_TYPE=Release",
-        "-DCASTMIRROR_ENABLE_TRAY=OFF",
-        "-DFLATPAK_BUILD=1"
+        "-DCASTMIRROR_ENABLE_TRAY=OFF"
       ],
       "sources": [
         {
-          "type": "dir",
-          "path": "..",
-          "skip": [".git", "build", "build-*", "flatpak/.flatpak-builder"]
+          "type": "git",
+          "url": "https://github.com/vindeckyy/CastMirror.git",
+          "commit": "ced46b8cbdd6bd0b8371b5b069f8708755b4d885",
+          "//": "PLACEHOLDER PIN. `commit` is the current master HEAD and is real, but no release tag exists in the repository yet, so no tag/commit pair could be resolved. At release time replace `commit` with the tagged release commit and add \"tag\": \"vX.Y.Z\" pointing at that same commit (Flathub requires a tag for release builds). A `type: git` source is pinned by its commit SHA, which is content-addressed; if you prefer a tarball + sha256 instead, replace this whole object with {\"type\": \"archive\", \"url\": \"https://github.com/vindeckyy/CastMirror/archive/refs/tags/vX.Y.Z.tar.gz\", \"sha256\": \"<sha256 of that tarball>\"}."
         }
       ]
     }

@@ -1,0 +1,66 @@
+.\" Manpage for castmirror-gui. Apache-2.0. See NOTICE for the GPL implications of
+.\" distributing a binary linked against libx264.
+.TH CASTMIRROR-GUI 1 "2026-09-23" "CastMirror 1.0.0" "User Commands"
+.SH NAME
+castmirror-gui \- GTK 4 desktop front end for CastMirror
+.SH SYNOPSIS
+.B castmirror-gui
+.SH DESCRIPTION
+.B castmirror-gui
+is the GTK 4 + libadwaita desktop application for CastMirror. It has no command
+line options; all state is persisted in
+.I ~/.config/castmirror/config.json
+and shared with
+.BR castmirror (1).
+.PP
+The window is organised into four views:
+.TP
+.B Cast
+LAN receiver list with model glyphs, a display or single-window selector, the
+six quality preset cards, an inline bitrate slider, and the primary Cast action.
+.TP
+.B Live
+Real-time status banner, FPS / bitrate / RTT / packet-loss sparklines, the
+adaptive ladder rung indicator, and the Freeze display and Mute TV audio
+controls.
+.TP
+.B Settings
+Video bitrate ceiling, capture frame rate, Opus audio quality, host speaker
+mute, target playout buffer delay, LAN subnet scan, appearance theme, and the
+hardware and network self-test wizard.
+.TP
+.B Logs
+Searchable log console with severity filters, clipboard copy and quick access to
+the log folder.
+.SH ENVIRONMENT
+.TP
+.B CASTMIRROR_FORCE_SOFTWARE_ENCODE=1
+Force FFmpeg libx264 software encoding even where VAAPI hardware encoding is
+available.
+.TP
+.B CASTMIRROR_FORCE_X11=1
+Force X11 capture instead of the Wayland xdg-desktop-portal ScreenCast path.
+.TP
+.B CASTMIRROR_CONFIG_DIR=/path/to/dir
+Redirect the configuration directory, as for
+.BR castmirror (1).
+.SH FILES
+.TP
+.I ~/.config/castmirror/config.json
+Persisted settings, shared with the CLI.
+.TP
+.I ~/.config/castmirror/castmirror.log
+Rotating debug log.
+.SH SEE ALSO
+.BR castmirror (1),
+.BR xdg-desktop-portal (1),
+.BR pipewire (1)
+.SH NOTES
+On Wayland the desktop portal asks which screen or window to share when a
+session starts. System tray integration requires the Ayatana AppIndicator
+library at build time; without it the application still runs and simply has no
+tray icon.
+.PP
+Distributing a compiled CastMirror binary linked against GPL-licensed libx264
+generally requires treating that binary as GPL. See the NOTICE file shipped
+with the source.

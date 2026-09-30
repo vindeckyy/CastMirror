@@ -23,6 +23,11 @@ class LiveTab {
   void UpdateSessionState(SessionState state, const std::string& message);
   void AppendActivityEvent(const std::string& message);
   void ResetSessionValues();
+
+  // Reflect the authoritative Freeze / Mute state from GuiApp onto this tab's
+  // live controls. Guarded so it never re-enters the engine.
+  void SetFreezeUi(bool frozen);
+  void SetMuteUi(bool muted);
   const StreamStats& LastStats() const { return last_stats_; }
 
  private:
@@ -35,6 +40,9 @@ class LiveTab {
   void OnBackToCastClicked();
   void OnGameModeClicked();
   void OnCinemaModeClicked();
+
+  static void OnFreezeToggled(GtkToggleButton* btn, gpointer user_data);
+  static void OnMuteToggled(GtkToggleButton* btn, gpointer user_data);
 
   GuiApp* app_ = nullptr;
   GtkWidget* root_widget_ = nullptr;  // GtkStack
@@ -114,6 +122,8 @@ class LiveTab {
   std::string last_device_name_;
   SessionState current_ui_state_ = SessionState::kIdle;
   bool failure_visible_ = false;
+  // Suppresses the toggled handlers while the UI mirrors engine/state changes.
+  bool syncing_toggles_ = false;
 };
 
 }  // namespace castcore::gui

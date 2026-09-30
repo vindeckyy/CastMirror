@@ -1,11 +1,16 @@
 #include <adwaita.h>
 #include "gui_app.h"
 #include "css_loader.h"
+#include "i18n.h"
 #include "notify.h"
 #include "castcore/cast_engine.h"
 #include "castcore/logger.h"
 
 #include <memory>
+
+#if defined(CASTMIRROR_HAVE_INTL)
+#include <clocale>
+#endif
 
 #if !defined(_WIN32)
 extern "C" int XInitThreads(void);
@@ -48,6 +53,17 @@ void OnShutdown(AdwApplication*, gpointer user_data) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  // Translation bootstrap.  Must run before any GTK object is constructed so
+  // that GTK's own strings (and ours) resolve in the user's locale.  When the
+  // build has no libintl (CASTMIRROR_HAVE_INTL undefined) this is a no-op and
+  // the GUI stays English-only, exactly as before.
+#if defined(CASTMIRROR_HAVE_INTL)
+  setlocale(LC_ALL, "");
+  bindtextdomain(CASTMIRROR_GETTEXT_DOMAIN, CASTMIRROR_LOCALEDIR);
+  bind_textdomain_codeset(CASTMIRROR_GETTEXT_DOMAIN, "UTF-8");
+  textdomain(CASTMIRROR_GETTEXT_DOMAIN);
+#endif
+
 #if !defined(_WIN32)
   XInitThreads();
 #endif

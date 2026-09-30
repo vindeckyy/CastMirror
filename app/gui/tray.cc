@@ -48,11 +48,12 @@ void TrayManager::CreateIndicator() {
   g_action_map_add_action(G_ACTION_MAP(action_group_), G_ACTION(action_show_));
 
   action_cast_last_ = g_simple_action_new("cast-last", nullptr);
-  g_signal_connect(action_cast_last_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer) {
-    std::thread([]() {
-      CastEngine::Instance().StartCastingLastDevice();
-    }).detach();
-  }), nullptr);
+  g_signal_connect(action_cast_last_, "activate", G_CALLBACK(+[](GSimpleAction*, GVariant*, gpointer user_data) {
+    auto* self = static_cast<TrayManager*>(user_data);
+    if (self) {
+      self->StartCastingLastDeviceAsync();
+    }
+  }), this);
   g_action_map_add_action(G_ACTION_MAP(action_group_), G_ACTION(action_cast_last_));
 
   action_stop_ = g_simple_action_new("stop", nullptr);
@@ -114,7 +115,25 @@ void TrayManager::CreateIndicator() {
 #endif
 }
 
+void TrayManager::StartCastingLastDeviceAsync() {
+  // Never overlap two runs, and keep the handle so it can be joined before the
+  // engine is shut down.
+  JoinCastLastThread();
+  cast_last_thread_ = std::thread([]() {
+    CastEngine::Instance().StartCastingLastDevice();
+  });
+}
+
+void TrayManager::JoinCastLastThread() {
+  if (cast_last_thread_.joinable()) {
+    cast_last_thread_.join();
+  }
+}
+
 void TrayManager::DestroyIndicator() {
+  // Join before touching anything else: GuiApp::Shutdown calls this ahead of
+  // CastEngine::Shutdown(), so the worker cannot race engine teardown.
+  JoinCastLastThread();
 #if defined(CASTMIRROR_HAVE_TRAY)
   if (indicator_) {
     app_indicator_set_status(static_cast<AppIndicator*>(indicator_), APP_INDICATOR_STATUS_PASSIVE);

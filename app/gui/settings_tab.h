@@ -18,14 +18,12 @@ class SettingsTab {
 
   void UpdateSessionState(SessionState state);
   void SyncBitrateSlider(uint32_t kbps);
-  void SyncAudioSwitch(bool active);
-  void SyncSilenceSwitch(bool active);
 
  private:
   void BuildUi();
   void UpdateBitrateLabel(uint32_t kbps);
   void UpdateDelayLabel(int ms);
-  void UpdateDependentSensitivities();
+  void UpdateDependentSensitivities(SessionState state);
   void RunSelfTestDialog();
 
   GuiApp* app_ = nullptr;

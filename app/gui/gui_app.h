@@ -14,6 +14,14 @@ class SettingsTab;
 class LogsTab;
 class TrayManager;
 
+// A shared liveness token. The owner (GuiApp) creates it and clears it in its
+// destructor; every async callback that can outlive the owner captures a copy
+// by value and checks Alive() before touching any member. This is the single
+// mechanism used for cross-thread / cross-teardown callbacks in the GUI.
+using LivenessToken = std::shared_ptr<bool>;
+
+inline bool Alive(const LivenessToken& token) { return token && *token; }
+
 class GuiApp {
  public:
   explicit GuiApp(AdwApplication* application);
@@ -33,14 +41,25 @@ class GuiApp {
   void TriggerCastAction();
   void TriggerRescan();
 
-  void SyncAudioEnabled(bool enabled);
-  void SyncSilenceHost(bool enabled);
+  // Cross-tab state. The GuiApp is the single source of truth for the live
+  // Freeze / Mute toggles so every surface agrees with the engine.
+  void SyncFreeze(bool frozen);
+  void SyncMute(bool muted);
   void SyncBitrateSlider(uint32_t kbps);
+
+  bool IsFreezeActive() const { return freeze_active_; }
+  bool IsMuteActive() const { return mute_active_; }
 
   void ShowToast(const std::string& title);
   void OnDestinationSelectionChanged();
   void PushModalActionBlock();
   void PopModalActionBlock();
+  // Takes ownership of the modal action block pushed for `dialog`: the block is
+  // released exactly once, when the dialog emits "closed" or when its signal
+  // closure is destroyed if it is torn down without ever closing.
+  void OwnModalDialog(AdwDialog* dialog);
+  // Copy of the liveness token, for callbacks registered outside GuiApp.
+  LivenessToken GetLivenessToken() const { return alive_; }
   bool IsActiveSessionAudioEnabled() const { return active_session_audio_enabled_; }
 
   CastTab* GetCastTab() const { return cast_tab_.get(); }
@@ -107,6 +126,8 @@ class GuiApp {
   std::string last_failed_message_;
   std::string last_device_name_;
   bool active_session_audio_enabled_ = false;
+  bool freeze_active_ = false;
+  bool mute_active_ = false;
   bool scan_in_progress_ = false;
   bool first_presented_ = false;
   int modal_action_block_count_ = 0;
@@ -114,6 +135,8 @@ class GuiApp {
   guint rescan_timer_id_ = 0;
   bool is_quitting_ = false;
   bool shutdown_done_ = false;
+  // Cleared in ~GuiApp(); every async callback holds a copy and checks it.
+  LivenessToken alive_ = std::make_shared<bool>(true);
 };
 
 }  // namespace castcore::gui

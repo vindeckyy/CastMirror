@@ -61,6 +61,7 @@ class LogsTab {
   std::deque<PendingLog> history_;
   std::string filter_text_;
   bool idle_scheduled_ = false;
+  guint idle_source_id_ = 0;
   static constexpr size_t kMaxHistory = 5000;
 };
 

@@ -35,7 +35,15 @@ LogsTab::LogsTab(GuiApp* app) : app_(app) {
   SeedInitialLogs();
 }
 
-LogsTab::~LogsTab() = default;
+LogsTab::~LogsTab() {
+  // The pending idle holds a raw `this`; Logger::SetCallback(nullptr) does not
+  // cancel an already-scheduled source, so it must be removed here.
+  if (idle_source_id_ != 0) {
+    g_source_remove(idle_source_id_);
+    idle_source_id_ = 0;
+  }
+  idle_scheduled_ = false;
+}
 
 void LogsTab::BuildUi() {
   GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
@@ -531,7 +539,7 @@ void LogsTab::OnLogMessage(LogLevel level, const std::string& formatted_line) {
 
   if (!idle_scheduled_) {
     idle_scheduled_ = true;
-    g_idle_add(+[](gpointer user_data) -> gboolean {
+    idle_source_id_ = g_idle_add(+[](gpointer user_data) -> gboolean {
       auto* self = static_cast<LogsTab*>(user_data);
       self->FlushPendingLogs();
       return G_SOURCE_REMOVE;
@@ -545,6 +553,7 @@ void LogsTab::FlushPendingLogs() {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     to_drain.swap(pending_queue_);
     idle_scheduled_ = false;
+    idle_source_id_ = 0;  // the idle that called us is about to be removed
     // Also push to history for filtering (preserve all, capped)
     for (auto &item : to_drain) {
       history_.push_back(item);

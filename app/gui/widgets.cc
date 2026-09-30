@@ -1,5 +1,7 @@
 #include "widgets.h"
 
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 namespace castcore::gui {
@@ -43,6 +45,26 @@ void OnStatValueNotify(GObject* object, GParamSpec* /*pspec*/, gpointer user_dat
 }
 
 }  // namespace
+
+void SetSemanticClass(GtkWidget* widget, const char* state_class) {
+  ClearSemanticClasses(widget);
+  if (widget && state_class && state_class[0] != '\0') {
+    gtk_widget_add_css_class(widget, state_class);
+  }
+}
+
+std::string FormatMbps(double mbps, int precision) {
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(precision) << mbps << " Mbps";
+  return ss.str();
+}
+
+GtkWidget* MakeSelectIcon() {
+  GtkWidget* icon = gtk_image_new_from_icon_name("object-select-symbolic");
+  gtk_image_set_pixel_size(GTK_IMAGE(icon), 18);
+  gtk_widget_set_visible(icon, FALSE);
+  return icon;
+}
 
 GtkWidget* MakeSectionHeader(const char* title, const char* one_liner) {
   GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);

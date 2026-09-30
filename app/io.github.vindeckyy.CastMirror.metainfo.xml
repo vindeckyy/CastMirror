@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 CastMirror Maintainers
+     SPDX-License-Identifier: CC0-1.0
+     AppStream metadata for GNOME Software, KDE Discover and Flathub.
+     Validated against appstreamcli(1); the <id> must match this file name. -->
+<component type="desktop-application">
+  <id>io.github.vindeckyy.CastMirror</id>
+
+  <name>CastMirror</name>
+  <summary>Send this PC's screen to a Chromecast or Cast TV</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+
+  <description>
+    <p>
+      CastMirror mirrors a display or a single application window to any Google
+      Cast, Android TV or Nest receiver on the local network. It speaks the Cast
+      Streaming protocol natively and does not need a Chrome installation.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Display or single-window capture on X11 (XRandR, XComposite, MIT-SHM) and on Wayland via the xdg-desktop-portal ScreenCast API over PipeWire</li>
+      <li>VAAPI hardware H.264 encoding with an FFmpeg libx264 software fallback</li>
+      <li>Opus audio captured from the PulseAudio / PipeWire default sink monitor, with host mute restoration on stop</li>
+      <li>Automatic bitrate and resolution adaptation with a live latency, bitrate, RTT and packet-loss HUD</li>
+      <li>Six quality presets plus an inline bitrate ceiling and capture frame-rate control</li>
+      <li>Freeze and mute controls, system tray integration and desktop notifications</li>
+      <li>LAN receiver discovery over mDNS/DNS-SD with manual IP entry</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.vindeckyy.CastMirror.desktop</launchable>
+
+  <url type="homepage">https://github.com/vindeckyy/CastMirror</url>
+  <url type="bugtracker">https://github.com/vindeckyy/CastMirror/issues</url>
+  <url type="vcs-browser">https://github.com/vindeckyy/CastMirror</url>
+  <url type="help">https://github.com/vindeckyy/CastMirror/blob/main/docs/building.md</url>
+
+  <developer id="io.github.vindeckyy">
+    <name>CastMirror Maintainers</name>
+  </developer>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+
+  <keywords>
+    <keyword>chromecast</keyword>
+    <keyword>cast</keyword>
+    <keyword>mirror</keyword>
+    <keyword>screen share</keyword>
+    <keyword>dlna</keyword>
+  </keywords>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Cast tab: pick a receiver and choose what to share</caption>
+      <image type="source">https://raw.githubusercontent.com/vindeckyy/CastMirror/main/docs/assets/screenshot-cast.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Live session: adaptive ladder, latency HUD, freeze and mute</caption>
+      <image type="source">https://raw.githubusercontent.com/vindeckyy/CastMirror/main/docs/assets/screenshot-live.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings: bitrate ceiling, capture frame rate, playout delay</caption>
+      <image type="source">https://raw.githubusercontent.com/vindeckyy/CastMirror/main/docs/assets/screenshot-settings.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Logs: searchable console with severity filters</caption>
+      <image type="source">https://raw.githubusercontent.com/vindeckyy/CastMirror/main/docs/assets/screenshot-logs.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Ready state: a receiver discovered on the LAN</caption>
+      <image type="source">https://raw.githubusercontent.com/vindeckyy/CastMirror/main/docs/assets/screenshot-ready.png</image>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <!-- version mirrors `project(CastMirror VERSION ...)` in the root
+         CMakeLists.txt; the date is the HEAD commit date of the tagged
+         release, not an invented value. -->
+    <release version="1.0.0" date="2026-09-23">
+      <description>
+        <p>First release: native Cast Streaming sender with X11 and Wayland capture, VAAPI/libx264 encoding, Opus audio, adaptive bitrate ladder, GTK 4 + libadwaita desktop app and an interactive CLI.</p>
+      </description>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+</component>

@@ -18,6 +18,12 @@ Sparkline::Sparkline(int max_points, float min_val, float max_val,
   gtk_widget_set_valign(drawing_area_, GTK_ALIGN_END);
   gtk_widget_add_css_class(drawing_area_, "cm-sparkline");
 
+  // The drawing area is owned by the widget tree and can outlive this object.
+  // Let GLib clear drawing_area_ when the widget is finalized so the
+  // destructor below can tell "still alive" from "already gone".
+  g_object_add_weak_pointer(G_OBJECT(drawing_area_),
+                            reinterpret_cast<gpointer*>(&drawing_area_));
+
   gtk_drawing_area_set_draw_func(
       GTK_DRAWING_AREA(drawing_area_),
       DrawCallback,
@@ -25,7 +31,18 @@ Sparkline::Sparkline(int max_points, float min_val, float max_val,
       nullptr);
 }
 
-Sparkline::~Sparkline() = default;
+Sparkline::~Sparkline() {
+  // Sparkline is a unique_ptr member of LiveTab and is destroyed before the
+  // widget tree is; without this the draw func would keep `this` as its
+  // user_data and a later repaint would dereference freed memory.
+  if (drawing_area_) {
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drawing_area_), nullptr,
+                                   nullptr, nullptr);
+    g_object_remove_weak_pointer(G_OBJECT(drawing_area_),
+                                 reinterpret_cast<gpointer*>(&drawing_area_));
+    drawing_area_ = nullptr;
+  }
+}
 
 void Sparkline::PushValue(float val) {
   values_.push_back(val);

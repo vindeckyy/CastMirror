@@ -303,6 +303,10 @@ void SettingsTab::BuildUi() {
     self->pending_bitrate_kbps_ =
         std::max<uint32_t>(1000, static_cast<uint32_t>(mbps * 1000.0 + 0.5));
     self->UpdateBitrateLabel(self->pending_bitrate_kbps_);
+    // Reverse of the Cast-tab fan-out: keep the inline Cast slider in step.
+    if (self->app_) {
+      self->app_->SyncBitrateSlider(self->pending_bitrate_kbps_);
+    }
 
     if (self->bitrate_debounce_id_ != 0) {
       g_source_remove(self->bitrate_debounce_id_);
@@ -342,10 +346,8 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.audio_enabled = state;
     ConfigStore::Instance().Save();
-    if (self->app_) {
-      self->app_->SyncAudioEnabled(state);
-    }
-    self->UpdateDependentSensitivities();
+    self->UpdateDependentSensitivities(
+        self->app_ ? self->app_->GetCurrentState() : SessionState::kIdle);
   };
   g_signal_connect(audio_row_, "notify::active", G_CALLBACK(on_audio_toggle), this);
 
@@ -373,9 +375,6 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.silence_host_speakers = state;
     ConfigStore::Instance().Save();
-    if (self->app_) {
-      self->app_->SyncSilenceHost(state);
-    }
   };
   g_signal_connect(silence_row_, "notify::active", G_CALLBACK(on_silence_toggle), this);
 
@@ -417,12 +416,18 @@ void SettingsTab::BuildUi() {
 
       if (self->app_) {
         self->app_->PushModalActionBlock();
+        // The modal block is released by the dialog's own lifetime, not by the
+        // async callback below: a dialog torn down without the callback running
+        // would otherwise strand the counter and disable every window action.
+        self->app_->OwnModalDialog(dialog);
       }
 
       struct ConsentContext {
         SettingsTab* self;
+        LivenessToken alive;
       };
-      auto* ctx = new ConsentContext{self};
+      auto* ctx = new ConsentContext{
+          self, self->app_ ? self->app_->GetLivenessToken() : LivenessToken()};
 
       GtkWidget* parent_win = self->app_ ? GTK_WIDGET(self->app_->GetWindow()) : self->root_widget_;
       adw_alert_dialog_choose(
@@ -432,11 +437,12 @@ void SettingsTab::BuildUi() {
           +[](GObject* source, GAsyncResult* res, gpointer user_data) {
             auto* ctx = static_cast<ConsentContext*>(user_data);
             SettingsTab* tab = ctx->self;
+            LivenessToken alive = ctx->alive;
             delete ctx;
 
             const char* response = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(source), res);
-            if (tab->app_) {
-              tab->app_->PopModalActionBlock();
+            if (!Alive(alive) || !tab) {
+              return;  // the app (and this tab) has been torn down
             }
 
             if (g_strcmp0(response, "enable") == 0) {
@@ -488,7 +494,8 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.enable_tray_on_startup = state;
     ConfigStore::Instance().Save();
-    self->UpdateDependentSensitivities();
+    self->UpdateDependentSensitivities(
+        self->app_ ? self->app_->GetCurrentState() : SessionState::kIdle);
   };
   g_signal_connect(tray_row_, "notify::active", G_CALLBACK(on_tray_toggle), this);
 
@@ -514,15 +521,15 @@ void SettingsTab::BuildUi() {
   };
   g_signal_connect(notify_row_, "notify::active", G_CALLBACK(on_notif_toggle), this);
 
-  UpdateDependentSensitivities();
+  UpdateDependentSensitivities(
+      app_ ? app_->GetCurrentState() : SessionState::kIdle);
   syncing_controls_ = false;
 }
 
 void SettingsTab::UpdateBitrateLabel(uint32_t kbps) {
   if (!bitrate_val_lbl_) return;
-  std::ostringstream ss;
-  ss << std::fixed << std::setprecision(1) << (kbps / 1000.0) << " Mbps";
-  gtk_label_set_text(GTK_LABEL(bitrate_val_lbl_), ss.str().c_str());
+  gtk_label_set_text(GTK_LABEL(bitrate_val_lbl_),
+                     FormatMbps(kbps / 1000.0).c_str());
 }
 
 void SettingsTab::UpdateDelayLabel(int ms) {
@@ -531,8 +538,7 @@ void SettingsTab::UpdateDelayLabel(int ms) {
   gtk_label_set_text(GTK_LABEL(delay_val_lbl_), text.c_str());
 }
 
-void SettingsTab::UpdateDependentSensitivities() {
-  SessionState state = app_ ? app_->GetCurrentState() : SessionState::kIdle;
+void SettingsTab::UpdateDependentSensitivities(SessionState state) {
   bool is_session_idle = (state == SessionState::kIdle ||
                           state == SessionState::kReady ||
                           state == SessionState::kDiscovering ||
@@ -582,41 +588,20 @@ void SettingsTab::UpdateDependentSensitivities() {
   if (notify_row_) gtk_widget_set_sensitive(notify_row_, TRUE);
 }
 
-void SettingsTab::UpdateSessionState(SessionState /*state*/) {
-  UpdateDependentSensitivities();
+void SettingsTab::UpdateSessionState(SessionState state) {
+  UpdateDependentSensitivities(state);
 }
 
 void SettingsTab::SyncBitrateSlider(uint32_t kbps) {
+  // Save / restore: this may be invoked while a wider sync is already in
+  // progress, so never clear a flag we did not set.
+  const bool prev = syncing_controls_;
   syncing_controls_ = true;
   if (bitrate_scale_) {
     gtk_range_set_value(GTK_RANGE(bitrate_scale_), kbps / 1000.0);
   }
   UpdateBitrateLabel(kbps);
-  syncing_controls_ = false;
-}
-
-void SettingsTab::SyncAudioSwitch(bool active) {
-  if (audio_row_) {
-    gboolean current = adw_switch_row_get_active(ADW_SWITCH_ROW(audio_row_));
-    if (current != static_cast<gboolean>(active)) {
-      syncing_controls_ = true;
-      adw_switch_row_set_active(ADW_SWITCH_ROW(audio_row_), active);
-      UpdateDependentSensitivities();
-      syncing_controls_ = false;
-    } else {
-      UpdateDependentSensitivities();
-    }
-  }
-}
-
-void SettingsTab::SyncSilenceSwitch(bool active) {
-  if (!silence_row_) return;
-  gboolean current = adw_switch_row_get_active(ADW_SWITCH_ROW(silence_row_));
-  if (current != static_cast<gboolean>(active)) {
-    syncing_controls_ = true;
-    adw_switch_row_set_active(ADW_SWITCH_ROW(silence_row_), active);
-    syncing_controls_ = false;
-  }
+  syncing_controls_ = prev;
 }
 
 void SettingsTab::RunSelfTestDialog() {

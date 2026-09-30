@@ -182,18 +182,7 @@ void LiveTab::BuildUi() {
   gtk_widget_set_tooltip_text(freeze_btn_, "Freeze video on TV (stops sending new video frames)");
   gtk_accessible_update_property(GTK_ACCESSIBLE(freeze_btn_),
                                  GTK_ACCESSIBLE_PROPERTY_LABEL, "Freeze TV stream", -1);
-  g_signal_connect(freeze_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
-    auto* self = static_cast<LiveTab*>(user_data);
-    bool frozen = gtk_toggle_button_get_active(btn);
-    CastEngine::Instance().SetFreezeStream(frozen);
-    if (self->freeze_lbl_) {
-      gtk_label_set_text(GTK_LABEL(self->freeze_lbl_), frozen ? "Resume" : "Freeze");
-    }
-    if (self->freeze_icon_) {
-      gtk_image_set_from_icon_name(GTK_IMAGE(self->freeze_icon_),
-                                   frozen ? "media-playback-start-symbolic" : "media-playback-pause-symbolic");
-    }
-  }), this);
+  g_signal_connect(freeze_btn_, "toggled", G_CALLBACK(OnFreezeToggled), this);
   gtk_box_append(GTK_BOX(live_controls_box_), freeze_btn_);
 
   mute_btn_ = gtk_toggle_button_new();
@@ -207,18 +196,7 @@ void LiveTab::BuildUi() {
   gtk_widget_set_tooltip_text(mute_btn_, "Mute/unmute stream audio sent to the Cast device");
   gtk_accessible_update_property(GTK_ACCESSIBLE(mute_btn_),
                                  GTK_ACCESSIBLE_PROPERTY_LABEL, "Mute TV audio", -1);
-  g_signal_connect(mute_btn_, "toggled", G_CALLBACK(+[](GtkToggleButton* btn, gpointer user_data) {
-    auto* self = static_cast<LiveTab*>(user_data);
-    bool muted = gtk_toggle_button_get_active(btn);
-    CastEngine::Instance().SetLiveAudioMuted(muted);
-    if (self->mute_lbl_) {
-      gtk_label_set_text(GTK_LABEL(self->mute_lbl_), muted ? "Unmute TV" : "Mute TV");
-    }
-    if (self->mute_icon_) {
-      gtk_image_set_from_icon_name(GTK_IMAGE(self->mute_icon_),
-                                   muted ? "audio-volume-muted-symbolic" : "audio-volume-high-symbolic");
-    }
-  }), this);
+  g_signal_connect(mute_btn_, "toggled", G_CALLBACK(OnMuteToggled), this);
   gtk_box_append(GTK_BOX(live_controls_box_), mute_btn_);
 
   // Quick-toggle for Game mode (150ms delay, lock resolution)
@@ -462,29 +440,15 @@ void LiveTab::SetHealthState(const std::string& text, const char* state_class, c
     gtk_image_set_from_icon_name(GTK_IMAGE(health_icon_), icon_name);
   }
   if (health_card_) {
-    gtk_widget_remove_css_class(health_card_, "is-live");
-    gtk_widget_remove_css_class(health_card_, "is-warning");
-    gtk_widget_remove_css_class(health_card_, "is-idle");
-    if (state_class && state_class[0] != '\0') {
-      gtk_widget_add_css_class(health_card_, state_class);
-    } else {
-      gtk_widget_add_css_class(health_card_, "is-idle");
-    }
+    SetSemanticClass(health_card_,
+                     (state_class && state_class[0] != '\0') ? state_class : "is-idle");
   }
 }
 
 void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats) {
   auto set_node_state = [](GtkWidget* node, const char* state_class) {
     if (!node) return;
-    gtk_widget_remove_css_class(node, "is-live");
-    gtk_widget_remove_css_class(node, "is-progress");
-    gtk_widget_remove_css_class(node, "is-warning");
-    gtk_widget_remove_css_class(node, "is-idle");
-    if (state_class && state_class[0] != '\0') {
-      gtk_widget_add_css_class(node, state_class);
-    } else {
-      gtk_widget_add_css_class(node, "is-idle");
-    }
+    SetSemanticClass(node, (state_class && state_class[0] != '\0') ? state_class : "is-idle");
   };
 
   // Update node labels
@@ -515,7 +479,7 @@ void LiveTab::UpdatePipelineDiagram(SessionState state, const StreamStats& stats
 
   if (pipe_network_sub_) {
     std::ostringstream ss_net;
-    ss_net << std::fixed << std::setprecision(1) << (stats.bitrate_kbps / 1000.0) << " Mbps";
+    ss_net << FormatMbps(stats.bitrate_kbps / 1000.0);
     ss_net << " · RTT " << std::fixed << std::setprecision(0) << stats.round_trip_time_ms << " ms";
     if (stats.packet_loss_fraction > 0.001) {
       ss_net << " (" << std::fixed << std::setprecision(1)
@@ -602,7 +566,7 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
   std::ostringstream ss_hero;
   ss_hero << cur.current_resolution.width << " × " << cur.current_resolution.height
           << " · " << std::fixed << std::setprecision(1) << cur.current_fps << " FPS"
-          << " · " << std::fixed << std::setprecision(1) << (cur.bitrate_kbps / 1000.0) << " Mbps";
+          << " · " << FormatMbps(cur.bitrate_kbps / 1000.0);
   gtk_label_set_text(GTK_LABEL(hero_subtitle_lbl_), ss_hero.str().c_str());
 
   // 1. Framerate
@@ -615,7 +579,7 @@ void LiveTab::UpdateStats(const StreamStats& stats) {
 
   // 2. Video bitrate
   std::ostringstream ss_bitrate;
-  ss_bitrate << std::fixed << std::setprecision(2) << (cur.bitrate_kbps / 1000.0) << " Mbps";
+  ss_bitrate << FormatMbps(cur.bitrate_kbps / 1000.0, 2);
   gtk_label_set_text(GTK_LABEL(val_bitrate_), ss_bitrate.str().c_str());
 
   // 3. Round-trip time (Latency HUD: color red when > 150 ms)
@@ -764,6 +728,12 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
     }
     if (freeze_btn_) gtk_widget_set_sensitive(freeze_btn_, TRUE);
     if (mute_btn_) gtk_widget_set_sensitive(mute_btn_, TRUE);
+    if (app_) {
+      // Re-assert the authoritative live-control state so the toggles still
+      // match after a reconnect or a re-entry into kStreaming.
+      SetFreezeUi(app_->IsFreezeActive());
+      SetMuteUi(app_->IsMuteActive());
+    }
     if (game_mode_btn_) gtk_widget_set_sensitive(game_mode_btn_, TRUE);
     if (cinema_mode_btn_) gtk_widget_set_sensitive(cinema_mode_btn_, TRUE);
     UpdatePipelineDiagram(state, last_stats_);
@@ -796,6 +766,8 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
   }
 
   // Idle / Ready / Discovering
+  SetFreezeUi(false);
+  SetMuteUi(false);
   if (failure_visible_) {
     gtk_stack_set_visible_child_name(GTK_STACK(root_widget_), "failed");
   } else {
@@ -880,14 +852,12 @@ void LiveTab::ResetSessionValues() {
   if (spark_loss_) spark_loss_->Reset();
 
   if (freeze_btn_) {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(freeze_btn_), FALSE);
+    SetFreezeUi(false);
     gtk_widget_set_sensitive(freeze_btn_, FALSE);
-    if (freeze_lbl_) gtk_label_set_text(GTK_LABEL(freeze_lbl_), "Freeze");
   }
   if (mute_btn_) {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mute_btn_), FALSE);
+    SetMuteUi(false);
     gtk_widget_set_sensitive(mute_btn_, FALSE);
-    if (mute_lbl_) gtk_label_set_text(GTK_LABEL(mute_lbl_), "Mute TV");
   }
 
   if (game_mode_btn_) {
@@ -903,6 +873,66 @@ void LiveTab::ResetSessionValues() {
       gtk_adjustment_set_value(vadj, gtk_adjustment_get_lower(vadj));
     }
   }
+}
+
+void LiveTab::OnFreezeToggled(GtkToggleButton* btn, gpointer user_data) {
+  auto* self = static_cast<LiveTab*>(user_data);
+  if (!self || self->syncing_toggles_) return;
+  const bool frozen = gtk_toggle_button_get_active(btn);
+  if (self->app_) {
+    // GuiApp is the single owner of the freeze state and forwards it to the
+    // engine and back onto this tab, so every surface stays in agreement.
+    self->app_->SyncFreeze(frozen);
+  } else {
+    CastEngine::Instance().SetFreezeStream(frozen);
+    self->SetFreezeUi(frozen);
+  }
+}
+
+void LiveTab::OnMuteToggled(GtkToggleButton* btn, gpointer user_data) {
+  auto* self = static_cast<LiveTab*>(user_data);
+  if (!self || self->syncing_toggles_) return;
+  const bool muted = gtk_toggle_button_get_active(btn);
+  if (self->app_) {
+    self->app_->SyncMute(muted);
+  } else {
+    CastEngine::Instance().SetLiveAudioMuted(muted);
+    self->SetMuteUi(muted);
+  }
+}
+
+void LiveTab::SetFreezeUi(bool frozen) {
+  const bool prev = syncing_toggles_;
+  syncing_toggles_ = true;
+  if (freeze_btn_) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(freeze_btn_), frozen);
+  }
+  if (freeze_lbl_) {
+    gtk_label_set_text(GTK_LABEL(freeze_lbl_), frozen ? "Resume" : "Freeze");
+  }
+  if (freeze_icon_) {
+    gtk_image_set_from_icon_name(GTK_IMAGE(freeze_icon_),
+                                 frozen ? "media-playback-start-symbolic"
+                                        : "media-playback-pause-symbolic");
+  }
+  syncing_toggles_ = prev;
+}
+
+void LiveTab::SetMuteUi(bool muted) {
+  const bool prev = syncing_toggles_;
+  syncing_toggles_ = true;
+  if (mute_btn_) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(mute_btn_), muted);
+  }
+  if (mute_lbl_) {
+    gtk_label_set_text(GTK_LABEL(mute_lbl_), muted ? "Unmute TV" : "Mute TV");
+  }
+  if (mute_icon_) {
+    gtk_image_set_from_icon_name(GTK_IMAGE(mute_icon_),
+                                 muted ? "audio-volume-muted-symbolic"
+                                       : "audio-volume-high-symbolic");
+  }
+  syncing_toggles_ = prev;
 }
 
 void LiveTab::OnGameModeClicked() {

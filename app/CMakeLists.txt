@@ -9,6 +9,16 @@ find_package(PkgConfig REQUIRED)
 add_executable(castmirror cli/main.cc)
 target_link_libraries(castmirror PRIVATE castcore)
 install(TARGETS castmirror RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES castmirror.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+
+if(CASTMIRROR_BUILD_GUI AND WIN32)
+  message(FATAL_ERROR
+      "CASTMIRROR_BUILD_GUI=ON is not supported on Windows: the GTK 4 UI is the Linux "
+      "product and includes POSIX/X11 headers (<sys/socket.h>, <arpa/inet.h>, X11, "
+      "PulseAudio) that do not exist in a Windows toolchain. Windows ships the WinUI 3 "
+      "client (app/winui) and the castmirror CLI. Re-run CMake with "
+      "-DCASTMIRROR_BUILD_GUI=OFF.")
+endif()
 
 if(NOT CASTMIRROR_BUILD_GUI)
   set(CASTMIRROR_TRAY_LINKED OFF PARENT_SCOPE)
@@ -20,9 +30,17 @@ pkg_check_modules(LIBADWAITA REQUIRED libadwaita-1>=1.5)
 
 set(CASTMIRROR_HAVE_TRAY_LIB OFF)
 if(CASTMIRROR_ENABLE_TRAY)
-  pkg_check_modules(AYATANA ayatana-appindicator-glib>=2.0)
+  # The GTK4-compatible AppIndicator ships its pkg-config file as
+  # `ayatana-appindicator-glib-2.0.pc`. The previous probe asked for a module
+  # literally named `ayatana-appindicator-glib` (with `>=2.0` read as a version
+  # constraint), which does not exist, so the tray was never detected even when
+  # the dev package was installed.
+  pkg_check_modules(AYATANA ayatana-appindicator-glib-2.0)
   if(AYATANA_FOUND)
     set(CASTMIRROR_HAVE_TRAY_LIB ON)
+    message(STATUS "Found ayatana-appindicator-glib ${AYATANA_VERSION} - enabling system tray")
+  else()
+    message(STATUS "ayatana-appindicator-glib not found - building without system tray")
   endif()
 endif()
 
@@ -91,7 +109,11 @@ else()
 endif()
 
 install(TARGETS castmirror-gui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES castmirror-gui.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 install(FILES io.github.vindeckyy.CastMirror.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+# AppStream metadata: required by GNOME Software / KDE Discover and by Flathub.
+install(FILES io.github.vindeckyy.CastMirror.metainfo.xml
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/metainfo)
 install(FILES ${CMAKE_SOURCE_DIR}/docs/assets/logo.svg
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps
         RENAME io.github.vindeckyy.CastMirror.svg)
