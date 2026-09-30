@@ -16,6 +16,10 @@
 
 namespace castcore {
 
+// Returns `json` with the values of "aesKey" and "aesIvMask" replaced, for
+// any log line that echoes a Cast payload.
+std::string RedactSecrets(const std::string& json);
+
 class CastChannel {
  public:
   using MessageCallback = std::function<void(const std::string& ns,

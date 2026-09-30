@@ -28,6 +28,26 @@
 
 namespace castcore {
 
+std::string RedactSecrets(const std::string& json) {
+  // The OFFER carries the per-session AES key and IV mask in clear text; the
+  // session log must never hold them. Replace the string value after each key.
+  static constexpr const char* kSecretKeys[] = {"aesKey", "aesIvMask"};
+  std::string out = json;
+  for (const char* key : kSecretKeys) {
+    const std::string needle = std::string("\"") + key + "\"";
+    size_t pos = 0;
+    while ((pos = out.find(needle, pos)) != std::string::npos) {
+      size_t colon = out.find(':', pos + needle.size());
+      size_t open = colon == std::string::npos ? colon : out.find('"', colon + 1);
+      size_t close = open == std::string::npos ? open : out.find('"', open + 1);
+      if (close == std::string::npos) break;
+      out.replace(open + 1, close - open - 1, "<redacted>");
+      pos = open + 1;
+    }
+  }
+  return out;
+}
+
 namespace {
 
 bool IsHeartbeatPingPong(const std::string& namespace_, const std::string& payload) {
@@ -349,7 +369,7 @@ bool CastChannel::SendCastMessage(const std::string& namespace_,
 
   if (!IsHeartbeatPingPong(namespace_, payload_utf8)) {
     LOG_DEBUG << "[CastChannel SEND] ns=" << namespace_ << " src=" << source_id
-              << " dst=" << destination_id << " payload=" << payload_utf8;
+              << " dst=" << destination_id << " payload=" << RedactSecrets(payload_utf8);
   }
   return SendRawPacket(packet.data(), packet.size());
 }
@@ -662,7 +682,7 @@ void CastChannel::ReceiveLoop() {
 
       if (!is_binary && !IsHeartbeatPingPong(msg.namespace_(), payload_str)) {
         LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id()
-                  << " dst=" << msg.destination_id() << " payload=" << payload_str;
+                  << " dst=" << msg.destination_id() << " payload=" << RedactSecrets(payload_str);
       } else if (is_binary) {
         LOG_DEBUG << "[CastChannel RECV] ns=" << msg.namespace_() << " src=" << msg.source_id()
                   << " dst=" << msg.destination_id() << " (binary " << payload_str.size() << " bytes)";

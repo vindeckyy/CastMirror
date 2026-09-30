@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "castcore/cast_transport.h"
+#include "castcore/cast_channel.h"
 #include <chrono>
 #include <thread>
 #include <vector>
@@ -715,3 +716,13 @@ TEST(CastTransportTest, TruncatedCheckpointCannotEvictInFlightFrame) {
   close(recv_fd);
 }
 
+
+TEST(RedactSecretsTest, HidesAesKeyAndIvMask) {
+  const std::string offer =
+      R"({"type":"OFFER","supportedStreams":[{"aesKey":"0123456789abcdef","aesIvMask":"fedcba9876543210","ssrc":2}]})";
+  const std::string out = castcore::RedactSecrets(offer);
+  EXPECT_EQ(out.find("0123456789abcdef"), std::string::npos);
+  EXPECT_EQ(out.find("fedcba9876543210"), std::string::npos);
+  EXPECT_NE(out.find("\"ssrc\":2"), std::string::npos);
+  EXPECT_EQ(castcore::RedactSecrets("no secrets here"), "no secrets here");
+}
