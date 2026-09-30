@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     name: Ubuntu Release
@@ -46,25 +53,6 @@ jobs:
 
       - name: Accessibility Audit
         run: ./scripts/audit_a11y.sh
-
-  cast-app-id-drift:
-    name: Cast App ID Drift (scheduled)
-    # Cron, not on-push: upstream Chromium changes these IDs rarely but
-    # unpredictably, and the product cannot work at all if one moves.
-    schedule:
-      - cron: '17 6 * * 1'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check cast_app_ids.h against Chromium HEAD
-        run: ./scripts/fetch_cast_appids.sh --check
-
-      - name: Explain the failure
-        if: failure()
-        run: |
-          echo '::error::cast_app_ids.h has drifted from upstream Chromium.'
-          echo 'Run scripts/fetch_cast_appids.sh and open a PR.'
 
   fuzz:
     name: libFuzzer (RTCP + mDNS parsers)

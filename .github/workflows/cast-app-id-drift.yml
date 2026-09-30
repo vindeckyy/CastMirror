@@ -1,0 +1,26 @@
+name: Cast App ID Drift
+
+# Cron, not on-push: upstream Chromium changes these IDs rarely but
+# unpredictably, and the product cannot work at all if one moves.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cast-app-id-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check cast_app_ids.h against Chromium HEAD
+        run: ./scripts/fetch_cast_appids.sh --check
+
+      - name: Explain the failure
+        if: failure()
+        run: |
+          echo '::error::cast_app_ids.h has drifted from upstream Chromium.'
+          echo 'Run scripts/fetch_cast_appids.sh and open a PR.'
