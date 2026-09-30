@@ -1,0 +1,67 @@
+# CastMirror house style.
+#
+# This file FREEZES the style the tree already uses; it is not a proposal to
+# reformat it. Derived by inspection of core/src/cast_session.cc,
+# core/src/rtcp_parser.cc and app/gui/sparkline.cc:
+#   * 2-space indent, no tabs
+#   * 100-column limit
+#   * `namespace castcore {` on its own line, closed with `}  // namespace castcore`
+#   * pointer/reference bound to the type (`int* p`, `const std::string& s`)
+#   * short functions/ifs stay on one line where they already do
+#
+# Verify a change with:
+#   clang-format --style=file --dry-run --Werror <file>
+# An untouched file must produce an empty diff.
+---
+Language: Cpp
+BasedOnStyle: Google
+
+Standard: c++20
+ColumnLimit: 100
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -1
+
+# `int* p` / `const std::string& s` — pointer bound to the type, as in the tree.
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+
+# `namespace castcore {` on its own line; `}  // namespace castcore` on close.
+NamespaceIndentation: None
+FixNamespaceComments: true
+SpacesBeforeTrailingComments: 2
+
+# Keep the existing one-liners (`if (x) return;`, small inline accessors).
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+# `case X: return "Y";` is used throughout types.h / c_api.cc — keep it.
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
+
+BreakBeforeBraces: Attach
+# Arguments keep the tree's one-per-line wrapping; parameters pack greedily.
+BinPackArguments: false
+BinPackParameters: true
+AlignAfterOpenBracket: Align
+AlignOperands: true
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+# The tree hand-aligns trailing comments in some blocks and not others; leave
+# the existing column as written instead of re-aligning every comment group.
+AlignTrailingComments: false
+AlignEscapedNewlines: DontAlign
+
+# Include ordering is hand-maintained in this tree; do not reorder it.
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# Keep the existing `switch` layout (case labels indented under the switch).
+IndentCaseLabels: true
+IndentCaseBlocks: false
+
+# Do not reflow the hand-wrapped string/stream chains in the CLI and GUI.
+ReflowComments: false

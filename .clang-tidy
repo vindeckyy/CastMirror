@@ -1,0 +1,43 @@
+# CastMirror static-analysis gate.
+#
+# Scope: the defect classes this codebase has actually been shown to contain.
+#   * concurrency-*  — the session has documented data races and a lock held
+#                      across blocking I/O (see core/src/cast_session.cc).
+#   * bugprone-*     — general logic/UB traps.
+#   * cppcoreguidelines-owning-memory — raw new/delete on owned resources.
+#   * performance-*  — needless copies on the hot capture/encode path.
+#   * clang-analyzer-* — path-sensitive use-after-free / null-deref / leaks.
+#
+# Deliberately NOT enabled: readability-* wholesale (it drowns the signal),
+# modernize-*, and any style check — .clang-format owns style.
+#
+# Run:  clang-tidy -p build <file>   (needs -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
+---
+Checks: >
+  -*,
+  concurrency-*,
+  bugprone-*,
+  cppcoreguidelines-owning-memory,
+  performance-*,
+  clang-analyzer-*
+
+WarningsAsErrors: ''
+
+# Only first-party headers are reported on. System headers (GTK, ffmpeg, openssl,
+# protobuf, nlohmann, ...) never match, so they are silent without an exclude list.
+HeaderFilterRegex: '.*/(core|app|tools|tests)/.*\.(h|hpp|hh|hxx)$'
+
+# Vendored / third-party trees that do live under the repo root.
+ExcludeHeaderFilterRegex: '.*(third_party|_deps|node_modules|/vcpkg/|/msys64/|/mingw64/|/usr/include/|/usr/local/include/|/opt/homebrew/|/Library/Developer/|/Applications/Xcode).*'
+
+CheckOptions:
+  # Raw allocations that are released by hand are the point of the check; keep
+  # arrays in scope rather than silently skipping them.
+  cppcoreguidelines-owning-memory.IgnoreArrays: false
+  # `f(a, b)` where both are ints is a real hazard on the capture path, but do
+  # not flag non-trivial types or very short names.
+  bugprone-easily-swappable-parameters.IgnoreNonTrivialTypes: true
+  bugprone-easily-swappable-parameters.MinimumLength: 4
+  # The session intentionally holds locks across blocking I/O; concurrency-* is
+  # here to surface it, not to fail the build on it.
+  concurrency-mt-unsafe.FunctionSet: '^$'

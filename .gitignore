@@ -35,3 +35,13 @@ app/winui/obj/
 # Agent workspace artifacts
 .agents/
 .empryo
+
+# Transient probe/scratch scripts written by tooling or agents. These are not
+# project files and must never be committed.
+scripts/.*_tmp.*
+scripts/.probe*
+scripts/*.tmp
+*.tmp
+
+.w.sh
+.w_build.log

@@ -1,0 +1,24 @@
+# Normalize line endings so a Windows checkout does not silently rewrite the
+# LF-only shell scripts in scripts/ or the `run: |` blocks in the workflows.
+# Without this, a Windows clone with core.autocrlf=true turns every
+# `#!/usr/bin/env sh` into a file the shell refuses to execute.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF: cmd.exe runs these, not a POSIX shell.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaries: never line-ending translated.
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# protoc output (core/src/proto) is generated, never hand-edited.
+core/src/proto/*.pb.cc binary
+core/src/proto/*.pb.h binary
