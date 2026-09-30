@@ -34,6 +34,10 @@ int main(int argc, char** argv) {
   fs::remove_all(dir, ec);
   fs::create_directories(dir, ec);
   SetEnvVar("CASTMIRROR_CONFIG_DIR", dir.string());
+  // Test machines (and CI runners) may have no capturable desktop or audio
+  // endpoint; sessions may then fall back to generated capture. Real sessions
+  // never do.
+  SetEnvVar("CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE", "1");
 
   ::testing::InitGoogleTest(&argc, argv);
   const int result = RUN_ALL_TESTS();

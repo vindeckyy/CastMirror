@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <cstdint>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -58,6 +59,15 @@ CastSession::CastSession(StateMachine& state_machine)
       recovery_(30) {
   (void)g_reporter_installed;
 }
+
+namespace {
+// Tests run on machines with no interactive desktop, so they opt in to the
+// generated capture backends explicitly. Real sessions never fall back to them.
+bool SyntheticCaptureAllowed() {
+  const char* v = std::getenv("CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE");
+  return v && v[0] != '\0' && std::strcmp(v, "0") != 0;
+}
+}  // namespace
 
 CastSession::~CastSession() {
   Stop();
@@ -493,12 +503,19 @@ bool CastSession::StartStreamingMedia() {
 
   if (enable_audio_ && audio_capture_) {
     if (!audio_capture_->Start(48000, 2)) {
-      LOG_WARN << "PulseAudio capture failed, falling back to synthetic audio";
-      audio_capture_ = AudioCaptureFactory::CreateSynthetic();
-      audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
-        ProcessAudioFrame(af);
-      });
-      audio_capture_->Start(48000, 2);
+      if (SyntheticCaptureAllowed()) {
+        LOG_WARN << "Audio capture failed; using synthetic audio (test mode)";
+        audio_capture_ = AudioCaptureFactory::CreateSynthetic();
+        audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
+          ProcessAudioFrame(af);
+        });
+        audio_capture_->Start(48000, 2);
+      } else {
+        // Keep the picture going. The adaptation loop already sends silence
+        // when no audio arrives, so the receiver stays in sync.
+        LOG_WARN << "Audio capture could not start; continuing with silent audio";
+        audio_capture_.reset();
+      }
     }
   }
 
@@ -510,7 +527,20 @@ bool CastSession::StartStreamingMedia() {
   });
   if (!display_capture_->IsCapturing() &&
       !display_capture_->Start(source_, current_stats_.current_framerate)) {
-    LOG_WARN << "Display capture backend failed; falling back to synthetic capture";
+    if (!SyntheticCaptureAllowed()) {
+      // Never stream a generated test pattern to someone's TV as if it were
+      // their screen. Say what went wrong instead.
+      LOG_ERROR << "Screen capture could not start";
+      ErrorCallback cb;
+      {
+        std::lock_guard<std::mutex> cb_lock(callbacks_mutex_);
+        cb = error_callback_;
+      }
+      if (cb) cb("Could not capture the screen. Another app may be blocking capture, or the display is locked.");
+      StopMediaPipeline();
+      return false;
+    }
+    LOG_WARN << "Display capture backend failed; using synthetic capture (test mode)";
     display_capture_ = DisplayCaptureFactory::CreateSynthetic(
         current_stats_.current_resolution.width,
         current_stats_.current_resolution.height);
