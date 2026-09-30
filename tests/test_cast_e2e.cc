@@ -954,7 +954,11 @@ TEST(CastE2ETest, MutedSessionKeepsSendingSilenceWithoutStackOverflow) {
   const StreamStats after = engine.GetStats();
   EXPECT_GT(after.packets_sent, before.packets_sent)
       << "Silence frames must still be encoded and sent while muted";
+#if defined(_WIN32)
+  // frames_sent counts video frames. The Windows capture repeats the last frame at a steady
+  // rate; X11 under a headless Xvfb sends nothing while the screen is static.
   EXPECT_GT(after.frames_sent, before.frames_sent);
+#endif
 
   engine.SetLiveAudioMuted(false);
   engine.StopCasting();

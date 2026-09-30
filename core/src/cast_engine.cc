@@ -52,6 +52,11 @@ CastEngine& CastEngine::Instance() {
 }
 
 CastEngine::CastEngine() {
+  // Function-local statics are destroyed in reverse order of construction. The destructor runs
+  // Shutdown(), which saves the config and logs, so those singletons must be built first to
+  // outlive the engine. Without this, exit after a test run read a freed config path.
+  (void)ConfigStore::Instance();
+  (void)Logger::Instance();
   state_machine_.RegisterCallback(
       [this](SessionState old_s, SessionState new_s, const std::string& msg) {
         StateChangedCallback cb;
