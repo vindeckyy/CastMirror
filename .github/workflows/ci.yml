@@ -360,3 +360,35 @@ jobs:
         run: >
           dotnet build app/winui/CastMirrorApp.csproj -c Release
           -p:Platform=x64 -r win-x64 --self-contained true
+
+  windows-ubsan:
+    name: Windows UBSan (clang, trap mode)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2 UCRT64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-clang
+            mingw-w64-ucrt-x86_64-compiler-rt
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-protobuf
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-opus
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-nlohmann-json
+            mingw-w64-ucrt-x86_64-gtest
+            mingw-w64-ucrt-x86_64-libx264
+
+      # MinGW has no ASan/TSan runtime; UBSan in trap mode needs none. Any undefined
+      # behaviour in the engine or the parsers fails the test.
+      - name: Build and run the suite under UBSan
+        shell: pwsh
+        run: ./scripts/run_ubsan.ps1 -Msys2Bin 'C:\msys64\ucrt64\bin'
