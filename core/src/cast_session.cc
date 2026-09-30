@@ -1,5 +1,6 @@
 #include "castcore/cast_session.h"
 #include "castcore/cast_app_ids.h"
+#include "castcore/audio_sessions.h"
 #include "castcore/capability_model.h"
 #include "castcore/config.h"
 #include "castcore/logger.h"
@@ -487,11 +488,26 @@ bool CastSession::StartStreamingMedia() {
       audio_packetizer_.reset();
     } else {
       audio_encoder_->SetClockOrigin(shared_clock_origin);
-      audio_capture_ = AudioCaptureFactory::Create();
-      audio_capture_->SetHostSilence(options_.silence_host_speakers);
-      audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
-        ProcessAudioFrame(af);
-      });
+      uint32_t target_pid = 0;
+      bool share_no_audio = false;
+      if (!options_.audio_process_name.empty()) {
+        target_pid = FindAudioProcessByName(options_.audio_process_name);
+        if (target_pid == 0) {
+          // The user chose one app. Falling back to everything would send sounds
+          // they meant to keep private, so share silence and say why.
+          LOG_WARN << "Audio app " << options_.audio_process_name
+                   << " is not running; no audio is shared. Start it and cast again.";
+          share_no_audio = true;
+        }
+      }
+      if (!share_no_audio) {
+        audio_capture_ = AudioCaptureFactory::Create();
+        audio_capture_->SetTargetProcess(target_pid);
+        audio_capture_->SetHostSilence(options_.silence_host_speakers);
+        audio_capture_->SetAudioCallback([this](const CapturedAudioFrame& af) {
+          ProcessAudioFrame(af);
+        });
+      }
     }
   }
 

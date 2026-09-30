@@ -184,3 +184,8 @@ Manual|Manual|Manuell|Manuel
 Display {0}|Pantalla {0}|Bildschirm {0}|Écran {0}
 Window {0}|Ventana {0}|Fenster {0}|Fenêtre {0}
 Window|Ventana|Fenster|Fenêtre
+Share audio from|Compartir audio de|Audio teilen von|Partager l'audio de
+Everything your PC plays, or just one app. If that app isn't running when you start casting, no audio is shared. Applies to the next cast.|Todo lo que reproduce tu PC, o solo una aplicación. Si esa aplicación no estä en ejecución al iniciar la transmisión, no se comparte audio. Se aplica en la próxima transmisión.|Alles, was dein PC abspielt, oder nur eine App. Läuft diese App beim Start der bertragung nicht, wird kein Audio geteilt. Gilt für die nächste bertragung.|Tout ce que lit votre PC, ou une seule application. Si cette application n'est pas lancée au démarrage de la diffusion, aucun son n'est partagé. S'applique  la prochaine diffusion.
+Refresh list|Actualizar lista|Liste aktualisieren|Actualiser la liste
+Everything on this PC|Todo el PC|Alles auf diesem PC|Tout le PC
+{0} (not running)|{0} (no en ejecución)|{0} (läuft nicht)|{0} (non lancée)

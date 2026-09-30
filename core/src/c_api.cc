@@ -1,4 +1,5 @@
 #include "castcore/c_api.h"
+#include "castcore/audio_sessions.h"
 #include "castcore/cast_engine.h"
 #include "castcore/types.h"
 #include "castcore/config.h"
@@ -134,6 +135,7 @@ nlohmann::json BuildConfigJson() {
   j["target_delay_ms"] = cfg.target_delay_ms;
   j["latency_hud_enabled"] = cfg.latency_hud_enabled;
   j["show_cursor"] = cfg.show_cursor;
+  j["audio_process_name"] = cfg.audio_process_name;
   j["global_hotkeys"] = cfg.global_hotkeys;
   j["reconnect_window_s"] = cfg.reconnect_window_s;
   j["adaptive_enabled"] = cfg.adaptive_enabled;
@@ -232,6 +234,7 @@ void MergeConfigJson(const nlohmann::json& j, castcore::AppConfig& cfg) {
   get_int("target_delay_ms", &cfg.target_delay_ms);
   get_bool("latency_hud_enabled", &cfg.latency_hud_enabled);
   get_bool("show_cursor", &cfg.show_cursor);
+  get_str("audio_process_name", &cfg.audio_process_name);
   get_bool("global_hotkeys", &cfg.global_hotkeys);
   get_int("reconnect_window_s", &cfg.reconnect_window_s);
   get_bool("adaptive_enabled", &cfg.adaptive_enabled);
@@ -344,6 +347,14 @@ bool castmirror_init(void) {
 
 uint32_t castmirror_abi_version(void) {
   return CASTMIRROR_ABI_VERSION;
+}
+
+int castmirror_get_audio_apps(char* out_buf, int buf_len) {
+  nlohmann::json apps = nlohmann::json::array();
+  for (const auto& app : castcore::EnumerateAudioApps()) {
+    apps.push_back({{"pid", app.pid}, {"name", app.exe_name}, {"title", app.title}});
+  }
+  return WriteJsonOut(apps.dump(), out_buf, buf_len);
 }
 
 void castmirror_shutdown(void) {

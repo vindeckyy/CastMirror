@@ -81,6 +81,23 @@
                                    Text="Sends whatever your PC is playing to the TV. It follows the default speakers, so switching to headphones moves the audio with you."/>
 
                         <StackPanel Spacing="2">
+                            <TextBlock Text="Share audio from" FontWeight="Medium"/>
+                            <TextBlock Text="Everything your PC plays, or just one app. If that app isn't running when you start casting, no audio is shared. Applies to the next cast."
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Grid ColumnSpacing="8" Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="AudioAppCombo" HorizontalAlignment="Stretch"
+                                          AutomationProperties.Name="Share audio from"
+                                          SelectionChanged="OnAudioAppChanged"/>
+                                <Button Grid.Column="1" Content="Refresh list" Click="OnRefreshAudioAppsClicked"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Spacing="2">
                             <TextBlock Text="Audio quality" FontWeight="Medium"/>
                             <TextBlock Text="Opus bitrate. 192 kbps is recommended; 64 kbps is best for weak Wi-Fi."
                                        FontSize="12" TextWrapping="Wrap"

@@ -25,6 +25,8 @@ namespace CastMirror
         private static readonly int[] ReconnectOptions = { 30, 60, 120, 300, 600 };
 
         private readonly MainViewModel _viewModel;
+        // Parallel to AudioAppCombo items: the exe name each entry saves ("" = everything).
+        private readonly System.Collections.Generic.List<string> _audioAppNames = new();
         private readonly Action _desktopIntegrationChanged;
         private readonly Func<System.Collections.Generic.IReadOnlyList<string>> _applyHotkeys;
 
@@ -130,6 +132,7 @@ namespace CastMirror
                 CloseToTraySwitch.IsOn = settings.CloseToTray;
                 AutostartSwitch.IsOn = AutostartService.IsEnabled;
                 HotkeySwitch.IsOn = settings.GlobalHotkeys;
+                RebuildAudioAppList(settings.AudioProcessName);
 
                 NotifySwitch.IsOn = settings.NotifyOnEvents && NotificationService.IsSupported;
                 NotifySwitch.IsEnabled = NotificationService.IsSupported;
@@ -326,6 +329,60 @@ namespace CastMirror
             _viewModel.ApplyCloseToTray(CloseToTraySwitch.IsOn);
             ClearError();
             _desktopIntegrationChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Fills the picker with "Everything" plus the apps that have an audio session now.
+        /// A saved app that is not running stays in the list, marked, so opening Settings
+        /// never silently drops the choice.
+        /// </summary>
+        private void RebuildAudioAppList(string selectedName)
+        {
+            bool wasLoading = _loading;
+            _loading = true;
+            try
+            {
+                _audioAppNames.Clear();
+                AudioAppCombo.Items.Clear();
+                AudioAppCombo.Items.Add(Localizer.T("Everything on this PC"));
+                _audioAppNames.Add(string.Empty);
+
+                int selected = 0;
+                foreach (var app in SettingsService.GetAudioApps())
+                {
+                    AudioAppCombo.Items.Add($"{app.Title} ({app.Name})");
+                    _audioAppNames.Add(app.Name);
+                    if (string.Equals(app.Name, selectedName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selected = _audioAppNames.Count - 1;
+                    }
+                }
+                if (!string.IsNullOrEmpty(selectedName) && selected == 0)
+                {
+                    AudioAppCombo.Items.Add(Localizer.Format("{0} (not running)", selectedName));
+                    _audioAppNames.Add(selectedName);
+                    selected = _audioAppNames.Count - 1;
+                }
+                AudioAppCombo.SelectedIndex = selected;
+            }
+            finally
+            {
+                _loading = wasLoading;
+            }
+        }
+
+        private void OnAudioAppChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            int index = AudioAppCombo.SelectedIndex;
+            if (index < 0 || index >= _audioAppNames.Count) return;
+            _viewModel.ApplyAudioProcess(_audioAppNames[index]);
+            ClearError();
+        }
+
+        private void OnRefreshAudioAppsClicked(object sender, RoutedEventArgs e)
+        {
+            RebuildAudioAppList(_viewModel.Settings.AudioProcessName);
         }
 
         private void OnHotkeysToggled(object sender, RoutedEventArgs e)

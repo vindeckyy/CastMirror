@@ -82,6 +82,8 @@ namespace CastMirror.Services
         [JsonPropertyName("first_run_complete")] public bool FirstRunComplete { get; set; }
         [JsonPropertyName("ui_theme")] public string UiTheme { get; set; } = string.Empty;
         [JsonPropertyName("show_cursor")] public bool ShowCursor { get; set; } = true;
+        // Exe name of the one app whose audio is shared ("spotify.exe"); empty = everything.
+        [JsonPropertyName("audio_process_name")] public string AudioProcessName { get; set; } = string.Empty;
         [JsonPropertyName("global_hotkeys")] public bool GlobalHotkeys { get; set; }
         [JsonPropertyName("reconnect_window_s")] public int ReconnectWindowSeconds { get; set; } = 30;
 
@@ -233,6 +235,35 @@ namespace CastMirror.Services
                 "configuration",
                 () => CastCoreBridge.castmirror_get_config_json(null!, 0),
                 (buffer, length) => CastCoreBridge.castmirror_get_config_json(buffer, length));
+
+        /// <summary>An app that currently has an audio session.</summary>
+        public sealed record AudioApp(int Pid, string Name, string Title);
+
+        /// <summary>Apps that have an audio session on the default playback device, sorted by title.</summary>
+        public static System.Collections.Generic.IReadOnlyList<AudioApp> GetAudioApps()
+        {
+            var apps = new System.Collections.Generic.List<AudioApp>();
+            try
+            {
+                string json = ReadNativeJson(
+                    "audio app list",
+                    () => CastCoreBridge.castmirror_get_audio_apps(null!, 0),
+                    (buffer, length) => CastCoreBridge.castmirror_get_audio_apps(buffer, length));
+                using JsonDocument document = JsonDocument.Parse(json);
+                foreach (JsonElement item in document.RootElement.EnumerateArray())
+                {
+                    apps.Add(new AudioApp(
+                        item.GetProperty("pid").GetInt32(),
+                        item.GetProperty("name").GetString() ?? string.Empty,
+                        item.GetProperty("title").GetString() ?? string.Empty));
+                }
+            }
+            catch (Exception ex)
+            {
+                ViewModels.MainViewModel.LogError(ex);
+            }
+            return apps;
+        }
 
         /// <summary>Persists the configuration. Returns false when the engine rejected it.</summary>
         public static bool Save(CastMirrorSettings settings)

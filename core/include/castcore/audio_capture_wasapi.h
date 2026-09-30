@@ -33,6 +33,7 @@ class WasapiAudioCapture : public IAudioCapture {
   void Stop() override;
   bool IsCapturing() const override;
   void SetHostSilence(bool silence) override;
+  void SetTargetProcess(uint32_t pid) override { target_pid_ = pid; }
   void SetAudioCallback(AudioCallback callback) override;
 
  private:
@@ -41,6 +42,9 @@ class WasapiAudioCapture : public IAudioCapture {
   // Runs on the worker thread. Returns false if loopback capture could not be
   // set up on the default render endpoint.
   bool InitOnThread();
+  // Per-application capture through the Windows 10 2004+ "process loopback" virtual
+  // device. Fails, and the caller falls back to nothing, on older Windows.
+  bool InitProcessLoopback();
   void CleanupOnThread();
   // Resample/downmix one packet of device-format audio into pending_ (S16
   // stereo at output_rate_) and flush complete 10 ms frames to the callback.
@@ -76,6 +80,7 @@ class WasapiAudioCapture : public IAudioCapture {
   void LogLevelWindow(std::chrono::steady_clock::time_point now);
 #endif
 
+  uint32_t target_pid_ = 0;  // 0 = whole system
   std::atomic<bool> running_{false};
   std::atomic<bool> init_done_{false};
   bool init_ok_ = false;

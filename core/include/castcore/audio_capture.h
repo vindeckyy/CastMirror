@@ -18,6 +18,9 @@ class IAudioCapture {
   virtual void Stop() = 0;
   virtual bool IsCapturing() const = 0;
   virtual void SetHostSilence(bool silence) { (void)silence; }
+  // Capture only this process (and the processes it starts) instead of everything
+  // the PC plays. 0, the default, means the whole system. Set before Start().
+  virtual void SetTargetProcess(uint32_t pid) { (void)pid; }
 
   virtual void SetAudioCallback(AudioCallback callback) = 0;
 };

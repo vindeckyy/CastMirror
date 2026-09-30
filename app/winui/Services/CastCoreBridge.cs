@@ -372,6 +372,11 @@ namespace CastMirror.Services
         public static extern int castmirror_get_config_json(
             [In, Out] byte[] buffer, int bufLen);
 
+        // JSON array of apps that have an audio session: [{"pid":..,"name":..,"title":..}].
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int castmirror_get_audio_apps(
+            [In, Out] byte[] buffer, int bufLen);
+
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
         public static extern bool castmirror_set_config_json([In] byte[] jsonUtf8);

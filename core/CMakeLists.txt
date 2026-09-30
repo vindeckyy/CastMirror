@@ -45,6 +45,7 @@ set(CASTCORE_SOURCES
     src/display_capture_wgc.cc
     src/video_encoder_mf.cc
     src/audio_capture_wasapi.cc
+    src/audio_sessions.cc
     src/c_api.cc
     src/audio_encoder.cc
     src/adaptive_controller.cc

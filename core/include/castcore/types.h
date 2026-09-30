@@ -403,6 +403,10 @@ struct SessionOptions {
   bool adaptive_resolution_enabled = true;
   bool show_cursor = false;  // Composite hardware cursor into captured frames
   int reconnect_window_s = 30;  // How long a dropped connection is retried
+  // Share only this app's sound (exe file name, e.g. "spotify.exe"). Empty means
+  // everything the PC plays. If the app is not running when the cast starts, no
+  // audio is shared, rather than falling back to everything.
+  std::string audio_process_name;
   bool verify_device_cert = true;  // Verify receiver certificates against Cast Root CA
   // Selected capture source. When unset, the legacy display_id argument
   // (passed alongside these options) is used as a Monitor source.

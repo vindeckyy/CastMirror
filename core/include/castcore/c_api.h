@@ -228,6 +228,12 @@ CASTMIRROR_API void castmirror_shutdown(void);
 #define CASTMIRROR_ABI_VERSION 3u
 CASTMIRROR_API uint32_t castmirror_abi_version(void);
 
+// Apps that currently have an audio session on the default playback device, as a
+// JSON array of {"pid":123,"name":"chrome.exe","title":"Google Chrome"}. Same
+// two-step buffer contract as castmirror_get_config_json: with no buffer it returns
+// the size needed (including the terminator). Empty array off Windows.
+CASTMIRROR_API int castmirror_get_audio_apps(char* out_buf, int buf_len);
+
 // Device discovery
 CASTMIRROR_API void castmirror_start_discovery(void);
 CASTMIRROR_API void castmirror_stop_discovery(void);

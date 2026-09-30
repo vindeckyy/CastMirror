@@ -184,5 +184,10 @@
     "(Primary)":  "(principal)",
     "Display {0}":  "Écran {0}",
     "Window {0}":  "Fenêtre {0}",
-    "Window":  "Fenêtre"
+    "Window":  "Fenêtre",
+    "Share audio from":  "Partager l\u0027audio de",
+    "Everything your PC plays, or just one app. If that app isn\u0027t running when you start casting, no audio is shared. Applies to the next cast.":  "Tout ce que lit votre PC, ou une seule application. Si cette application n\u0027est pas lancée au démarrage de la diffusion, aucun son n\u0027est partagé. S\u0027applique  la prochaine diffusion.",
+    "Refresh list":  "Actualiser la liste",
+    "Everything on this PC":  "Tout le PC",
+    "{0} (not running)":  "{0} (non lancée)"
 }

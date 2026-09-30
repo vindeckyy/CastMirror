@@ -1104,6 +1104,12 @@ namespace CastMirror.ViewModels
             }
         }
 
+        public void ApplyAudioProcess(string exeName)
+        {
+            Settings.AudioProcessName = exeName ?? string.Empty;
+            PersistSettings();
+        }
+
         public void ApplyGlobalHotkeys(bool enabled)
         {
             Settings.GlobalHotkeys = enabled;

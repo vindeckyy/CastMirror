@@ -33,6 +33,53 @@ const GUID kSubformatIeeeFloat = {
 // still ahead of "now" (the normal case right after a real capture).
 constexpr DWORD kIdleWakeMs = 10;
 
+// Process loopback (Windows 10 version 2004+). The SDK header for these types is not
+// in every toolchain, so they are declared here; the layout is fixed by Windows.
+enum AudioClientActivationType { kActivationDefault = 0, kActivationProcessLoopback = 1 };
+enum ProcessLoopbackMode { kIncludeTargetProcessTree = 0, kExcludeTargetProcessTree = 1 };
+struct ProcessLoopbackParams {
+  DWORD target_process_id;
+  int mode;
+};
+struct AudioClientActivationParams {
+  int activation_type;
+  ProcessLoopbackParams process_loopback;
+};
+constexpr const wchar_t* kVirtualProcessLoopbackDevice = L"VAD\\Process_Loopback";
+
+// Completion handler for ActivateAudioInterfaceAsync. It must be agile: Windows
+// calls it from a thread of its own.
+class ActivationHandler : public IActivateAudioInterfaceCompletionHandler, public IAgileObject {
+ public:
+  explicit ActivationHandler(HANDLE done) : done_(done) {}
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG n = --refs_;
+    if (n == 0) delete this;
+    return n;
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
+    if (iid == __uuidof(IUnknown) || iid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
+      *out = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
+    } else if (iid == __uuidof(IAgileObject)) {
+      *out = static_cast<IAgileObject*>(this);
+    } else {
+      *out = nullptr;
+      return E_NOINTERFACE;
+    }
+    AddRef();
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation*) override {
+    SetEvent(done_);
+    return S_OK;
+  }
+
+ private:
+  HANDLE done_;
+  std::atomic<ULONG> refs_{1};
+};
+
 // Flags the capture loop when the default playback device changes. Runs on an
 // MMDevice thread, so it only sets an atomic.
 class DefaultDeviceNotifier : public IMMNotificationClient {
@@ -138,7 +185,92 @@ bool WasapiAudioCapture::IsCapturing() const {
 }
 
 #if defined(_WIN32)
+bool WasapiAudioCapture::InitProcessLoopback() {
+  using ActivateFn = HRESULT(WINAPI*)(LPCWSTR, REFIID, PROPVARIANT*,
+                                      IActivateAudioInterfaceCompletionHandler*,
+                                      IActivateAudioInterfaceAsyncOperation**);
+  HMODULE mmdevapi = LoadLibraryW(L"Mmdevapi.dll");
+  auto activate = mmdevapi ? reinterpret_cast<ActivateFn>(GetProcAddress(mmdevapi, "ActivateAudioInterfaceAsync"))
+                           : nullptr;
+  if (!activate) {
+    LOG_ERROR << "WASAPI: per-app audio needs Windows 10 version 2004 or later";
+    return false;
+  }
+
+  AudioClientActivationParams params{};
+  params.activation_type = kActivationProcessLoopback;
+  params.process_loopback.target_process_id = target_pid_;
+  params.process_loopback.mode = kIncludeTargetProcessTree;
+  PROPVARIANT variant{};
+  variant.vt = VT_BLOB;
+  variant.blob.cbSize = sizeof(params);
+  variant.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
+
+  HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!done) return false;
+  Microsoft::WRL::ComPtr<IActivateAudioInterfaceCompletionHandler> handler;
+  handler.Attach(new ActivationHandler(done));
+  Microsoft::WRL::ComPtr<IActivateAudioInterfaceAsyncOperation> operation;
+  HRESULT hr = activate(kVirtualProcessLoopbackDevice, __uuidof(IAudioClient), &variant, handler.Get(), &operation);
+  if (FAILED(hr) || WaitForSingleObject(done, 5000) != WAIT_OBJECT_0) {
+    LOG_ERROR << "WASAPI: process loopback activation failed: hr=0x" << std::hex << hr << std::dec;
+    CloseHandle(done);
+    return false;
+  }
+  CloseHandle(done);
+
+  HRESULT activate_hr = E_FAIL;
+  Microsoft::WRL::ComPtr<IUnknown> unknown;
+  if (FAILED(operation->GetActivateResult(&activate_hr, &unknown)) || FAILED(activate_hr) || !unknown) {
+    LOG_ERROR << "WASAPI: process " << target_pid_ << " could not be captured: hr=0x"
+              << std::hex << activate_hr << std::dec;
+    return false;
+  }
+  Microsoft::WRL::ComPtr<IAudioClient> audio_client;
+  if (FAILED(unknown.As(&audio_client))) return false;
+
+  // This virtual device has no mix format to ask for, so the format is chosen here
+  // and the engine converts to it: 48 kHz, 16-bit, stereo.
+  WAVEFORMATEX format{};
+  format.wFormatTag = WAVE_FORMAT_PCM;
+  format.nChannels = 2;
+  format.nSamplesPerSec = 48000;
+  format.wBitsPerSample = 16;
+  format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
+  format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+
+  capture_event_ = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+  if (!capture_event_) return false;
+  hr = audio_client->Initialize(
+      AUDCLNT_SHAREMODE_SHARED,
+      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
+          AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+      0, 0, &format, nullptr);
+  if (FAILED(hr) || FAILED(audio_client->SetEventHandle(capture_event_))) {
+    LOG_ERROR << "WASAPI: process loopback Initialize failed: hr=0x" << std::hex << hr << std::dec;
+    CloseHandle(capture_event_);
+    capture_event_ = nullptr;
+    return false;
+  }
+  Microsoft::WRL::ComPtr<IAudioCaptureClient> capture_client;
+  if (FAILED(audio_client->GetService(IID_PPV_ARGS(&capture_client)))) {
+    CloseHandle(capture_event_);
+    capture_event_ = nullptr;
+    return false;
+  }
+
+  src_rate_ = 48000;
+  src_channels_ = 2;
+  src_is_float_ = false;
+  src_format_ = SrcFormat::kInt16;
+  audio_client_ = audio_client;
+  capture_client_ = capture_client;
+  LOG_INFO << "WASAPI: capturing audio from process " << target_pid_ << " only";
+  return true;
+}
+
 bool WasapiAudioCapture::InitOnThread() {
+  if (target_pid_ != 0) return InitProcessLoopback();
   HRESULT hr = S_OK;
   if (!enumerator_) {
     hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
