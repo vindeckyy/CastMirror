@@ -83,7 +83,14 @@ bool CastEngine::Initialize() {
 #if !defined(_WIN32)
   std::signal(SIGPIPE, SIG_IGN);
 #endif
-  if (is_initialized_.exchange(true)) return true;
+  // One caller does the work; a concurrent caller waits for it instead of
+  // returning true while discovery and logging are still half set up.
+  std::lock_guard<std::mutex> init_lock(init_mutex_);
+  if (is_initialized_.load()) return true;
+  struct Publish {
+    std::atomic<bool>& flag;
+    ~Publish() { flag = true; }
+  } publish{is_initialized_};
 
   std::string dir_path = CastmirrorConfigDir();
 #if defined(_WIN32)

@@ -91,6 +91,7 @@ class CastEngine {
 
   std::string last_error_;
   std::atomic<bool> is_initialized_{false};
+  std::mutex init_mutex_;
 };
 
 } // namespace castcore

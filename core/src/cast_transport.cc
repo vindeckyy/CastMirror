@@ -159,12 +159,17 @@ void CastTransport::Stop() {
 #else
     shutdown(socket_fd_, SHUT_RDWR);
 #endif
-    close(socket_fd_);
-    socket_fd_ = -1;
   }
 
+  // Join before closing: the receive thread reads socket_fd_, and closing first
+  // lets the OS hand the same descriptor number to an unrelated socket while
+  // that thread is still polling it.
   if (receive_thread_.joinable()) {
     receive_thread_.join();
+  }
+  if (socket_fd_ >= 0) {
+    close(socket_fd_);
+    socket_fd_ = -1;
   }
 
   {

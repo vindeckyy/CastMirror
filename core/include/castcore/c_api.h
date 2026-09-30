@@ -284,6 +284,8 @@ CASTMIRROR_API void castmirror_rescan(void);
 // Callback registration
 CASTMIRROR_API void castmirror_set_state_callback(CastMirrorStateCallback cb, void* user_data);
 CASTMIRROR_API void castmirror_set_devices_callback(CastMirrorDevicesCallback cb, void* user_data);
+// Deprecated: the engine never calls this. Poll castmirror_get_stats() about once a
+// second while a session is active; that is what the Windows client does.
 CASTMIRROR_API void castmirror_set_stats_callback(CastMirrorStatsCallback cb, void* user_data);
 // Receives the engine's diagnostic log stream (subject to the logger's minimum
 // level). Pass NULL to detach. The callback may run on any engine thread.

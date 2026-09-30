@@ -429,7 +429,6 @@ namespace CastMirror.ViewModels
 
         private readonly StateCallback _stateCallback;
         private readonly DevicesCallback _devicesCallback;
-        private readonly StatsCallback _statsCallback;
 
         public MainViewModel()
         {
@@ -437,7 +436,6 @@ namespace CastMirror.ViewModels
 
             _stateCallback = OnStateChanged;
             _devicesCallback = OnDevicesChanged;
-            _statsCallback = OnStatsUpdated;
 
             try
             {
@@ -455,7 +453,6 @@ namespace CastMirror.ViewModels
                 _nativeAvailable = true;
                 CastCoreBridge.castmirror_set_state_callback(_stateCallback, IntPtr.Zero);
                 CastCoreBridge.castmirror_set_devices_callback(_devicesCallback, IntPtr.Zero);
-                CastCoreBridge.castmirror_set_stats_callback(_statsCallback, IntPtr.Zero);
 
                 LoadSettings();
 
@@ -885,16 +882,6 @@ namespace CastMirror.ViewModels
                 NoDevicesFound = true;
                 StatusMessage = "Make sure your TV or speaker is powered on and on the same Wi-Fi network.";
             }
-        }
-
-        private void OnStatsUpdated([In] ref CastMirrorStreamStats stats, IntPtr userData)
-        {
-            // Copy the struct INSIDE the callback: the native pointer is only
-            // valid for the duration of this call, and the marshalled strings are
-            // freed on return. The closure below escapes to the UI thread, so it
-            // must capture this snapshot, never `stats` itself.
-            CastMirrorStreamStats snapshot = stats;
-            RunOnUiThread(() => ApplyStats(snapshot));
         }
 
         private void PollStats()
