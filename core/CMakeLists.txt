@@ -43,6 +43,7 @@ set(CASTCORE_SOURCES
     src/video_encoder.cc
     src/latency_hud.cc
     src/display_capture_wgc.cc
+    src/wgc_window_source.cc
     src/video_encoder_mf.cc
     src/audio_capture_wasapi.cc
     src/audio_sessions.cc

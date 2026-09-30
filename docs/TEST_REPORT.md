@@ -40,6 +40,7 @@ Run on the Windows client's release-readiness pass (MSYS2 UCRT64 GCC, Windows 11
 | Native (`ctest`, `build\`) | 192 of 192 passed, 2 X11-only cases skipped |
 | Client unit tests (`dotnet test tests\winui`) | 18 of 18 passed |
 | Per-app audio (`scripts\verify_process_audio.ps1`) | passed: a process playing a tone is audible, a silent process is not |
+| Window capture (`WindowCaptureTest`) | passed against real windows: a covered window is still captured in its own colour; closing it ends the capture |
 | UI smoke test (`scripts\smoke_winui.ps1`) | passed: main window, Settings, Logs and About open, a second launch wakes the first, no new exceptions in the error log |
 | Packaged app (`package.ps1`) | passed its checks; the published `CastMirror.exe` starts with MSYS2 off `PATH` |
 

@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <thread>
+#include <cstdio>
 #include <cstring>
 
 #if defined(_WIN32)
@@ -150,6 +151,19 @@ bool DisplayCaptureWgc::Start(const CaptureSource& source, int target_fps) {
       target_hwnd_ = nullptr;
       return false;
     }
+    // Prefer capturing the window itself. CASTMIRROR_DISABLE_WGC=1 forces the
+    // desktop-crop path (for comparing behaviour, or a driver that misbehaves).
+    const char* disable = std::getenv("CASTMIRROR_DISABLE_WGC");
+    const bool wgc_disabled = disable && disable[0] != '\0' && std::strcmp(disable, "0") != 0;
+    if (!wgc_disabled) {
+      wgc_window_ = WgcWindowSource::Create(target_hwnd_);
+      if (wgc_window_) {
+        running_ = true;
+        worker_thread_ = std::thread(&DisplayCaptureWgc::WindowCaptureLoop, this);
+        return true;
+      }
+    }
+
     RECT wr{};
     GetWindowRect(target_hwnd_, &wr);
     output_index_ = OutputIndexForRect(wr);
@@ -265,6 +279,7 @@ void DisplayCaptureWgc::Stop() {
     worker_thread_.join();
   }
 #if defined(_WIN32)
+  wgc_window_.reset();
   DestroyCursorDib();
   desk_dupl_.Reset();
   staging_tex_.Reset();
@@ -529,6 +544,137 @@ void DisplayCaptureWgc::CompositeCursor(std::vector<uint8_t>* bgra, int w, int h
 }
 #endif
 
+#if defined(_WIN32)
+// Sends the pacer's chosen frame to the session, drawing the pointer and the latency HUD
+// first when they are enabled. Shared by the desktop-duplication loop and the window loop.
+void DisplayCaptureWgc::EmitPacedFrame(const FramePacer::Decision& emit) {
+  if (!(emit.emit && emit.frame != nullptr)) return;
+    const AppConfig& cfg = ConfigStore::Instance().Get();
+    const bool want_cursor = show_cursor_;
+    const bool draw_overlays = (want_cursor || cfg.latency_hud_enabled) && !emit.frame->data.empty();
+    CapturedVideoFrame overlay_copy;
+    const CapturedVideoFrame* frame = emit.frame;
+
+    // Cursor-only overlay on a re-send whose cursor has not moved since the
+    // cached composite: the result would be byte-identical to the frame the
+    // callback already received, so reuse it instead of copying the whole
+    // frame again. A fresh capture, a moved/hidden cursor, a toggled setting
+    // or a different crop all fall through to the normal composite path.
+    CURSORINFO cursor_state{};
+    const bool cursor_visible =
+        want_cursor && GetCursorInfo(&cursor_state) && (cursor_state.flags & CURSOR_SHOWING) != 0;
+    const bool can_reuse = draw_overlays && !cfg.latency_hud_enabled && !emit.fresh &&
+                           overlay_cache_valid_ && cursor_visible &&
+                           overlay_cursor_pos_.x == cursor_state.ptScreenPos.x &&
+                           overlay_cursor_pos_.y == cursor_state.ptScreenPos.y &&
+                           overlay_cache_.width == emit.frame->width &&
+                           overlay_cache_.height == emit.frame->height;
+
+    if (can_reuse) {
+      frame = &overlay_cache_;
+    } else if (draw_overlays) {
+      overlay_copy = *emit.frame;
+      if (want_cursor) {
+        CompositeCursor(&overlay_copy.data, overlay_copy.width, overlay_copy.height, emit.crop_x,
+                        emit.crop_y);
+        if (cursor_visible) {
+          overlay_cursor_pos_ = cursor_state.ptScreenPos;
+          // Keep this composite for the next unchanged re-send. Only the
+          // cursor is drawn, so the bytes stay valid for identical pixels.
+          overlay_cache_ = overlay_copy;
+          overlay_cache_valid_ = true;
+        } else {
+          overlay_cache_valid_ = false;
+        }
+      } else {
+        // HUD path: content changes every tick, so nothing is cacheable.
+        overlay_cache_valid_ = false;
+      }
+      if (cfg.latency_hud_enabled) {
+        LatencyHud::Render(overlay_copy);
+      }
+      frame = &overlay_copy;
+    } else {
+      // No overlay at all: drop any stale cache so toggling the cursor back
+      // on cannot serve a composite from before the setting changed.
+      overlay_cache_valid_ = false;
+    }
+
+    FrameCallback cb;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cb = callback_;
+    }
+    if (cb) cb(*frame);
+}
+
+#endif
+
+// Window capture through Windows.Graphics.Capture. It has no desktop-duplication
+// step: frames come from the window itself, and the pacer keeps the cadence steady
+// while the window is idle.
+void DisplayCaptureWgc::WindowCaptureLoop() {
+#if defined(_WIN32)
+  timeBeginPeriod(1);
+  struct TimerPeriodGuard {
+    ~TimerPeriodGuard() { timeEndPeriod(1); }
+  } timer_period_guard;
+  // WinRT objects are used on this thread; it must be in a COM apartment.
+  const HRESULT com_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  struct ComGuard {
+    bool owned;
+    ~ComGuard() { if (owned) CoUninitialize(); }
+  } com_guard{SUCCEEDED(com_hr)};
+
+  FramePacer pacer;
+  pacer.SetTargetFps(target_fps_);
+
+  // Where the window sits on screen, for pointer compositing: the visible frame,
+  // not GetWindowRect, which includes the invisible resize border on Windows 10+.
+  auto window_origin = [this]() {
+    RECT r{};
+    using DwmGetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, PVOID, DWORD);
+    static const auto dwm_get = reinterpret_cast<DwmGetWindowAttributeFn>(
+        GetProcAddress(LoadLibraryW(L"dwmapi.dll"), "DwmGetWindowAttribute"));
+    constexpr DWORD kExtendedFrameBounds = 9;
+    if (!dwm_get || FAILED(dwm_get(target_hwnd_, kExtendedFrameBounds, &r, sizeof(r)))) {
+      GetWindowRect(target_hwnd_, &r);
+    }
+    return POINT{r.left, r.top};
+  };
+
+  while (running_) {
+    const auto frame_start = std::chrono::steady_clock::now();
+    pacer.SetTargetFps(target_fps_.load());
+    const auto interval = std::chrono::microseconds(1000000 / pacer.TargetFps());
+
+    EmitPacedFrame(pacer.Tick(frame_start));
+
+    if (!IsWindow(target_hwnd_)) {
+      EmitSourceLost(frame_start);
+      LOG_WARN << "Capture window closed; stopping window capture";
+      break;
+    }
+    if (IsIconic(target_hwnd_)) {
+      // A minimised window produces no frames; keep re-sending the last one.
+      std::this_thread::sleep_for(interval);
+      continue;
+    }
+
+    CapturedVideoFrame frame;
+    if (wgc_window_->TryGetFrame(&frame)) {
+      const POINT origin = window_origin();
+      pacer.Submit(std::move(frame), origin.x, origin.y);
+    } else {
+      // Nothing new: wait a short slice so the next pacer tick lands on time.
+      const int wait_ms = pacer.WaitSliceMs(std::chrono::steady_clock::now());
+      std::this_thread::sleep_for(std::chrono::milliseconds(std::clamp(wait_ms, 1, 8)));
+    }
+  }
+  running_ = false;
+#endif
+}
+
 void DisplayCaptureWgc::CaptureLoop() {
 #if defined(_WIN32)
   // Frame pacing: DXGI only signals when the desktop changes, so the pacer
@@ -557,65 +703,7 @@ void DisplayCaptureWgc::CaptureLoop() {
     // the session without a buffer copy; only the cursor and latency HUD need a
     // private copy to draw into.
     FramePacer::Decision emit = pacer.Tick(frame_start);
-    if (emit.emit && emit.frame != nullptr) {
-      const AppConfig& cfg = ConfigStore::Instance().Get();
-      const bool want_cursor = show_cursor_;
-      const bool draw_overlays = (want_cursor || cfg.latency_hud_enabled) && !emit.frame->data.empty();
-      CapturedVideoFrame overlay_copy;
-      const CapturedVideoFrame* frame = emit.frame;
-
-      // Cursor-only overlay on a re-send whose cursor has not moved since the
-      // cached composite: the result would be byte-identical to the frame the
-      // callback already received, so reuse it instead of copying the whole
-      // frame again. A fresh capture, a moved/hidden cursor, a toggled setting
-      // or a different crop all fall through to the normal composite path.
-      CURSORINFO cursor_state{};
-      const bool cursor_visible =
-          want_cursor && GetCursorInfo(&cursor_state) && (cursor_state.flags & CURSOR_SHOWING) != 0;
-      const bool can_reuse = draw_overlays && !cfg.latency_hud_enabled && !emit.fresh &&
-                             overlay_cache_valid_ && cursor_visible &&
-                             overlay_cursor_pos_.x == cursor_state.ptScreenPos.x &&
-                             overlay_cursor_pos_.y == cursor_state.ptScreenPos.y &&
-                             overlay_cache_.width == emit.frame->width &&
-                             overlay_cache_.height == emit.frame->height;
-
-      if (can_reuse) {
-        frame = &overlay_cache_;
-      } else if (draw_overlays) {
-        overlay_copy = *emit.frame;
-        if (want_cursor) {
-          CompositeCursor(&overlay_copy.data, overlay_copy.width, overlay_copy.height, emit.crop_x,
-                          emit.crop_y);
-          if (cursor_visible) {
-            overlay_cursor_pos_ = cursor_state.ptScreenPos;
-            // Keep this composite for the next unchanged re-send. Only the
-            // cursor is drawn, so the bytes stay valid for identical pixels.
-            overlay_cache_ = overlay_copy;
-            overlay_cache_valid_ = true;
-          } else {
-            overlay_cache_valid_ = false;
-          }
-        } else {
-          // HUD path: content changes every tick, so nothing is cacheable.
-          overlay_cache_valid_ = false;
-        }
-        if (cfg.latency_hud_enabled) {
-          LatencyHud::Render(overlay_copy);
-        }
-        frame = &overlay_copy;
-      } else {
-        // No overlay at all: drop any stale cache so toggling the cursor back
-        // on cannot serve a composite from before the setting changed.
-        overlay_cache_valid_ = false;
-      }
-
-      FrameCallback cb;
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        cb = callback_;
-      }
-      if (cb) cb(*frame);
-    }
+    EmitPacedFrame(emit);
 
     // Window mode: keep the crop rect fresh (moves/resizes) and detect the
     // window closing or sliding onto a different output.

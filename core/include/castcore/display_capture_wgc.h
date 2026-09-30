@@ -2,7 +2,9 @@
 #define CASTCORE_DISPLAY_CAPTURE_WGC_H_
 
 #include "castcore/display_capture.h"
+#include "castcore/frame_pacer.h"
 #include "castcore/pixel_convert.h"
+#include "castcore/wgc_window_source.h"
 
 #if defined(_WIN32)
 #include <d3d11.h>
@@ -12,10 +14,11 @@
 
 namespace castcore {
 
-// Windows desktop capture via DXGI Desktop Duplication. Supports whole-monitor
-// capture and single-window capture (implemented as a per-frame crop of the
-// output the window lives on, so it also works on multi-GPU/multi-monitor
-// setups). Recreates the duplication when the desktop mode changes
+// Windows capture. Monitors use DXGI Desktop Duplication. A single window uses
+// Windows.Graphics.Capture when it is available (Windows 10 1903+), which delivers
+// the window's own content, so windows in front of it stay out of the picture. If
+// that cannot start, a window is captured as a per-frame crop of the output it lives
+// on. Recreates the duplication when the desktop mode changes
 // (DXGI_ERROR_ACCESS_LOST) instead of tearing the session down.
 class DisplayCaptureWgc : public IDisplayCapture {
  public:
@@ -27,9 +30,13 @@ class DisplayCaptureWgc : public IDisplayCapture {
   void Stop() override;
   bool IsCapturing() const override;
   void SetTargetFps(int fps) override;
-  // The backend is DXGI Desktop Duplication; the string is what the UI shows
-  // as capture detail, so it must not name Windows.Graphics.Capture.
-  std::string BackendName() const override { return "windows_desktop_duplication"; }
+  // Shown in the UI as capture detail, so it names what is really capturing.
+  std::string BackendName() const override {
+#if defined(_WIN32)
+    if (wgc_window_) return "windows_graphics_capture";
+#endif
+    return "windows_desktop_duplication";
+  }
 
   std::vector<DisplayInfo> EnumerateDisplays() override;
   std::vector<WindowInfo> EnumerateWindows() override;
@@ -42,6 +49,8 @@ class DisplayCaptureWgc : public IDisplayCapture {
  private:
   void CaptureLoop();
 #if defined(_WIN32)
+  void WindowCaptureLoop();
+  void EmitPacedFrame(const FramePacer::Decision& emit);
   // (Re)creates the D3D11 device + output duplication for the currently
   // selected output index. On failure the duplication is left null, and the
   // capture loop rebuilds it before the next acquire. Safe to call again after
@@ -83,6 +92,7 @@ class DisplayCaptureWgc : public IDisplayCapture {
   int output_index_ = 0;      // flat DXGI output index being duplicated
   RECT output_rect_{};        // duplicated output's virtual-screen rect
   HWND target_hwnd_ = nullptr; // non-null in window-capture mode
+  std::unique_ptr<WgcWindowSource> wgc_window_;  // set when the window is captured through WGC
   bool source_lost_emitted_ = false;
 
   // Present-age diagnostic accumulator, touched only by the capture worker.

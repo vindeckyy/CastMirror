@@ -34,6 +34,7 @@ set(TEST_SOURCES
     test_pixel_convert.cc
     test_parser_robustness.cc
     test_audio_sessions.cc
+    test_window_capture.cc
     test_audio_capture.cc
 )
 
