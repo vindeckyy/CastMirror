@@ -164,7 +164,13 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
 
   state_machine_.TransitionTo(SessionState::kConnecting, "Connecting to " + device.name);
 
-  display_capture_ = DisplayCaptureFactory::Create();
+  {
+    // Stop() can run on another thread while a start is still in flight and reads this pointer
+    // under pipeline_mutex_, so publish it under the same lock.
+    auto capture = DisplayCaptureFactory::Create();
+    std::lock_guard<std::recursive_mutex> pipeline_lock(pipeline_mutex_);
+    display_capture_ = std::move(capture);
+  }
   int disp_w = 1920, disp_h = 1080, disp_fps = 60;
 
   if (!display_capture_->SizeKnownBeforeStart()) {

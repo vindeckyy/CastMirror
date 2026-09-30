@@ -66,16 +66,14 @@ class TestReceiverServer {
 
   void Stop() {
     if (!running_.exchange(false)) return;
-    if (server_fd_ >= 0) {
-      shutdown(server_fd_, SHUT_RDWR);
-      close(server_fd_);
-      server_fd_ = -1;
-    }
+    // Wake the accept() and recvfrom() calls with a throwaway connection and datagram, join the
+    // threads, and only then close the sockets. Closing a descriptor another thread is still
+    // blocked on is a data race.
     int dummy = socket(AF_INET, SOCK_STREAM, 0);
     if (dummy >= 0) {
       struct sockaddr_in addr{};
       addr.sin_family = AF_INET;
-      addr.sin_port = htons(tls_port_);
+      addr.sin_port = htons(tls_port_.load());
       inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
       connect(dummy, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
       close(dummy);
@@ -85,18 +83,22 @@ class TestReceiverServer {
     if (dummy_u >= 0) {
       struct sockaddr_in uaddr{};
       uaddr.sin_family = AF_INET;
-      uaddr.sin_port = htons(udp_port_);
+      uaddr.sin_port = htons(udp_port_.load());
       inet_pton(AF_INET, "127.0.0.1", &uaddr.sin_addr);
       sendto(dummy_u, "x", 1, 0, reinterpret_cast<struct sockaddr*>(&uaddr), sizeof(uaddr));
       close(dummy_u);
     }
 
-    if (udp_fd_ >= 0) {
-      close(udp_fd_);
-      udp_fd_ = -1;
-    }
     if (tls_thread_.joinable()) tls_thread_.join();
     if (udp_thread_.joinable()) udp_thread_.join();
+
+    const int sfd = server_fd_.exchange(-1);
+    if (sfd >= 0) {
+      shutdown(sfd, SHUT_RDWR);
+      close(sfd);
+    }
+    const int ufd = udp_fd_.exchange(-1);
+    if (ufd >= 0) close(ufd);
   }
 
   uint16_t GetTlsPort() const { return tls_port_; }
@@ -364,7 +366,7 @@ class TestReceiverServer {
     addr.sin_port = 0;  // Dynamic ephemeral port
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-    if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (::bind(server_fd_.load(), reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
       LOG_ERROR << "[TestReceiver] Failed to bind dynamic TLS port: " << strerror(errno);
       SSL_CTX_free(ctx);
       running_ = false;
@@ -463,7 +465,7 @@ class TestReceiverServer {
                   } else {
                     ans["result"] = "ok";
                     ans["answer"]["castMode"] = "mirroring";
-                    ans["answer"]["udpPort"] = udp_port_;
+                    ans["answer"]["udpPort"] = udp_port_.load();
                     ans["answer"]["sendIndexes"] = nlohmann::json::array({0, 1});
                     ans["answer"]["ssrcs"] = nlohmann::json::array({10001, 10002});
                   }
@@ -494,7 +496,7 @@ class TestReceiverServer {
     addr.sin_port = 0;  // Dynamic ephemeral UDP port
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-    if (bind(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (::bind(udp_fd_.load(), reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
       LOG_ERROR << "[TestReceiver] Failed to bind dynamic UDP port: " << strerror(errno);
       running_ = false;
       return;
@@ -555,8 +557,8 @@ class TestReceiverServer {
     }
   }
 
-  uint16_t tls_port_ = 0;
-  uint16_t udp_port_ = 0;
+  std::atomic<uint16_t> tls_port_{0};
+  std::atomic<uint16_t> udp_port_{0};
   std::string bound_ip_ = "127.0.0.1";
   std::atomic<bool> reject_offer_{false};
   std::atomic<bool> running_{false};
@@ -575,8 +577,8 @@ class TestReceiverServer {
   struct sockaddr_in sender_addr_{};
   std::atomic<bool> has_sender_{false};
 
-  int server_fd_ = -1;
-  int udp_fd_ = -1;
+  std::atomic<int> server_fd_{-1};
+  std::atomic<int> udp_fd_{-1};
   std::thread tls_thread_;
   std::thread udp_thread_;
 };

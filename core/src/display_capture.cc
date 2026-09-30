@@ -623,6 +623,9 @@ class X11DisplayCapture : public IDisplayCapture {
   }
 
   void Stop() override {
+    // Two threads can reach Stop (the session and the destructor); the second must wait for the
+    // first to finish tearing down instead of racing it.
+    std::lock_guard<std::mutex> stop_lock(stop_mutex_);
     const bool was_running = running_.exchange(false);
     if (was_running && capture_thread_.joinable()) {
       capture_thread_.join();
@@ -1177,6 +1180,7 @@ class X11DisplayCapture : public IDisplayCapture {
 #endif
   std::atomic<uint64_t> capture_skipped_{0};
   std::atomic<int> target_fps_{60};
+  std::mutex stop_mutex_;
   std::atomic<bool> running_{false};
   std::thread capture_thread_;
   std::mutex mutex_;
