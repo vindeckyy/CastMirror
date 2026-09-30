@@ -42,6 +42,13 @@ The native suite has about 200 cases. Cases that need an interactive desktop ski
 
 `CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE=1` lets a session use generated video and audio when real capture is unavailable. The test binary sets it. Real sessions never fall back to it.
 
+### Sanitizers and fuzzing
+
+MinGW has no AddressSanitizer or ThreadSanitizer runtime, and libFuzzer does not link on it. Two things fill the gap:
+
+- `scripts\run_ubsan.ps1` builds the suite with clang's UndefinedBehaviorSanitizer in trap mode (needs `pacman -S mingw-w64-ucrt-x86_64-clang`) and runs it. CI runs it as the `windows-ubsan` job.
+- `tests\test_parser_robustness.cc` mutates and generates RTCP and mDNS packets with a fixed seed and feeds them to the parsers on every platform. The libFuzzer harnesses in `tests\fuzz` still run on Linux CI.
+
 ### Package and installer
 
 ```bat
