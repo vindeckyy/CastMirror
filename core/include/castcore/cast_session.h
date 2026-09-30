@@ -14,7 +14,6 @@
 #include "castcore/audio_encoder.h"
 #include "castcore/adaptive_controller.h"
 #include "castcore/session_recovery.h"
-#include "castcore/http_fallback_server.h"
 
 #include <memory>
 #include <mutex>
@@ -101,11 +100,8 @@ class CastSession {
   VideoCodec video_codec_ = VideoCodec::kH264;
   uint32_t bitrate_override_kbps_ = 0;
 
-  bool FallbackToHttpCafStreaming();
-
   std::unique_ptr<CastChannel> cast_channel_;
   std::unique_ptr<CastTransport> transport_;
-  std::unique_ptr<HttpFallbackServer> http_fallback_server_;
   std::unique_ptr<IDisplayCapture> display_capture_;
   std::unique_ptr<IAudioCapture> audio_capture_;
   std::unique_ptr<IVideoEncoder> video_encoder_;

@@ -309,10 +309,6 @@ bool CastSession::NegotiateControlPlane() {
           return launch_received_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for RECEIVER_STATUS from " << target_device_.name;
-      if (options_.allow_http_fallback) {
-        LOG_WARN << "Mirroring app launch timed out; falling back to HTTP CAF streaming";
-        return FallbackToHttpCafStreaming();
-      }
       return false;
     }
   }
@@ -344,76 +340,11 @@ bool CastSession::NegotiateControlPlane() {
           return answer_received_ || stop_requested_.load() || fail_requested_.load();
         })) {
       LOG_ERROR << "Timed out waiting for ANSWER from " << target_device_.name;
-      if (options_.allow_http_fallback) {
-        LOG_WARN << "Mirroring OFFER/ANSWER timed out; falling back to HTTP CAF streaming";
-        return FallbackToHttpCafStreaming();
-      }
       return false;
     }
   }
 
   return !stop_requested_ && !fail_requested_;
-}
-
-bool CastSession::FallbackToHttpCafStreaming() {
-  http_fallback_server_ = std::make_unique<HttpFallbackServer>();
-  if (!http_fallback_server_->Start(0)) {
-    LOG_ERROR << "Failed to start HTTP fallback server";
-    return false;
-  }
-
-  // Advertise the LAN address that routes to the receiver — 127.0.0.1 would
-  // only be reachable from the sender itself, so the CAF receiver could never
-  // pull the stream.
-  std::string local_ip = LocalIpForTarget(target_device_.ip_address);
-  std::string stream_url = http_fallback_server_->GetStreamUrl(local_ip);
-  const std::string& caf_app = options_.caf_receiver_app_id.empty() ? "CC1AD845" : options_.caf_receiver_app_id;
-  LOG_INFO << "Launching CAF fallback receiver app " << caf_app << " for HTTP streaming at " << stream_url;
-
-  launch_received_ = false;
-  cast_channel_->LaunchApp(caf_app.c_str());
-
-  {
-    std::unique_lock<std::mutex> lk(cv_mutex_);
-    cv_.wait_for(lk, std::chrono::seconds(8), [this] {
-      return launch_received_ || stop_requested_.load() || fail_requested_.load();
-    });
-  }
-
-  if (stop_requested_ || fail_requested_) {
-    return false;
-  }
-
-  cast_channel_->SetAppTransportId(app_transport_id_);
-  cast_channel_->ConnectVirtual(app_transport_id_, "fallback_sender");
-
-  std::string load_msg = HttpFallbackServer::FormatCafLoadMessage(stream_url);
-  cast_channel_->SendCastMessage(kNamespaceMedia, load_msg, app_transport_id_, "fallback_sender");
-
-  state_machine_.TransitionTo(SessionState::kStreaming, "Streaming desktop via HTTP fallback receiver");
-  is_streaming_ = true;
-
-  VideoEncoderConfig venc_cfg;
-  venc_cfg.width = current_stats_.current_resolution.width > 0 ? current_stats_.current_resolution.width : 1920;
-  venc_cfg.height = current_stats_.current_resolution.height > 0 ? current_stats_.current_resolution.height : 1080;
-  venc_cfg.framerate = current_stats_.current_framerate > 0 ? current_stats_.current_framerate : 30;
-  venc_cfg.bitrate_kbps = current_stats_.bitrate_kbps > 0 ? current_stats_.bitrate_kbps : 4000;
-  venc_cfg.codec = VideoCodec::kH264;
-
-  video_encoder_ = VideoEncoderFactory::Create(VideoCodec::kH264);
-  if (!video_encoder_ || !video_encoder_->Initialize(venc_cfg)) {
-    LOG_ERROR << "Failed to initialize video encoder for HTTP fallback";
-    return false;
-  }
-
-  display_capture_ = DisplayCaptureFactory::Create();
-  display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
-    QueueCapturedVideoFrame(vf);
-  });
-  display_capture_->Start(source_, venc_cfg.framerate);
-
-  video_encode_thread_ = std::thread(&CastSession::VideoEncodeLoop, this);
-  return true;
 }
 
 bool CastSession::StartStreamingMedia() {
@@ -666,10 +597,6 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
     if (!ok) {
       return;
     }
-  }
-
-  if (http_fallback_server_ && http_fallback_server_->IsRunning()) {
-    http_fallback_server_->PushVideoFrame(raw_frame);
   }
 
   if (!video_crypto_ || !video_packetizer_ || !transport_) {
@@ -1038,10 +965,6 @@ void CastSession::StopMediaPipeline() {
   }
   if (transport_) {
     transport_->Stop();
-  }
-  if (http_fallback_server_) {
-    http_fallback_server_->Stop();
-    http_fallback_server_.reset();
   }
 
   std::lock_guard<std::mutex> elock(video_encoder_mutex_);

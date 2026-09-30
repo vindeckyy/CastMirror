@@ -28,7 +28,6 @@ set(TEST_SOURCES
     test_source_selection.cc
     test_device_auth.cc
     test_c_api.cc
-    test_http_fallback.cc
     test_device_discovery.cc
     test_net_platform.cc
     test_gpu_processor.cc

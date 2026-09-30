@@ -64,7 +64,6 @@ COVERAGE = {
     "test_source_selection.cc": "Window support reporting, geometry, config persistence",
     "test_device_auth.cc": "Device-auth challenge/response",
     "test_c_api.cc": "C ABI structs, string truncation and NUL-termination contract",
-    "test_http_fallback.cc": "HTTP/CAF fallback negotiation",
     "test_device_discovery.cc": "mDNS TXT parsing, device list, subnet probe",
     "test_net_platform.cc": "Interface enumeration, socket init idempotence, error classification",
     "test_gpu_processor.cc": "Letterbox geometry, YUV/NV12 conversion correctness, invalid args",

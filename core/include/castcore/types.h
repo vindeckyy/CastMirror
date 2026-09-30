@@ -403,8 +403,6 @@ struct SessionOptions {
   bool adaptive_resolution_enabled = true;
   bool show_cursor = false;  // Composite hardware cursor into captured frames
   bool verify_device_cert = true;  // Verify receiver certificates against Cast Root CA
-  bool allow_http_fallback = false; // Fall back to CAF receiver + local fMP4 HTTP server on mirroring reject
-  std::string caf_receiver_app_id = "CC1AD845"; // Default Media Receiver or custom hosted app ID
   // Selected capture source. When unset, the legacy display_id argument
   // (passed alongside these options) is used as a Monitor source.
   std::optional<CaptureSource> source;

@@ -48,7 +48,6 @@ set(CASTCORE_SOURCES
     src/audio_encoder.cc
     src/adaptive_controller.cc
     src/session_recovery.cc
-    src/http_fallback_server.cc
     src/cast_session.cc
     src/cast_engine.cc
 )
