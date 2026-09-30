@@ -27,11 +27,33 @@ int64_t SteadyUs(std::chrono::steady_clock::time_point tp) {
       .count();
 }
 
+// Reports a violated capture/session invariant. types.h cannot include
+// logger.h (it would pull this header back in), so the core installs this
+// reporter once here and the header's check calls it.
+//
+// This matters in Release: the check used to be a bare assert(), which
+// NDEBUG compiled out, so "capture must not run outside a session" was never
+// actually verified in a shipped build.
+void ReportCaptureInvariantViolation(bool is_active, bool capture_running,
+                                     const char* context) {
+  LOG_ERROR << "CAPTURE INVARIANT VIOLATED in " << (context ? context : "unknown")
+            << ": IsActive()=" << (is_active ? "true" : "false")
+            << " capture_running=" << (capture_running ? "true" : "false")
+            << " (capture should run if and only if a session is active)";
+}
+
+const bool g_reporter_installed = [] {
+  SetCaptureInvariantReporter(&ReportCaptureInvariantViolation);
+  return true;
+}();
+
 }  // namespace
 
 CastSession::CastSession(StateMachine& state_machine)
     : state_machine_(state_machine),
-      recovery_(30) {}
+      recovery_(30) {
+  (void)g_reporter_installed;
+}
 
 CastSession::~CastSession() {
   Stop();
@@ -87,6 +109,11 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
   fail_requested_ = false;
   fail_reason_.clear();
   is_streaming_ = false;
+  // Reset the user-visible stream toggles for a brand-new session. They are
+  // deliberately NOT cleared in StopMediaPipeline(), which also runs on the
+  // mid-session reconnect path (that would silently desync the UI toggles).
+  is_frozen_ = false;
+  is_audio_muted_ = false;
   video_stalling_ = false;
   last_video_send_ms_ = 0;
   last_audio_send_ms_ = 0;
@@ -365,7 +392,7 @@ bool CastSession::FallbackToHttpCafStreaming() {
   display_capture_->SetFrameCallback([this](const CapturedVideoFrame& vf) {
     QueueCapturedVideoFrame(vf);
   });
-  display_capture_->Start(display_id_, venc_cfg.framerate);
+  display_capture_->Start(source_, venc_cfg.framerate);
 
   video_encode_thread_ = std::thread(&CastSession::VideoEncodeLoop, this);
   return true;
@@ -402,6 +429,14 @@ bool CastSession::StartStreamingMedia() {
     const uint32_t video_ssrc = negotiated_params_.video_stream.sender_ssrc;
     if (fb.sender_ssrc == 0 || fb.sender_ssrc == video_ssrc) {
       adaptive_controller_.OnFeedback(fb);
+      // Cast adaptive-latency extension: the receiver can request a playout
+      // delay. Honour it — the controller value is latched into
+      // playout_delay_ms_ once per adaptation tick and stamped onto every
+      // encoded frame's latency extension, so this is what actually changes the
+      // delay the encoders use.
+      if (fb.has_playout_delay && fb.current_playout_delay_ms > 0) {
+        adaptive_controller_.SetPlayoutDelayMs(fb.current_playout_delay_ms);
+      }
     }
   });
 
@@ -531,12 +566,8 @@ bool CastSession::StartStreamingMedia() {
   {
     bool capture_running = display_capture_ && display_capture_->IsCapturing();
     bool active = IsActive();
-    if (active != capture_running) {
-      LOG_WARN << "Post-Start invariant violated: IsActive()=" << active
-               << " capture_running=" << capture_running;
-    }
-    CheckCaptureInvariant(active, capture_running);
-    state_machine_.AssertCaptureInvariant(capture_running);
+    CheckCaptureInvariant(active, capture_running, "CastSession::Start");
+    state_machine_.AssertCaptureInvariant(capture_running, "CastSession::Start");
   }
   return true;
 }
@@ -661,10 +692,16 @@ void CastSession::ProcessVideoFrame(const CapturedVideoFrame& vf) {
 }
 
 void CastSession::ProcessAudioFrame(const CapturedAudioFrame& af) {
+  // Thin wrapper: the mute decision belongs here, not in the shared body, so
+  // that silence injection does not recurse back through it.
+  ProcessAudioFrameInternal(af, /*allow_mute_check=*/true);
+}
+
+void CastSession::ProcessAudioFrameInternal(const CapturedAudioFrame& af, bool allow_mute_check) {
   if (!is_streaming_.load() || !audio_encoder_ || !audio_crypto_ || !audio_packetizer_ || !transport_) {
     return;
   }
-  if (is_audio_muted_.load()) {
+  if (allow_mute_check && is_audio_muted_.load()) {
     InjectSilenceAudioFrame();
     return;
   }
@@ -698,7 +735,7 @@ void CastSession::InjectSilenceAudioFrame() {
   af.samples_per_channel = 480;
   af.timestamp = std::chrono::steady_clock::now();
   af.pcm_data.assign(static_cast<size_t>(af.samples_per_channel * af.channels * 2), 0);
-  ProcessAudioFrame(af);
+  ProcessAudioFrameInternal(af, /*allow_mute_check=*/false);
 }
 
 void CastSession::SampleAvCaptureOffset() {
@@ -827,27 +864,38 @@ void CastSession::AdaptationLoop() {
     }
 
     int64_t now_ms = SteadyNowMs();
-    int64_t last_v = last_video_send_ms_.load();
-    if (last_v > 0 && (now_ms - last_v) > 400) {
-      auto now = std::chrono::steady_clock::now();
-      if (last_video_stall_warn_.time_since_epoch().count() == 0 ||
-          now - last_video_stall_warn_ >= std::chrono::seconds(2)) {
-        LOG_WARN << "Video stall: no frame sent for " << (now_ms - last_v) << "ms; forcing keyframe";
-        last_video_stall_warn_ = now;
-      }
-      if (!video_stalling_) {
-        video_stalling_ = true;
-        video_stall_started_ = now;
-      } else if (now - video_stall_started_ >= std::chrono::seconds(5)) {
-        RequestReconnect("Video stalled — reconnecting");
-        continue;
-      }
-      std::lock_guard<std::mutex> elock(video_encoder_mutex_);
-      if (video_encoder_) {
-        video_encoder_->ForceKeyFrame();
-      }
-    } else {
+    // Freezing the picture is a deliberate, user-visible pause: ProcessVideoFrame
+    // returns early while frozen, so last_video_send_ms_ stops advancing and the
+    // stall detector below would tear down + renegotiate the session after 5s.
+    // Treat frozen as healthy: keep the bookkeeping clean and skip the stall /
+    // ForceKeyFrame block entirely (never force a keyframe while frozen). The
+    // audio keepalive and adaptive check below still run.
+    if (is_frozen_.load()) {
+      last_video_send_ms_.store(now_ms);
       video_stalling_ = false;
+    } else {
+      int64_t last_v = last_video_send_ms_.load();
+      if (last_v > 0 && (now_ms - last_v) > 400) {
+        auto now = std::chrono::steady_clock::now();
+        if (last_video_stall_warn_.time_since_epoch().count() == 0 ||
+            now - last_video_stall_warn_ >= std::chrono::seconds(2)) {
+          LOG_WARN << "Video stall: no frame sent for " << (now_ms - last_v) << "ms; forcing keyframe";
+          last_video_stall_warn_ = now;
+        }
+        if (!video_stalling_) {
+          video_stalling_ = true;
+          video_stall_started_ = now;
+        } else if (now - video_stall_started_ >= std::chrono::seconds(5)) {
+          RequestReconnect("Video stalled — reconnecting");
+          continue;
+        }
+        std::lock_guard<std::mutex> elock(video_encoder_mutex_);
+        if (video_encoder_) {
+          video_encoder_->ForceKeyFrame();
+        }
+      } else {
+        video_stalling_ = false;
+      }
     }
 
     if (enable_audio_) {
@@ -947,8 +995,11 @@ void CastSession::RequestReconnect(const std::string& reason) {
 void CastSession::StopMediaPipeline() {
   auto pipeline_start = std::chrono::steady_clock::now();
   is_streaming_ = false;
-  is_frozen_ = false;
-  is_audio_muted_ = false;
+  // NOTE: is_frozen_ / is_audio_muted_ are intentionally NOT reset here.
+  // StopMediaPipeline() also runs on the mid-session reconnect path, and
+  // clearing them there would silently un-freeze/un-mute the core while the UI
+  // still shows the toggles on. They are reset in Start() and Stop(), where the
+  // session genuinely begins/ends.
   {
     std::lock_guard<std::mutex> qlock(video_queue_mutex_);
     pending_video_frame_.reset();
@@ -1105,6 +1156,10 @@ void CastSession::Stop() {
   if (!stop_requested_.compare_exchange_strong(expected, true)) {
     return;
   }
+  // The session is genuinely ending: clear the user-visible stream toggles here
+  // (not in StopMediaPipeline, which the reconnect path also calls).
+  is_frozen_ = false;
+  is_audio_muted_ = false;
   LOG_INFO << "Stopping Cast Session (hard 500ms budget)...";
 
   {
@@ -1184,14 +1239,9 @@ void CastSession::Stop() {
   // Phase 0.5: CHECK(IsActive()==capture_running) after Stop.
   bool capture_running_after = display_capture_ && display_capture_->IsCapturing();
   bool active_after = IsActive();
-  if (active_after != capture_running_after) {
-    LOG_WARN << "Post-Stop invariant violated: IsActive()=" << active_after
-             << " capture_running=" << capture_running_after;
-  }
-#ifndef NDEBUG
-  assert(active_after == capture_running_after && "Post-Stop: IsActive() == capture_running");
-#endif
-  state_machine_.AssertCaptureInvariant(capture_running_after);
+  // CheckCaptureInvariant reports in Release too, so this is not debug-only.
+  CheckCaptureInvariant(active_after, capture_running_after, "CastSession::Stop");
+  state_machine_.AssertCaptureInvariant(capture_running_after, "CastSession::Stop");
 
   auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now() - stop_start)

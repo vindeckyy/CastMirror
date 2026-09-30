@@ -4,7 +4,9 @@
 #if defined(_WIN32)
 #include <codecapi.h>
 #include <mferror.h>
+#include <algorithm>
 #include <cstring>
+#include <mutex>
 #endif
 
 namespace castcore {
@@ -23,12 +25,17 @@ void MediaFoundationVideoEncoder::Cleanup() {
     mft_.Reset();
   }
   codec_api_.Reset();
-  input_frame_buf_.clear();
   gpu_src_w_ = gpu_src_h_ = 0;
-  if (mf_started_) {
-    MFShutdown();
-    mf_started_ = false;
-  }
+  // The reusable buffers belong to the stream that just ended; holding them
+  // across a reconfigure would keep a full frame of memory pinned for a
+  // resolution the next stream may not use.
+  input_buffer_.Reset();
+  input_sample_.Reset();
+  input_buffer_size_ = 0;
+  output_sample_.Reset();
+  output_buffer_size_ = 0;
+  have_output_info_ = false;
+  output_provides_samples_ = false;
 #endif
 }
 
@@ -117,22 +124,37 @@ bool MediaFoundationVideoEncoder::ConfigureMft(IMFActivate* activate) {
 bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
   Cleanup();
   config_ = config;
+  // 4:2:0 subsamples chroma 2x2, so an odd width or height has no valid plane
+  // layout: w/2 truncates, and every plane boundary lands mid-sample. Capture
+  // already snaps crops to even, but a config or adaptive ladder can still hand
+  // us an odd size, and IYUV's separate U/V planes would then be written
+  // one byte past where the encoder reads them. Normalize once, here, so every
+  // downstream size computation agrees.
+  config_.width = std::max(2, config_.width & ~1);
+  config_.height = std::max(2, config_.height & ~1);
   next_frame_id_ = 0;
   last_key_frame_id_ = 0;
   rtp_clock_origin_set_ = false;
-  sample_time_100ns_ = 0;
   is_hardware_ = false;
 
 #if !defined(_WIN32)
   LOG_ERROR << "MediaFoundationVideoEncoder is only available on Windows";
   return false;
 #else
-  HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_LITE);
-  if (FAILED(hr)) {
-    LOG_ERROR << "MFStartup failed: hr=0x" << std::hex << hr << std::dec;
-    return false;
-  }
-  mf_started_ = true;
+  // MFStartup/MFShutdown are process-wide, and MF's own refcount is the only
+  // thing keeping a second MF user (another encoder, or a host app's own
+  // Media Foundation code) alive. Pairing them per-encoder means an adaptive
+  // bitrate change, which reopens the encoder, can drive the count to zero
+  // while MFTs are still live in another thread, after which every MF call
+  // fails. Start once for the process and never shut down: MF is designed to
+  // be initialised for the lifetime of the process, and this file is the only
+  // place in CastMirror that uses it.
+  static std::once_flag mf_once;
+  std::call_once(mf_once, [] {
+    if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) {
+      LOG_ERROR << "MFStartup failed; Media Foundation encoders are unavailable";
+    }
+  });
 
   MFT_REGISTER_TYPE_INFO input_info = {MFMediaType_Video, MFVideoFormat_NV12};
   MFT_REGISTER_TYPE_INFO output_info = {MFMediaType_Video, MFVideoFormat_H264};
@@ -143,7 +165,7 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
   // composite encoder falls back to FFmpeg/libx264 (low latency).
   IMFActivate** activates = nullptr;
   UINT32 count = 0;
-  hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
+  const HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER,
                  MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER,
                  &input_info, &output_info, &activates, &count);
 
@@ -165,7 +187,16 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
     return false;
   }
 
-  input_frame_buf_.resize(static_cast<size_t>(config_.width) * config_.height * 3 / 2);
+  // Cache the output contract once: whether the MFT supplies its own samples
+  // and how large a caller-allocated one must be are both fixed for the
+  // configured type, so neither is re-queried per frame.
+  RefreshOutputStreamInfo();
+  if (!EnsureInputBuffer()) {
+    LOG_ERROR << "Could not allocate the Media Foundation input buffer for "
+              << config_.width << "x" << config_.height;
+    Cleanup();
+    return false;
+  }
 
   LOG_INFO << "Initialized Media Foundation H.264 Encoder ("
            << EncoderName() << ", " << config_.width << "x" << config_.height
@@ -189,7 +220,8 @@ bool MediaFoundationVideoEncoder::Reconfigure(const VideoEncoderConfig& config) 
 }
 
 #if defined(_WIN32)
-bool MediaFoundationVideoEncoder::ConvertInput(const CapturedVideoFrame& frame) {
+bool MediaFoundationVideoEncoder::ConvertInput(const CapturedVideoFrame& frame, uint8_t* dst) {
+  if (dst == nullptr) return false;
   if (gpu_src_w_ != frame.width || gpu_src_h_ != frame.height) {
     if (!gpu_processor_.Initialize(frame.width, frame.height,
                                    config_.width, config_.height)) {
@@ -200,7 +232,7 @@ bool MediaFoundationVideoEncoder::ConvertInput(const CapturedVideoFrame& frame) 
     gpu_src_h_ = frame.height;
   }
 
-  uint8_t* y = input_frame_buf_.data();
+  uint8_t* y = dst;
   const int w = config_.width, h = config_.height;
   if (IsEqualGUID(input_subtype_, MFVideoFormat_NV12)) {
     return gpu_processor_.ConvertBgraToNv12(frame, y, w, y + static_cast<size_t>(w) * h, w);
@@ -211,76 +243,161 @@ bool MediaFoundationVideoEncoder::ConvertInput(const CapturedVideoFrame& frame) 
   return gpu_processor_.ConvertBgraToYuv420p(frame, y, w, u, w / 2, v, w / 2);
 }
 
-bool MediaFoundationVideoEncoder::DrainOutput(EncodedFrame& out_encoded_frame) {
-  bool produced = false;
+bool MediaFoundationVideoEncoder::EnsureInputBuffer() {
+  const size_t needed = InputBufferSize();
+  if (input_buffer_ && input_sample_ && input_buffer_size_ >= needed) return true;
 
+  input_buffer_.Reset();
+  input_sample_.Reset();
+  input_buffer_size_ = 0;
+  // A memory buffer is not required to be zeroed, but a stale tail would be
+  // converted into pixels the encoder must still be told about; the MFT only
+  // reads CurrentLength bytes, and the conversion below always fills the frame
+  // plus its letterbox padding, so nothing uninitialised is exposed.
+  if (FAILED(MFCreateMemoryBuffer(needed, &input_buffer_)) || !input_buffer_) return false;
+  if (FAILED(MFCreateSample(&input_sample_)) || !input_sample_) {
+    input_buffer_.Reset();
+    return false;
+  }
+  if (FAILED(input_sample_->AddBuffer(input_buffer_.Get()))) {
+    input_buffer_.Reset();
+    input_sample_.Reset();
+    return false;
+  }
+  input_buffer_size_ = needed;
+  return true;
+}
+
+bool MediaFoundationVideoEncoder::RefreshOutputStreamInfo() {
+  have_output_info_ = SUCCEEDED(mft_->GetOutputStreamInfo(output_stream_id_, &output_info_));
+  // Assume the MFT provides samples when it will not say: that is the safe
+  // default, because a caller-allocated sample on a providing MFT leaks a
+  // reference the MFT never releases, whereas the reverse just costs a
+  // slightly slower path.
+  output_provides_samples_ =
+      !have_output_info_ || (output_info_.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES) != 0;
+  // cbSize is the required capacity of a caller-allocated output sample. Zero
+  // means "unspecified", so fall back to a generous frame-sized bound; an
+  // undersized buffer is still handled by the MF_E_BUFFER_TOO_SMALL retry.
+  if (!output_provides_samples_ && output_buffer_size_ == 0) {
+    output_buffer_size_ = std::max<DWORD>(
+        output_info_.cbSize, static_cast<DWORD>(config_.width * config_.height));
+  }
+  return have_output_info_;
+}
+
+bool MediaFoundationVideoEncoder::EnsureOutputBuffer() {
+  if (output_sample_) return true;
+  if (output_buffer_size_ == 0) output_buffer_size_ = 1024 * 1024;
+  Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
+  if (FAILED(MFCreateMemoryBuffer(output_buffer_size_, &buffer)) || !buffer) return false;
+  Microsoft::WRL::ComPtr<IMFSample> sample;
+  if (FAILED(MFCreateSample(&sample)) || !sample) return false;
+  if (FAILED(sample->AddBuffer(buffer.Get()))) return false;
+  output_sample_ = sample;
+  return true;
+}
+
+bool MediaFoundationVideoEncoder::DrainOutput(EncodedFrame& out_encoded_frame) {
   // Encoder MFTs generally do not provide output samples (no
   // MFT_OUTPUT_STREAM_PROVIDES_SAMPLES), so ProcessOutput requires a
-  // caller-allocated sample sized per GetOutputStreamInfo.
-  MFT_OUTPUT_STREAM_INFO stream_info{};
-  bool have_stream_info = SUCCEEDED(mft_->GetOutputStreamInfo(output_stream_id_, &stream_info));
-  bool provides_samples =
-      !have_stream_info || (stream_info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES) != 0;
+  // caller-allocated sample sized per GetOutputStreamInfo. Both the sizing and
+  // the allocation are cached, so a steady stream allocates nothing per frame.
+  Microsoft::WRL::ComPtr<IMFSample> mft_owned_sample;
+  MFT_OUTPUT_DATA_BUFFER out{};
+  out.dwStreamID = output_stream_id_;
 
-  while (true) {
-    Microsoft::WRL::ComPtr<IMFSample> allocated_sample;
-    MFT_OUTPUT_DATA_BUFFER out{};
-    out.dwStreamID = output_stream_id_;
-
-    if (!provides_samples) {
-      DWORD buffer_size = stream_info.cbSize > 0 ? stream_info.cbSize : 1024 * 1024;
-      Microsoft::WRL::ComPtr<IMFMediaBuffer> allocated_buffer;
-      if (FAILED(MFCreateMemoryBuffer(buffer_size, &allocated_buffer)) ||
-          FAILED(MFCreateSample(&allocated_sample))) {
-        break;
-      }
-      allocated_sample->AddBuffer(allocated_buffer.Get());
-      out.pSample = allocated_sample.Get();
-    }
-
-    DWORD status = 0;
-    HRESULT hr = mft_->ProcessOutput(0, 1, &out, &status);
-    if (out.pEvents) CoTaskMemFree(out.pEvents);
-
-    if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
-      break;
-    }
-    if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
-      // Re-select an available output type (e.g. after a bitrate change) and
-      // refresh the output stream info — the buffer size may have changed.
-      for (DWORD i = 0;; ++i) {
-        Microsoft::WRL::ComPtr<IMFMediaType> mt;
-        if (FAILED(mft_->GetOutputAvailableType(output_stream_id_, i, &mt))) break;
-        if (SUCCEEDED(mft_->SetOutputType(output_stream_id_, mt.Get(), 0))) break;
-      }
-      have_stream_info = SUCCEEDED(mft_->GetOutputStreamInfo(output_stream_id_, &stream_info));
-      provides_samples =
-          !have_stream_info || (stream_info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES) != 0;
-      continue;
-    }
-    if (FAILED(hr) || !out.pSample) {
-      break;
-    }
-
-    Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
-    if (SUCCEEDED(out.pSample->ConvertToContiguousBuffer(&buffer)) && buffer) {
-      BYTE* data = nullptr;
-      DWORD len = 0;
-      if (SUCCEEDED(buffer->Lock(&data, nullptr, &len))) {
-        out_encoded_frame.data.insert(out_encoded_frame.data.end(), data, data + len);
-        buffer->Unlock();
-        produced = true;
-      }
-    }
-    UINT32 clean = 0;
-    if (SUCCEEDED(out.pSample->GetUINT32(MFSampleExtension_CleanPoint, &clean)) && clean) {
-      out_encoded_frame.dependency = FrameDependency::kKeyFrame;
-    }
-    if (provides_samples) {
-      out.pSample->Release();
-    }
+  if (!output_provides_samples_) {
+    if (!EnsureOutputBuffer()) return false;
+    out.pSample = output_sample_.Get();
   }
-  return produced;
+
+  DWORD status = 0;
+  HRESULT hr = mft_->ProcessOutput(0, 1, &out, &status);
+  if (out.pEvents) CoTaskMemFree(out.pEvents);
+
+  if (hr == MF_E_BUFFERTOOSMALL) {
+    // MFT_OUTPUT_DATA_BUFFER carries no size field, and the transform does not
+    // report the capacity it needs, so grow geometrically and retry. cbSize is
+    // the documented bound and normally sufficient; this only covers an MFT
+    // that under-reports it (or one very large first frame). Bounded so a
+    // pathological transform cannot spin allocating.
+    //
+    // `out.pSample` is deliberately NOT reused after the retry: growing the
+    // buffer releases the old sample, so that pointer would dangle. The retry
+    // keeps its own output data buffer and only the winning sample is reported.
+    Microsoft::WRL::ComPtr<IMFSample> produced;
+    for (int attempt = 0; attempt < 3 && !output_provides_samples_; ++attempt) {
+      const DWORD grown = output_buffer_size_ + output_buffer_size_ / 2;
+      output_buffer_size_ = std::max<DWORD>(grown, output_buffer_size_ + 4096);
+      output_sample_.Reset();
+      if (!EnsureOutputBuffer()) return false;
+
+      MFT_OUTPUT_DATA_BUFFER retry{};
+      retry.dwStreamID = output_stream_id_;
+      retry.pSample = output_sample_.Get();
+      status = 0;
+      hr = mft_->ProcessOutput(0, 1, &retry, &status);
+      if (retry.pEvents) CoTaskMemFree(retry.pEvents);
+      if (hr == MF_E_BUFFERTOOSMALL) continue;
+      if (SUCCEEDED(hr) && retry.pSample) produced = retry.pSample;
+      break;
+    }
+    if (hr == MF_E_BUFFERTOOSMALL) {
+      LOG_WARN << "MFT output buffer still too small at " << output_buffer_size_
+               << " bytes; dropping this frame";
+      return false;
+    }
+    if (FAILED(hr) || !produced) return false;
+    return CopyOutputSample(produced.Get(), out_encoded_frame);
+  }
+
+  if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
+    return false;
+  }
+  if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+    // Re-select an available output type (e.g. after a bitrate change) and
+    // refresh the output stream info — the buffer size may have changed.
+    for (DWORD i = 0;; ++i) {
+      Microsoft::WRL::ComPtr<IMFMediaType> mt;
+      if (FAILED(mft_->GetOutputAvailableType(output_stream_id_, i, &mt))) break;
+      if (SUCCEEDED(mft_->SetOutputType(output_stream_id_, mt.Get(), 0))) break;
+    }
+    // The negotiated type can change the required size, so drop the cached
+    // sample and re-derive it rather than writing into the old capacity.
+    output_sample_.Reset();
+    output_buffer_size_ = 0;
+    RefreshOutputStreamInfo();
+    return false;
+  }
+  if (FAILED(hr) || !out.pSample) {
+    return false;
+  }
+  if (output_provides_samples_) {
+    // The MFT allocated this sample; ProcessOutput handed us the reference, so
+    // hold it until the copy below is done or it leaks.
+    mft_owned_sample = out.pSample;
+  }
+  return CopyOutputSample(out.pSample, out_encoded_frame);
+}
+
+bool MediaFoundationVideoEncoder::CopyOutputSample(IMFSample* sample,
+                                                   EncodedFrame& out_encoded_frame) {
+  if (sample == nullptr) return false;
+  Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
+  if (FAILED(sample->ConvertToContiguousBuffer(&buffer)) || !buffer) return false;
+  BYTE* data = nullptr;
+  DWORD len = 0;
+  if (FAILED(buffer->Lock(&data, nullptr, &len)) || data == nullptr) return false;
+  // One picture per call. Assigning rather than appending keeps a stray extra
+  // output sample from being packed behind this frame's RTP timestamp.
+  out_encoded_frame.data.assign(data, data + len);
+  buffer->Unlock();
+  UINT32 clean = 0;
+  if (SUCCEEDED(sample->GetUINT32(MFSampleExtension_CleanPoint, &clean)) && clean) {
+    out_encoded_frame.dependency = FrameDependency::kKeyFrame;
+  }
+  return true;
 }
 #endif
 
@@ -301,35 +418,33 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
   auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_);
   uint32_t rtp_ts = static_cast<uint32_t>(elapsed.count() * 90 / 1000);
 
-  if (!ConvertInput(frame)) {
-    ++next_frame_id_;
-    return false;
-  }
-
-  Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
-  const DWORD buf_len = static_cast<DWORD>(input_frame_buf_.size());
-  if (FAILED(MFCreateMemoryBuffer(buf_len, &buffer))) {
+  // The MFT copies the input sample during ProcessInput, so one buffer and one
+  // sample serve every frame: the conversion writes straight into the locked
+  // media buffer and there is no per-frame allocation or intermediate copy.
+  if (!EnsureInputBuffer()) {
     ++next_frame_id_;
     return false;
   }
   BYTE* dst = nullptr;
-  if (FAILED(buffer->Lock(&dst, nullptr, nullptr))) {
+  if (FAILED(input_buffer_->Lock(&dst, nullptr, nullptr)) || dst == nullptr) {
     ++next_frame_id_;
     return false;
   }
-  std::memcpy(dst, input_frame_buf_.data(), buf_len);
-  buffer->Unlock();
-  buffer->SetCurrentLength(buf_len);
+  const bool converted = ConvertInput(frame, dst);
+  input_buffer_->Unlock();
+  if (!converted) {
+    ++next_frame_id_;
+    return false;
+  }
+  const DWORD buf_len = static_cast<DWORD>(InputBufferSize());
+  if (FAILED(input_buffer_->SetCurrentLength(buf_len))) {
+    ++next_frame_id_;
+    return false;
+  }
 
-  Microsoft::WRL::ComPtr<IMFSample> sample;
-  if (FAILED(MFCreateSample(&sample))) {
-    ++next_frame_id_;
-    return false;
-  }
-  sample->AddBuffer(buffer.Get());
   int64_t pts_100ns = elapsed.count() * 10;
-  sample->SetSampleTime(pts_100ns);
-  sample->SetSampleDuration(10000000LL / std::max(config_.framerate, 1));
+  input_sample_->SetSampleTime(pts_100ns);
+  input_sample_->SetSampleDuration(10000000LL / std::max(config_.framerate, 1));
 
   if (want_key && codec_api_) {
     VARIANT v;
@@ -339,7 +454,7 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
     codec_api_->SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &v);
   }
 
-  HRESULT hr = mft_->ProcessInput(input_stream_id_, sample.Get(), 0);
+  HRESULT hr = mft_->ProcessInput(input_stream_id_, input_sample_.Get(), 0);
   if (want_key && codec_api_) {
     VARIANT v;
     VariantInit(&v);
@@ -351,7 +466,7 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame, Encode
     // Encoder's input queue is full — drain pending output and retry once.
     EncodedFrame drain_tmp;
     DrainOutput(drain_tmp);
-    hr = mft_->ProcessInput(input_stream_id_, sample.Get(), 0);
+    hr = mft_->ProcessInput(input_stream_id_, input_sample_.Get(), 0);
   }
   if (FAILED(hr)) {
     LOG_WARN << "MFT ProcessInput failed: hr=0x" << std::hex << hr << std::dec;

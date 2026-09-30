@@ -26,7 +26,9 @@ class DisplayCaptureWgc : public IDisplayCapture {
   void Stop() override;
   bool IsCapturing() const override;
   void SetTargetFps(int fps) override;
-  std::string BackendName() const override { return "windows_graphics_capture"; }
+  // The backend is DXGI Desktop Duplication; the string is what the UI shows
+  // as capture detail, so it must not name Windows.Graphics.Capture.
+  std::string BackendName() const override { return "windows_desktop_duplication"; }
 
   std::vector<DisplayInfo> EnumerateDisplays() override;
   std::vector<WindowInfo> EnumerateWindows() override;
@@ -40,8 +42,14 @@ class DisplayCaptureWgc : public IDisplayCapture {
   void CaptureLoop();
 #if defined(_WIN32)
   // (Re)creates the D3D11 device + output duplication for the currently
-  // selected output index. Safe to call again after ACCESS_LOST.
+  // selected output index. On failure the duplication is left null, and the
+  // capture loop rebuilds it before the next acquire. Safe to call again after
+  // ACCESS_LOST.
   bool CreateDuplication();
+  // Delivers the one-shot source_lost frame that tells the session the capture
+  // source is gone (window closed, duplication unrecoverable) so it fails
+  // gracefully instead of stalling on the last captured frame.
+  void EmitSourceLost(std::chrono::steady_clock::time_point timestamp);
   // Returns the flat output index (as produced by EnumerateDisplays) that has
   // the largest intersection with rect, in virtual-screen coordinates.
   int OutputIndexForRect(const RECT& rect);
@@ -55,7 +63,9 @@ class DisplayCaptureWgc : public IDisplayCapture {
   std::thread worker_thread_;
   std::mutex mutex_;
   FrameCallback callback_;
-  bool show_cursor_ = false;
+  // Written by SetShowCursor() on the session thread, read by the capture
+  // worker on every frame it composites.
+  std::atomic<bool> show_cursor_{false};
   std::atomic<int> target_fps_{60};
   CaptureSource active_source_{CaptureSourceKind::kMonitor, 0, ""};
 
@@ -71,6 +81,24 @@ class DisplayCaptureWgc : public IDisplayCapture {
   RECT output_rect_{};        // duplicated output's virtual-screen rect
   HWND target_hwnd_ = nullptr; // non-null in window-capture mode
   bool source_lost_emitted_ = false;
+
+  // Present-age diagnostic accumulator, touched only by the capture worker.
+  // Per-instance so two concurrent sessions neither race the counters nor
+  // attribute one session's frames to the other.
+  double age_sum_ms_ = 0.0;
+  int age_count_ = 0;
+  std::chrono::steady_clock::time_point last_age_log_{};
+
+  // Overlay reuse cache. Compositing the cursor needs a private copy of the
+  // frame, because the pacer owns the pixels it re-sends. On a static desktop
+  // with a motionless cursor that copy is pure overhead - 8.3 MB per tick at
+  // 1080p, 60 times a second - and produces a byte-identical result. This holds
+  // the last composited frame so an unchanged re-send is handed straight to the
+  // callback. Only valid while the cursor is the only overlay: the latency HUD
+  // redraws a live millisecond counter every frame, so it never caches.
+  CapturedVideoFrame overlay_cache_;
+  POINT overlay_cursor_pos_{};
+  bool overlay_cache_valid_ = false;
 
   HDC cursor_dc_ = nullptr;
   HBITMAP cursor_bitmap_ = nullptr;

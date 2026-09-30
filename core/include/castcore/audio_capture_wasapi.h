@@ -66,10 +66,6 @@ class WasapiAudioCapture : public IAudioCapture {
   // and from the idle silence path, so the emitted-frames rate is visible even
   // when the endpoint delivers no capture packets at all.
   void LogLevelWindow(std::chrono::steady_clock::time_point now);
-  // Silence the local endpoint while capturing (so the user doesn't hear the
-  // stream twice) and restore the previous state on cleanup.
-  void ApplyHostSilence();
-  void RestoreHostAudio();
 #endif
 
   std::atomic<bool> running_{false};
@@ -78,18 +74,11 @@ class WasapiAudioCapture : public IAudioCapture {
   std::thread worker_thread_;
   std::mutex mutex_;
   AudioCallback callback_;
-  std::atomic<bool> silence_host_{false};
-  int sample_rate_ = 48000;
-  int channels_ = 2;
 
 #if defined(_WIN32)
   // Owned by the worker thread; never touched from other threads.
   Microsoft::WRL::ComPtr<IAudioClient> audio_client_;
   Microsoft::WRL::ComPtr<IAudioCaptureClient> capture_client_;
-  Microsoft::WRL::ComPtr<IAudioEndpointVolume> endpoint_volume_;
-  float saved_volume_ = 1.0f;
-  bool saved_mute_ = false;
-  bool have_saved_audio_ = false;
 
   HANDLE capture_event_ = nullptr;
 
@@ -97,7 +86,6 @@ class WasapiAudioCapture : public IAudioCapture {
   bool src_is_float_ = false;
   int src_rate_ = 48000;
   int src_channels_ = 2;
-  int src_frame_bytes_ = 8;
   int output_rate_ = 48000;
   int output_channels_ = 2;
 
@@ -112,6 +100,9 @@ class WasapiAudioCapture : public IAudioCapture {
   double age_sum_ms_ = 0.0;
   int age_samples_ = 0;
   std::chrono::steady_clock::time_point last_level_log_{};
+  // Rate limit for the data-discontinuity warning: the flag can be set on
+  // every packet while the endpoint struggles, so it logs at most once per 5s.
+  std::chrono::steady_clock::time_point last_discontinuity_log_{};
   // Diagnostics for the same ~5s window: frames emitted to the callback and
   // capture buffers processed. Reset whenever the window is logged.
   int frames_window_ = 0;

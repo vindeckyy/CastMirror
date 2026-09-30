@@ -86,24 +86,50 @@ inline const char* SessionStateToString(SessionState state) {
   return "Unknown";
 }
 
-// Phase 0.5: assertion helper to ensure capture only runs while session is active.
-// No functional protocol change — this is a lifecycle invariant check.
-// Usage: CheckCaptureInvariant(IsActive(), display_capture && display_capture->IsCapturing())
-inline void CheckCaptureInvariant(bool is_active, bool capture_running) {
-  // In debug, hard assert; in release, the caller should log a warning.
-  assert(is_active == capture_running && "IsActive() must match capture_running");
-  (void)is_active;
-  (void)capture_running;
+// Lifecycle invariant: capture must run if and only if a session is active.
+// "Capture must not run except while an active Cast session is streaming" is a
+// documented success bar (docs/ARCHITECTURE.md), so it is checked in Release
+// builds too.
+//
+// It used to be a bare assert(), which NDEBUG compiles out of every Release
+// build — i.e. the guarantee was never actually verified in production. The
+// check now always runs and reports; the assert is kept only under
+// CASTMIRROR_STRICT_INVARIANTS for developers who want a hard trap.
+//
+// types.h cannot include logger.h (logger.h would pull this back in), so a
+// reporter is installed once by the core rather than logging directly.
+using CaptureInvariantReporter = void (*)(bool is_active, bool capture_running,
+                                          const char* context);
+
+inline CaptureInvariantReporter detail_capture_invariant_reporter = nullptr;
+
+inline void SetCaptureInvariantReporter(CaptureInvariantReporter reporter) {
+  detail_capture_invariant_reporter = reporter;
+}
+
+inline CaptureInvariantReporter GetCaptureInvariantReporter() {
+  return detail_capture_invariant_reporter;
+}
+
+inline bool CheckCaptureInvariant(bool is_active, bool capture_running,
+                                  const char* context = "unknown") {
+  if (is_active == capture_running) {
+    return true;
+  }
+  if (CaptureInvariantReporter reporter = detail_capture_invariant_reporter) {
+    reporter(is_active, capture_running, context);
+  }
+#if defined(CASTMIRROR_STRICT_INVARIANTS)
+  assert(false && "IsActive() must match capture_running");
+#else
+  (void)context;
+#endif
+  return false;
 }
 
 #define CASTCORE_CHECK_CAPTURE_INVARIANT(is_active_expr, capture_running_expr) \
-  do { \
-    bool _is_active = (is_active_expr); \
-    bool _cap_run = (capture_running_expr); \
-    if (_is_active != _cap_run) { \
-      assert(_is_active == _cap_run && "IsActive() == capture_running invariant violated"); \
-    } \
-  } while (0)
+  (void)::castcore::CheckCaptureInvariant((is_active_expr), (capture_running_expr), \
+                                         __func__)
 
 // Helper to verify Stop budget: measure StopMediaPipeline duration.
 // Returns elapsed ms and logs WARN if > 400ms (Stop contract is <=500ms).

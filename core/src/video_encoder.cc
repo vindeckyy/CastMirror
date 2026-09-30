@@ -729,17 +729,72 @@ class WindowsVideoEncoder : public IVideoEncoder {
 };
 #endif
 
-std::unique_ptr<IVideoEncoder> VideoEncoderFactory::Create(VideoCodec codec) {
-  if (codec == VideoCodec::kAV1) {
-    LOG_INFO << "AV1 video encoder is deferred / experimental; returning nullptr until validated on real hardware";
-    return nullptr;
+namespace {
+
+// Rewrites the requested codec to H.264 before it reaches the backend. Used for
+// codecs Cast Streaming mirroring cannot carry, so the caller still gets a
+// working H.264 stream instead of an OFFER the receiver rejects.
+class CodecFallbackEncoder : public IVideoEncoder {
+ public:
+  explicit CodecFallbackEncoder(std::unique_ptr<IVideoEncoder> inner)
+      : inner_(std::move(inner)) {}
+
+  bool Initialize(const VideoEncoderConfig& config) override {
+    return inner_->Initialize(ForceH264(config));
   }
+  bool Reconfigure(const VideoEncoderConfig& config) override {
+    return inner_->Reconfigure(ForceH264(config));
+  }
+  bool Encode(const CapturedVideoFrame& frame, EncodedFrame& out) override {
+    return inner_->Encode(frame, out);
+  }
+  void ForceKeyFrame() override { inner_->ForceKeyFrame(); }
+  void SetBitrate(uint32_t kbps) override { inner_->SetBitrate(kbps); }
+  void SetFramerate(int fps) override { inner_->SetFramerate(fps); }
+  void SetClockOrigin(std::chrono::steady_clock::time_point o) override {
+    inner_->SetClockOrigin(o);
+  }
+  std::string EncoderName() const override { return inner_->EncoderName(); }
+  const VideoEncoderConfig& GetConfig() const override { return inner_->GetConfig(); }
+
+ private:
+  static VideoEncoderConfig ForceH264(VideoEncoderConfig config) {
+    config.codec = VideoCodec::kH264;
+    return config;
+  }
+
+  std::unique_ptr<IVideoEncoder> inner_;
+};
+
+std::unique_ptr<IVideoEncoder> MakeH264Backend() {
 #if defined(_WIN32)
-  if (codec == VideoCodec::kH264) {
-    return std::make_unique<WindowsVideoEncoder>();
-  }
-#endif
+  return std::make_unique<WindowsVideoEncoder>();
+#else
   return std::make_unique<FFmpegVideoEncoder>();
+#endif
+}
+
+}  // namespace
+
+std::unique_ptr<IVideoEncoder> VideoEncoderFactory::Create(VideoCodec codec) {
+  switch (codec) {
+    case VideoCodec::kH264:
+      return MakeH264Backend();
+    case VideoCodec::kVP8:
+      // Cast Streaming mirroring accepts vp8; libvpx is available everywhere.
+      return std::make_unique<FFmpegVideoEncoder>();
+    case VideoCodec::kVP9:
+    case VideoCodec::kHEVC:
+    case VideoCodec::kAV1:
+      // Cast Streaming mirroring only carries h264 and vp8. Rather than build a
+      // backend that would emit a codec the receiver rejects, fall back to
+      // H.264 and name the codec we could not honour.
+      LOG_WARN << "Video codec " << VideoCodecToString(codec)
+               << " is not supported by Cast Streaming mirroring (only h264 and vp8 are); "
+                  "falling back to H.264";
+      return std::make_unique<CodecFallbackEncoder>(MakeH264Backend());
+  }
+  return nullptr;
 }
 
 } // namespace castcore

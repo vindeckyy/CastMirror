@@ -1,4 +1,5 @@
 #include "castcore/mirroring_negotiator.h"
+#include "castcore/capability_model.h"
 #include "castcore/logger.h"
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
@@ -80,7 +81,8 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
   video_stream["bitRate"] = static_cast<int>(video_settings.bitrate_kbps * 1000);
   video_stream["timeBase"] = "1/90000";
   video_stream["maxFrameRate"] = std::to_string(video_settings.current_framerate) + "/1";
-  video_stream["maxBitRate"] = static_cast<int>(video_settings.bitrate_kbps * 1500);
+  // Cast's maxBitRate is in bits per second, the same unit as bitRate above.
+  video_stream["maxBitRate"] = static_cast<int>(video_settings.bitrate_kbps * 1000);
   video_stream["targetDelay"] = target_delay_ms;
   video_stream["aesKey"] = video_keys.aes_key_hex;
   video_stream["aesIvMask"] = video_keys.aes_iv_mask_hex;
@@ -89,13 +91,23 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num,
     video_stream["level"] = "4.2";
   }
 
+  // Advertise the negotiated capture resolution plus the next lower rung the
+  // encoder can actually be reconfigured to. The ladder comes from the
+  // capability model rather than a hardcoded 1080p/720p pair, and a fallback is
+  // only offered when it is genuinely smaller than what we are encoding (so a
+  // 720p or smaller source never advertises an upscale).
+  const Resolution negotiated = video_settings.current_resolution;
   nlohmann::json resolutions = nlohmann::json::array();
-  resolutions.push_back({{"width", video_settings.current_resolution.width},
-                         {"height", video_settings.current_resolution.height}});
-  if (video_settings.current_resolution.width != 1920 || video_settings.current_resolution.height != 1080) {
-    resolutions.push_back({{"width", 1920}, {"height", 1080}});
+  resolutions.push_back({{"width", negotiated.width}, {"height", negotiated.height}});
+  if (negotiated.width > 0 && negotiated.height > 0) {
+    const DeviceCapabilities caps = CapabilityModel::Evaluate(CastDevice{});
+    for (const auto& rung : caps.supported_resolutions) {
+      if (resolutions.size() >= 2) break;
+      if (rung.width < negotiated.width && rung.height < negotiated.height) {
+        resolutions.push_back({{"width", rung.width}, {"height", rung.height}});
+      }
+    }
   }
-  resolutions.push_back({{"width", 1280}, {"height", 720}});
   video_stream["resolutions"] = resolutions;
 
   supported_streams.push_back(video_stream);

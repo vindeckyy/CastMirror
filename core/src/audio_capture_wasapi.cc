@@ -25,6 +25,12 @@ const GUID kSubformatIeeeFloat = {
 // audio RTP timeline on wall time. (Windows' default timer granularity makes
 // the wake itself late by a few ms; the emitted silence follows the clock,
 // not the wake count.)
+//
+// This is only a poll interval, never the engine's period: the device picks
+// that during Initialize and it is logged from GetStreamLatency(). A period
+// longer than this timeout is harmless, because the idle branch measures
+// silence from the clock and emits nothing while the last buffer's stamp is
+// still ahead of "now" (the normal case right after a real capture).
 constexpr DWORD kIdleWakeMs = 10;
 }  // namespace
 #endif
@@ -43,12 +49,12 @@ void WasapiAudioCapture::SetAudioCallback(AudioCallback callback) {
 void WasapiAudioCapture::SetHostSilence(bool silence) {
   // Many Windows audio drivers implement loopback as a copy of the audio
   // engine output *after* the endpoint volume stage, so zeroing the volume
-  // makes the capture stream pure silence. Never silence the host on Windows;
-  // the capture must stay faithful to what the system is playing.
+  // would make the capture stream pure silence. The option is therefore not
+  // implemented here: capture stays faithful to what the system is playing,
+  // and the caller is told instead of being silently ignored.
   if (silence) {
     LOG_WARN << "Host speaker silencing ignored on Windows: it can mute WASAPI loopback capture";
   }
-  silence_host_ = false;
 }
 
 bool WasapiAudioCapture::Start(int sample_rate, int channels) {
@@ -131,7 +137,6 @@ bool WasapiAudioCapture::InitOnThread() {
 
   src_rate_ = mix->nSamplesPerSec;
   src_channels_ = mix->nChannels;
-  src_frame_bytes_ = mix->nBlockAlign;
   src_is_float_ = (mix->wFormatTag == WAVE_FORMAT_IEEE_FLOAT);
   if (mix->wFormatTag == WAVE_FORMAT_EXTENSIBLE && mix->cbSize >= 22) {
     auto* ext = reinterpret_cast<WAVEFORMATEXTENSIBLE*>(mix);
@@ -152,18 +157,28 @@ bool WasapiAudioCapture::InitOnThread() {
     return false;
   }
 
-  // 50 ms engine buffer — comfortably above the ~10 ms event cadence without
-  // adding noticeable loopback latency.
+  // hnsBufferDuration is only a suggestion in shared mode (0 lets the engine
+  // pick the period), so passing a fixed 50 ms would not guarantee the ~10 ms
+  // event cadence the capture loop wakes on. Ask for the engine default and
+  // log the period it actually chose below.
   hr = audio_client->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
       AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-      500000, 0, mix, nullptr);
+      0, 0, mix, nullptr);
   CoTaskMemFree(mix);
   if (FAILED(hr)) {
     LOG_ERROR << "WASAPI: loopback Initialize failed: hr=0x" << std::hex << hr << std::dec;
     CloseHandle(capture_event_);
     capture_event_ = nullptr;
     return false;
+  }
+
+  // Report the period the engine settled on. The capture-event cadence (and
+  // how often the idle silence path can run) follows it, not kIdleWakeMs.
+  REFERENCE_TIME stream_latency = 0;
+  if (SUCCEEDED(audio_client->GetStreamLatency(&stream_latency))) {
+    LOG_INFO << "WASAPI: engine stream latency " << (stream_latency / 10000.0)
+             << " ms (idle wake poll " << kIdleWakeMs << " ms)";
   }
 
   hr = audio_client->SetEventHandle(capture_event_);
@@ -183,51 +198,11 @@ bool WasapiAudioCapture::InitOnThread() {
     return false;
   }
 
-  if (silence_host_.load()) {
-    ApplyHostSilence();
-  }
-
   // Stash the client objects as member state so the capture loop can use them;
   // both are only ever touched on this thread.
   audio_client_ = audio_client;
   capture_client_ = capture_client;
   return true;
-}
-
-void WasapiAudioCapture::ApplyHostSilence() {
-  Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
-  if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                              IID_PPV_ARGS(&enumerator)))) return;
-  Microsoft::WRL::ComPtr<IMMDevice> device;
-  if (FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device))) return;
-  Microsoft::WRL::ComPtr<IAudioEndpointVolume> volume;
-  if (FAILED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
-                              &volume))) return;
-
-  float level = 1.0f;
-  BOOL muted = FALSE;
-  volume->GetMasterVolumeLevelScalar(&level);
-  volume->GetMute(&muted);
-  saved_volume_ = level;
-  saved_mute_ = (muted != FALSE);
-  have_saved_audio_ = true;
-
-  // Volume 0 + unmuted mirrors the PulseAudio path: muting the endpoint can
-  // also silence the loopback tap on some drivers, while a 0 scalar keeps
-  // the engine mix alive on the ones that don't.
-  volume->SetMute(FALSE, nullptr);
-  volume->SetMasterVolumeLevelScalar(0.0f, nullptr);
-  endpoint_volume_ = volume;
-  LOG_INFO << "Silenced local speakers (saved volume " << saved_volume_
-           << ", mute " << saved_mute_ << ")";
-}
-
-void WasapiAudioCapture::RestoreHostAudio() {
-  if (!have_saved_audio_ || !endpoint_volume_) return;
-  endpoint_volume_->SetMasterVolumeLevelScalar(saved_volume_, nullptr);
-  endpoint_volume_->SetMute(saved_mute_ ? TRUE : FALSE, nullptr);
-  LOG_INFO << "Restored local speaker volume " << saved_volume_;
-  have_saved_audio_ = false;
 }
 
 void WasapiAudioCapture::EmitSilenceFrames(int samples, std::chrono::steady_clock::time_point ts) {
@@ -412,8 +387,6 @@ void WasapiAudioCapture::CleanupOnThread() {
   if (audio_client_) {
     audio_client_->Stop();
   }
-  RestoreHostAudio();
-  endpoint_volume_.Reset();
   capture_client_.Reset();
   audio_client_.Reset();
   if (capture_event_) {
@@ -434,11 +407,31 @@ void WasapiAudioCapture::CaptureThreadMain() {
   const bool com_held = SUCCEEDED(hr);
 
   init_ok_ = InitOnThread();
-  init_done_ = true;
-  if (init_ok_) {
-    audio_client_->Start();
+  // A failed setup publishes right away so Start() doesn't wait out its cap;
+  // a successful one is published below, only once Start()'s outcome is
+  // known, so the caller never reports success for a stream that never ran.
+  if (!init_ok_) init_done_ = true;
 
-    while (running_) {
+  if (init_ok_) {
+    // Start() can still fail after GetService succeeded: the endpoint may be
+    // invalidated in between (unplugged, switched, reconfigured). Ignoring the
+    // HRESULT would leave the loop below waiting on an event that never fires
+    // while the idle path keeps emitting silence — a dead stream that looks
+    // healthy and never recovers. Leave the loop instead, so CleanupOnThread()
+    // runs and the caller sees capture stopped.
+    hr = audio_client_->Start();
+    const bool started = SUCCEEDED(hr);
+    if (!started) {
+      LOG_ERROR << "WASAPI: IAudioClient::Start failed: hr=0x" << std::hex << hr
+                << (hr == AUDCLNT_E_DEVICE_INVALIDATED ? " (AUDCLNT_E_DEVICE_INVALIDATED)" : "")
+                << std::dec;
+      // No retry: Start() cannot revive an invalidated client — recovery needs
+      // a fresh Activate()/Initialize() against the current endpoint.
+      init_ok_ = false;
+    }
+    init_done_ = true;
+
+    while (started && running_) {
       DWORD wait = WaitForSingleObject(capture_event_, kIdleWakeMs);
       if (wait == WAIT_TIMEOUT) {
         // Endpoint idle: WASAPI delivers no packets, so emit exactly the
@@ -492,9 +485,43 @@ void WasapiAudioCapture::CaptureThreadMain() {
         // frame's DXGI LastPresentTime.
         hr = capture_client_->GetBuffer(&data, &num_frames, &flags, nullptr, &qpc_position);
         if (FAILED(hr)) break;
-        auto buffer_ts = qpc_position != 0
+        // TIMESTAMP_ERROR means qpc_position cannot be trusted (glitch or
+        // resync); projecting the RTP timeline from it would be wrong, so fall
+        // back to "now" like the cursor-only video path does.
+        const bool ts_bad = (flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) != 0;
+        auto buffer_ts = (qpc_position != 0 && !ts_bad)
                              ? QpcTicksToSteadyClock(qpc_position)
                              : std::chrono::steady_clock::now();
+        if ((flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
+          // The engine dropped or reordered frames, so the queued samples no
+          // longer continue into this buffer: the projection state
+          // (pending_start_ts_ / resample_pos_) belongs to a timeline that
+          // ended. Re-anchor it to this buffer's own stamp instead of dropping
+          // the queue, which would strand a source whose packet converts to
+          // less than one frame. Rate limited (5s window, like the level
+          // diagnostics): a struggling endpoint sets this on every packet.
+          const auto now = std::chrono::steady_clock::now();
+          if (last_discontinuity_log_.time_since_epoch().count() == 0 ||
+              now - last_discontinuity_log_ >= std::chrono::seconds(5)) {
+            LOG_WARN << "WASAPI: loopback data discontinuity — re-anchoring audio timeline";
+            last_discontinuity_log_ = now;
+          }
+          if (pending_.empty()) {
+            // An empty queue anchors natively: ConvertAndEmit's first-sample
+            // path stamps it at buffer_ts.
+            pending_has_start_ = false;
+          } else {
+            // Restamp the partial queue to end where this buffer starts, so
+            // the frames that follow project from buffer_ts, not the old
+            // anchor.
+            const int64_t queued_us =
+                1000000LL * static_cast<int64_t>(pending_.size()) /
+                (static_cast<int64_t>(output_channels_) * output_rate_);
+            pending_start_ts_ = buffer_ts - std::chrono::microseconds(queued_us);
+            pending_has_start_ = true;
+          }
+          resample_pos_ = 0.0;
+        }
         ConvertAndEmit(data, num_frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0, buffer_ts);
         capture_client_->ReleaseBuffer(num_frames);
         if (FAILED(capture_client_->GetNextPacketSize(&packet_length))) break;

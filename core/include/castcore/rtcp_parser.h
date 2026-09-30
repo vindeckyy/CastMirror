@@ -20,6 +20,10 @@ struct RtcpFeedback {
   bool picture_loss_indicator = false;
   uint32_t checkpoint_frame_id = 0;
   int current_playout_delay_ms = 400;
+  // True when the receiver actually carried a playout-delay request (a CAST
+  // feedback block was parsed). Distinguishes "asked for 400 ms" from the
+  // default value on feedback that carried no CAST block at all.
+  bool has_playout_delay = false;
   std::vector<PacketNack> nacks;
   std::vector<uint32_t> acked_frames;
   double fraction_lost = 0.0;

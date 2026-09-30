@@ -2,6 +2,7 @@
 #define CASTCORE_CONFIG_H_
 
 #include "castcore/types.h"
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <memory>
 #include <map>
@@ -81,6 +82,47 @@ struct AppConfig {
   void SetPresetBitrateKbps(QualityPreset preset, uint32_t kbps);
   void Validate();
 };
+
+// Values a caller wants to differ from the persisted configuration for one
+// session. A disengaged optional means "whatever the user saved", which is what
+// makes it safe for a caller that knows only two arguments (say the CLI's
+// --bitrate) to start a session without resetting everything else.
+struct SessionOverrides {
+  std::optional<QualityPreset> preset;
+  std::optional<bool> enable_audio;
+  std::optional<VideoCodec> video_codec;
+  std::optional<uint32_t> video_bitrate_kbps;  // unset or 0 = the preset's bitrate
+  std::optional<int> target_delay_ms;          // unset or <= 0 = the configured delay
+  std::optional<int> capture_fps;              // unset or <= 0 = follow the display
+  std::optional<bool> verify_device_cert;
+  std::optional<CaptureSource> source;
+};
+
+// The single place that turns configuration into a session. Every entry point
+// (CLI, C API for the WinUI client, CastEngine's convenience overloads) builds
+// its SessionOptions here.
+//
+// This is not a convenience: CastEngine::StartCasting persists the options back
+// into ConfigStore, because a session's settings are also the user's "last
+// used" settings. A caller that hand-assembles SessionOptions from struct
+// defaults and passes them in does not merely run one session with wrong
+// settings - it overwrites the user's saved ones. Routing every entry point
+// through one builder is what keeps that impossible.
+SessionOptions BuildSessionOptions(const AppConfig& cfg,
+                                   const SessionOverrides& overrides = {});
+
+// ---------------------------------------------------------------------------
+// Strict JSON getters, shared by ConfigStore::Load (config file) and the C
+// API's MergeConfigJson (client JSON). nlohmann's get<T>() silently coerces:
+// get<uint32_t>(-1) wraps to 4294967295, get<int>(4294967296) truncates, and
+// get<T> on the wrong JSON type throws - which in a per-file parse aborts the
+// whole load and silently drops every key after the bad one. These helpers
+// check the type first, log the rejected key, and leave *out untouched.
+// ---------------------------------------------------------------------------
+void ConfigReadInt(const nlohmann::json& j, const char* key, int* out);
+void ConfigReadU32(const nlohmann::json& j, const char* key, uint32_t* out);
+void ConfigReadBool(const nlohmann::json& j, const char* key, bool* out);
+void ConfigReadString(const nlohmann::json& j, const char* key, std::string* out);
 
 class ConfigStore {
  public:

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>  /* offsetof, for the ABI guards below */
 
 #if defined(_WIN32)
   #if defined(CASTCORE_EXPORTS)
@@ -102,14 +103,123 @@ typedef struct {
   bool visible;
 } CastMirrorWindowInfo;
 
+// ---------------------------------------------------------------------------
+// ABI guards.
+//
+// CastMirrorDeviceInfo/CastMirrorStreamStats/CastMirrorDisplayInfo/
+// CastMirrorWindowInfo are flattened by hand into managed structs in
+// app/winui/Services/CastCoreBridge.cs, which P/Invoke marshals by offset. A
+// field inserted in the middle, reordered, or widened therefore corrupts the
+// managed side silently, with no error at either end of the boundary. These
+// assertions pin the byte layout so any such change fails the build here
+// instead. The expected values are the x64 (LP64 and LLP64) layout; every
+// member is int/uint16/uint32/uint64/double/char/bool, so both ABIs agree. The
+// managed mirrors assert the same numbers via Marshal.SizeOf/Marshal.OffsetOf
+// in CastCoreBridge.cs - update both sides in the same commit.
+// ---------------------------------------------------------------------------
+#if defined(__cplusplus)
+  #define CASTMIRROR_ABI_ASSERT(cond) static_assert(cond, #cond)
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+  #define CASTMIRROR_ABI_ASSERT(cond) _Static_assert(cond, #cond)
+#else
+  #define CASTMIRROR_ABI_ASSERT(cond) /* no compile-time assert before C11 */
+#endif
+
+// sizeof == 344, alignof == 8.
+CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorStreamStats) == 344);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, bitrate_kbps) == 0);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, current_fps) == 8);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, round_trip_time_ms) == 16);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, packet_loss_fraction) == 24);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, target_delay_ms) == 32);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, width) == 36);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, height) == 40);
+// frames_sent is uint64_t: 4 bytes of padding follow the two ints above.
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, frames_sent) == 48);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, packets_sent) == 56);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, video_queue_overruns) == 64);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, current_framerate) == 72);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, adaptive_rung_index) == 76);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, adaptive_rung_count) == 80);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, adaptive_enabled) == 84);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, encoder_name) == 88);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, capture_backend) == 152);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorStreamStats, display_name) == 216);
+
+// sizeof == 450, alignof == 2 (port is the widest scalar before model_name).
+CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorDeviceInfo) == 450);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDeviceInfo, id) == 0);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDeviceInfo, name) == 128);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDeviceInfo, ip_address) == 256);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDeviceInfo, port) == 320);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDeviceInfo, model_name) == 322);
+
+// sizeof == 156, alignof == 4 (bool is 1 byte, padded up to the int alignment).
+CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorDisplayInfo) == 156);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, id) == 0);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, name) == 4);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, x) == 132);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, y) == 136);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, width) == 140);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, height) == 144);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, refresh_rate) == 148);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorDisplayInfo, is_primary) == 152);
+
+// sizeof == 408, alignof == 4.
+CASTMIRROR_ABI_ASSERT(sizeof(CastMirrorWindowInfo) == 408);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, id) == 0);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, title) == 4);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, app_class) == 260);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, x) == 388);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, y) == 392);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, width) == 396);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, height) == 400);
+CASTMIRROR_ABI_ASSERT(offsetof(CastMirrorWindowInfo, visible) == 404);
+
 // Callbacks
 typedef void (*CastMirrorStateCallback)(CastMirrorState state, const char* message, void* user_data);
 typedef void (*CastMirrorDevicesCallback)(int count, void* user_data);
 typedef void (*CastMirrorStatsCallback)(const CastMirrorStreamStats* stats, void* user_data);
+// Log callback: level is a castcore::LogLevel ordinal (0 Debug .. 4 Fatal).
+typedef void (*CastMirrorLogCallback)(int level, const char* message, void* user_data);
 
+// ---------------------------------------------------------------------------
+// Threading and shutdown contract.
+//
+// Every function in this header is safe to call from any thread; engine state
+// is internally serialized. Registered callbacks may run on any engine thread
+// and must not block - they execute on the thread that raised the event.
+//
+// castmirror_init is idempotent: repeated calls return the engine's status
+// without re-initializing. castmirror_shutdown is also idempotent. It stops
+// the active cast, stops discovery, persists the config, and detaches every
+// registered callback, then waits up to ~2 seconds for callbacks already in
+// flight. The user's side of the contract: a callback's user_data must outlive
+// its last invocation, so free it only after castmirror_shutdown returns (the
+// WinUI client frees a GCHandle there). If a client callback blocks past the
+// ~2s wait, shutdown logs a warning and user_data may still be in use - keep
+// callbacks short and non-blocking.
+// ---------------------------------------------------------------------------
 // Engine lifecycle
 CASTMIRROR_API bool castmirror_init(void);
 CASTMIRROR_API void castmirror_shutdown(void);
+
+// ---------------------------------------------------------------------------
+// ABI version.
+//
+// Bumped on every change to a CastMirror* struct's size or layout, or to a
+// function signature. The managed client (app/winui/Services/CastCoreBridge.cs)
+// declares the version it was compiled against, asserts the same struct sizes
+// and offsets, and refuses to call into a DLL that reports a different version:
+// a mismatch means P/Invoke marshals into the wrong offsets and neither side
+// sees an error at the boundary. The static asserts below cannot catch that
+// case - they only prove the native side is self-consistent.
+//
+// History: 2 - current layouts (stats gained current_framerate,
+// adaptive_rung_*, encoder_name, capture_backend, display_name).
+// ---------------------------------------------------------------------------
+#define CASTMIRROR_ABI_VERSION 2u
+CASTMIRROR_API uint32_t castmirror_abi_version(void);
 
 // Device discovery
 CASTMIRROR_API void castmirror_start_discovery(void);
@@ -152,10 +262,14 @@ CASTMIRROR_API void castmirror_set_adaptive_resolution_allowed(bool allow);
 // Configuration access (AppConfig / config.json). The JSON object uses the
 // same keys as the config file; get_config_json always emits every supported
 // key, set_config_json merges the known keys it is given and persists.
-// Buffer contract: with out_buf == NULL or buf_len <= 0 the call returns the
-// required buffer size including the NUL terminator; otherwise it copies up to
-// buf_len - 1 characters, always NUL-terminates, and returns the characters
-// written.
+// Buffer contract (two-step): with out_buf == NULL or buf_len <= 0 the call
+// returns a buffer size, including the NUL terminator, that is guaranteed to
+// hold the whole document. It is a bound, not the exact length - the engine
+// can rewrite the document between the two calls, so a caller that sizes its
+// buffer from the first call and passes it to the second always receives the
+// complete JSON. With a buffer the call copies up to buf_len - 1 characters,
+// always NUL-terminates, and returns the characters written; a caller that
+// passes a smaller buffer than the size query reported gets truncated JSON.
 CASTMIRROR_API int castmirror_get_config_json(char* out_buf, int buf_len);
 CASTMIRROR_API bool castmirror_set_config_json(const char* json);
 
@@ -171,6 +285,9 @@ CASTMIRROR_API void castmirror_rescan(void);
 CASTMIRROR_API void castmirror_set_state_callback(CastMirrorStateCallback cb, void* user_data);
 CASTMIRROR_API void castmirror_set_devices_callback(CastMirrorDevicesCallback cb, void* user_data);
 CASTMIRROR_API void castmirror_set_stats_callback(CastMirrorStatsCallback cb, void* user_data);
+// Receives the engine's diagnostic log stream (subject to the logger's minimum
+// level). Pass NULL to detach. The callback may run on any engine thread.
+CASTMIRROR_API void castmirror_set_log_callback(CastMirrorLogCallback cb, void* user_data);
 
 #ifdef __cplusplus
 }

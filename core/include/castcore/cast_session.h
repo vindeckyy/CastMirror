@@ -74,6 +74,11 @@ class CastSession {
   void VideoEncodeLoop();
   void ProcessVideoFrame(const CapturedVideoFrame& frame);
   void ProcessAudioFrame(const CapturedAudioFrame& frame);
+  // Shared audio-frame body. allow_mute_check is false only for frames built by
+  // InjectSilenceAudioFrame(), which breaks the ProcessAudioFrame <->
+  // InjectSilenceAudioFrame recursion that otherwise overflows the stack while
+  // muted (silence is encoded directly, without re-entering the mute branch).
+  void ProcessAudioFrameInternal(const CapturedAudioFrame& frame, bool allow_mute_check);
 
   void AdaptationLoop();
   void FailSession(const std::string& reason);

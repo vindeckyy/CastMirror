@@ -19,6 +19,43 @@ namespace castcore {
 #if defined(_WIN32)
 namespace {
 
+// How many times the capture loop will try to rebuild a lost duplication
+// before failing the session, and how long to wait between attempts. Shared by
+// every recreate path: a permanently unavailable output (unplugged monitor,
+// wedged driver) must end the session rather than spin the loop.
+constexpr int kMaxDuplicationRetries = 10;
+constexpr int kDuplicationRetryMs = 500;
+// Window-picker threshold: ignore windows too small to be a capture target.
+constexpr int kMinShareableWindowPx = 100;
+// Size of the placeholder frame that signals "source is gone" to the session.
+constexpr int kSourceLostFrameSize = 2;
+
+// Human-readable name for the DXGI failures that actually stop enumeration, so
+// a log line names the condition instead of only a number.
+const char* DxgiErrorName(HRESULT hr) {
+  switch (hr) {
+    case DXGI_ERROR_NOT_CURRENTLY_AVAILABLE: return "DXGI_ERROR_NOT_CURRENTLY_AVAILABLE";
+    case DXGI_ERROR_UNSUPPORTED: return "DXGI_ERROR_UNSUPPORTED";
+    case DXGI_ERROR_DEVICE_REMOVED: return "DXGI_ERROR_DEVICE_REMOVED";
+    case DXGI_ERROR_DEVICE_RESET: return "DXGI_ERROR_DEVICE_RESET";
+    case DXGI_ERROR_INVALID_CALL: return "DXGI_ERROR_INVALID_CALL";
+    case E_ACCESSDENIED: return "E_ACCESSDENIED";
+    default: return nullptr;
+  }
+}
+
+// Renders a failure as "0x887A0022 (DXGI_ERROR_NOT_CURRENTLY_AVAILABLE)".
+std::string DescribeHresult(HRESULT hr) {
+  char buffer[96];
+  const char* name = DxgiErrorName(hr);
+  if (name) {
+    std::snprintf(buffer, sizeof(buffer), "0x%08lX (%s)", static_cast<unsigned long>(hr), name);
+  } else {
+    std::snprintf(buffer, sizeof(buffer), "0x%08lX", static_cast<unsigned long>(hr));
+  }
+  return buffer;
+}
+
 // Enumerate all DXGI outputs across adapters as a flat list of
 // (adapter, output) pairs, in the same order EnumerateDisplays() uses so a
 // DisplayInfo::id maps to exactly one entry.
@@ -28,17 +65,37 @@ struct OutputEntry {
   DXGI_OUTPUT_DESC desc{};
 };
 
-std::vector<OutputEntry> EnumerateOutputs() {
+// first_error receives the first failure other than DXGI_ERROR_NOT_FOUND, which
+// is the normal end-of-enumeration signal. An empty result with S_OK means the
+// machine genuinely has no outputs; an empty result with a failure means the
+// environment refused to enumerate (session 0, remote logon, restricted GPU)
+// and the caller should say so rather than report "no displays".
+std::vector<OutputEntry> EnumerateOutputs(HRESULT* first_error = nullptr) {
   std::vector<OutputEntry> out;
+  HRESULT failure = S_OK;
   Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
-  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) return out;
+  const HRESULT factory_hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+  if (FAILED(factory_hr)) {
+    if (first_error) *first_error = factory_hr;
+    return out;
+  }
 
   for (UINT ai = 0;; ++ai) {
     Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
-    if (FAILED(factory->EnumAdapters(ai, &adapter))) break;
+    const HRESULT adapter_hr = factory->EnumAdapters(ai, &adapter);
+    if (adapter_hr == DXGI_ERROR_NOT_FOUND) break;
+    if (FAILED(adapter_hr)) {
+      if (failure == S_OK) failure = adapter_hr;
+      break;
+    }
     for (UINT oi = 0;; ++oi) {
       Microsoft::WRL::ComPtr<IDXGIOutput> output;
-      if (FAILED(adapter->EnumOutputs(oi, &output))) break;
+      const HRESULT output_hr = adapter->EnumOutputs(oi, &output);
+      if (output_hr == DXGI_ERROR_NOT_FOUND) break;
+      if (FAILED(output_hr)) {
+        if (failure == S_OK) failure = output_hr;
+        break;
+      }
       OutputEntry e;
       e.adapter = adapter;
       e.output = output;
@@ -46,6 +103,7 @@ std::vector<OutputEntry> EnumerateOutputs() {
       out.push_back(std::move(e));
     }
   }
+  if (first_error) *first_error = failure;
   return out;
 }
 
@@ -75,6 +133,14 @@ bool DisplayCaptureWgc::Start(const CaptureSource& source, int target_fps) {
   target_fps_ = target_fps > 0 ? target_fps : 60;
   target_hwnd_ = nullptr;
   source_lost_emitted_ = false;
+  age_sum_ms_ = 0.0;
+  age_count_ = 0;
+  last_age_log_ = std::chrono::steady_clock::now();
+  // A new stream must not serve an overlay composite from the previous one:
+  // the pixels, crop and dimensions are unrelated to what is cached.
+  overlay_cache_ = CapturedVideoFrame{};
+  overlay_cursor_pos_ = POINT{};
+  overlay_cache_valid_ = false;
 
   if (source.IsWindow()) {
     target_hwnd_ = reinterpret_cast<HWND>(static_cast<intptr_t>(source.id));
@@ -115,17 +181,28 @@ bool DisplayCaptureWgc::CreateDuplication() {
   d3d_context_.Reset();
   d3d_device_.Reset();
 
-  auto outputs = EnumerateOutputs();
+  HRESULT enumeration_error = S_OK;
+  auto outputs = EnumerateOutputs(&enumeration_error);
   if (outputs.empty()) {
-    LOG_ERROR << "No DXGI outputs available for desktop duplication";
+    if (FAILED(enumeration_error)) {
+      LOG_ERROR << "No DXGI outputs available for desktop duplication: "
+                << DescribeHresult(enumeration_error)
+                << ". Run CastMirror from a local desktop session with GPU access.";
+    } else {
+      LOG_ERROR << "No DXGI outputs available for desktop duplication";
+    }
     return false;
   }
   int idx = output_index_;
   if (idx < 0 || idx >= static_cast<int>(outputs.size())) {
-    LOG_WARN << "Requested output index " << idx << " out of range ("
-             << outputs.size() << " outputs); falling back to output 0";
-    idx = 0;
-    output_index_ = 0;
+    // A monitor id that no longer exists means the display list the caller
+    // resolved it from is stale (unplugged monitor, hotplug re-order). Mirroring
+    // output 0 instead would silently cast a different screen than the one the
+    // user picked, so fail loudly and let the caller re-enumerate.
+    LOG_ERROR << "Display " << idx << " is not available: " << outputs.size()
+              << " output(s) present. The display list is stale - re-enumerate "
+                 "displays before starting capture.";
+    return false;
   }
 
   OutputEntry& entry = outputs[idx];
@@ -211,7 +288,8 @@ std::vector<DisplayInfo> DisplayCaptureWgc::EnumerateDisplays() {
 #if defined(_WIN32)
   // Enumerate through DXGI so DisplayInfo::id is the same flat output index
   // Start() resolves back to an adapter/output pair.
-  auto outputs = EnumerateOutputs();
+  HRESULT enumeration_error = S_OK;
+  auto outputs = EnumerateOutputs(&enumeration_error);
   for (size_t i = 0; i < outputs.size(); ++i) {
     const DXGI_OUTPUT_DESC& desc = outputs[i].desc;
     if (!desc.AttachedToDesktop) continue;
@@ -244,6 +322,23 @@ std::vector<DisplayInfo> DisplayCaptureWgc::EnumerateDisplays() {
     info.name = name_buf;
     displays.push_back(info);
   }
+
+  // An empty list has two very different causes and the user can only act on
+  // one of them, so never leave it unexplained. Nothing is logged on the
+  // success path because EnumerateDisplays() is called on every device list
+  // refresh.
+  if (displays.empty()) {
+    if (FAILED(enumeration_error)) {
+      LOG_WARN << "DXGI enumeration found no outputs: " << DescribeHresult(enumeration_error)
+               << ". A process without an interactive desktop or GPU access (service or "
+                  "session-0 logon, remote session, headless VM) has no capturable output.";
+    } else if (!outputs.empty()) {
+      LOG_WARN << "DXGI reported " << outputs.size()
+               << " output(s), none attached to a desktop";
+    } else {
+      LOG_WARN << "DXGI reported no outputs; this machine has no attached display";
+    }
+  }
 #else
   DisplayInfo dummy;
   dummy.id = 0;
@@ -273,7 +368,7 @@ std::vector<WindowInfo> DisplayCaptureWgc::EnumerateWindows() {
       GetWindowRect(hwnd, &r);
       int w = r.right - r.left;
       int h = r.bottom - r.top;
-      if (w > 100 && h > 100) {
+      if (w > kMinShareableWindowPx && h > kMinShareableWindowPx) {
         WindowInfo wi;
         wi.id = static_cast<int>(reinterpret_cast<intptr_t>(hwnd));
         char title_utf8[512];
@@ -302,6 +397,25 @@ void DisplayCaptureWgc::SetShowCursor(bool show) {
 }
 
 #if defined(_WIN32)
+void DisplayCaptureWgc::EmitSourceLost(std::chrono::steady_clock::time_point timestamp) {
+  if (source_lost_emitted_) return;
+  source_lost_emitted_ = true;
+
+  CapturedVideoFrame vf;
+  vf.width = kSourceLostFrameSize;
+  vf.height = kSourceLostFrameSize;
+  vf.stride = kSourceLostFrameSize * 4;
+  vf.timestamp = timestamp;
+  vf.data.assign(static_cast<size_t>(vf.stride) * kSourceLostFrameSize, 0);
+  vf.source_lost = true;
+  FrameCallback cb;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    cb = callback_;
+  }
+  if (cb) cb(vf);
+}
+
 bool DisplayCaptureWgc::EnsureCursorDib(int w, int h) {
   if (cursor_dc_ && cursor_dib_w_ == w && cursor_dib_h_ == h) return true;
   DestroyCursorDib();
@@ -352,23 +466,66 @@ void DisplayCaptureWgc::CompositeCursor(std::vector<uint8_t>* bgra, int w, int h
   if (!GetIconInfo(ci.hCursor, &ii)) return;
   int hot_x = ii.xHotspot;
   int hot_y = ii.yHotspot;
+  // The sprite's real extent, not the SM_CXICON metric: a large cursor
+  // (accessibility setting, high DPI) is visible while its top-left corner is
+  // still off-frame, so a fixed 32 px bound drops it near the edges.
+  int sprite_w = 0;
+  int sprite_h = 0;
+  BITMAP bitmap{};
+  if (ii.hbmColor ? GetObject(ii.hbmColor, sizeof(bitmap), &bitmap) != 0
+                  : GetObject(ii.hbmMask, sizeof(bitmap), &bitmap) != 0) {
+    sprite_w = bitmap.bmWidth;
+    // A monochrome cursor has no color bitmap; its mask stacks the AND and XOR
+    // masks, so it is twice as tall as the sprite.
+    sprite_h = ii.hbmColor ? bitmap.bmHeight : bitmap.bmHeight / 2;
+  }
   if (ii.hbmMask) DeleteObject(ii.hbmMask);
   if (ii.hbmColor) DeleteObject(ii.hbmColor);
+  if (sprite_w <= 0 || sprite_h <= 0) {
+    sprite_w = GetSystemMetrics(SM_CXICON);
+    sprite_h = GetSystemMetrics(SM_CYICON);
+  }
 
   int px = ci.ptScreenPos.x - hot_x - origin_x;
   int py = ci.ptScreenPos.y - hot_y - origin_y;
 
-  // Fully off-screen cursors still need a cheap early-out.
-  if (px >= w || py >= h || px + GetSystemMetrics(SM_CXICON) <= 0 ||
-      py + GetSystemMetrics(SM_CYICON) <= 0) {
-    return;
+  // Intersect the sprite with the frame. Everything below works on that box
+  // only: compositing a <=64x64 sprite through a frame-sized DIB cost a 33 MB
+  // allocation plus two full-frame memcpys (about 100 MB/s at 4K60).
+  const int x0 = std::max(0, px);
+  const int y0 = std::max(0, py);
+  const int x1 = std::min(w, px + sprite_w);
+  const int y1 = std::min(h, py + sprite_h);
+  const int copy_w = x1 - x0;
+  const int copy_h = y1 - y0;
+  if (copy_w <= 0 || copy_h <= 0) return;  // fully off-frame
+
+  if (!EnsureCursorDib(sprite_w, sprite_h)) return;
+
+  const int frame_stride = w * 4;
+  const int dib_stride = sprite_w * 4;
+  // Local offset of the covered box inside the sprite-sized DIB; non-negative
+  // because the box was clamped to the frame.
+  const int local_x = x0 - px;
+  const int local_y = y0 - py;
+  // CreateDIBSection hands back a void*: address it as bytes once rather than
+  // doing arithmetic on void* (a GCC extension that warns under -Wpointer-arith).
+  BYTE* const dib = static_cast<BYTE*>(cursor_bits_);
+  for (int row = 0; row < copy_h; ++row) {
+    std::memcpy(dib + (local_y + row) * dib_stride + local_x * 4,
+                bgra->data() + static_cast<size_t>(y0 + row) * frame_stride +
+                    static_cast<size_t>(x0) * 4,
+                static_cast<size_t>(copy_w) * 4);
   }
 
-  if (!EnsureCursorDib(w, h)) return;
+  DrawIconEx(cursor_dc_, local_x, local_y, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
 
-  std::memcpy(cursor_bits_, bgra->data(), static_cast<size_t>(w) * h * 4);
-  DrawIconEx(cursor_dc_, px, py, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
-  std::memcpy(bgra->data(), cursor_bits_, static_cast<size_t>(w) * h * 4);
+  for (int row = 0; row < copy_h; ++row) {
+    std::memcpy(bgra->data() + static_cast<size_t>(y0 + row) * frame_stride +
+                    static_cast<size_t>(x0) * 4,
+                dib + (local_y + row) * dib_stride + local_x * 4,
+                static_cast<size_t>(copy_w) * 4);
+  }
 }
 #endif
 
@@ -383,7 +540,9 @@ void DisplayCaptureWgc::CaptureLoop() {
     ~TimerPeriodGuard() { timeEndPeriod(1); }
   } timer_period_guard;
 
-  int dupl_failures = 0;
+  // Consecutive duplication rebuild failures; reset on success. Owned by the
+  // rebuild guard in the loop below.
+  int dupl_retries = 0;
   FramePacer pacer;
   pacer.SetTargetFps(target_fps_);
 
@@ -400,19 +559,54 @@ void DisplayCaptureWgc::CaptureLoop() {
     FramePacer::Decision emit = pacer.Tick(frame_start);
     if (emit.emit && emit.frame != nullptr) {
       const AppConfig& cfg = ConfigStore::Instance().Get();
-      const bool draw_overlays = (show_cursor_ || cfg.latency_hud_enabled) && !emit.frame->data.empty();
+      const bool want_cursor = show_cursor_;
+      const bool draw_overlays = (want_cursor || cfg.latency_hud_enabled) && !emit.frame->data.empty();
       CapturedVideoFrame overlay_copy;
       const CapturedVideoFrame* frame = emit.frame;
-      if (draw_overlays) {
+
+      // Cursor-only overlay on a re-send whose cursor has not moved since the
+      // cached composite: the result would be byte-identical to the frame the
+      // callback already received, so reuse it instead of copying the whole
+      // frame again. A fresh capture, a moved/hidden cursor, a toggled setting
+      // or a different crop all fall through to the normal composite path.
+      CURSORINFO cursor_state{};
+      const bool cursor_visible =
+          want_cursor && GetCursorInfo(&cursor_state) && (cursor_state.flags & CURSOR_SHOWING) != 0;
+      const bool can_reuse = draw_overlays && !cfg.latency_hud_enabled && !emit.fresh &&
+                             overlay_cache_valid_ && cursor_visible &&
+                             overlay_cursor_pos_.x == cursor_state.ptScreenPos.x &&
+                             overlay_cursor_pos_.y == cursor_state.ptScreenPos.y &&
+                             overlay_cache_.width == emit.frame->width &&
+                             overlay_cache_.height == emit.frame->height;
+
+      if (can_reuse) {
+        frame = &overlay_cache_;
+      } else if (draw_overlays) {
         overlay_copy = *emit.frame;
-        if (show_cursor_) {
+        if (want_cursor) {
           CompositeCursor(&overlay_copy.data, overlay_copy.width, overlay_copy.height, emit.crop_x,
                           emit.crop_y);
+          if (cursor_visible) {
+            overlay_cursor_pos_ = cursor_state.ptScreenPos;
+            // Keep this composite for the next unchanged re-send. Only the
+            // cursor is drawn, so the bytes stay valid for identical pixels.
+            overlay_cache_ = overlay_copy;
+            overlay_cache_valid_ = true;
+          } else {
+            overlay_cache_valid_ = false;
+          }
+        } else {
+          // HUD path: content changes every tick, so nothing is cacheable.
+          overlay_cache_valid_ = false;
         }
         if (cfg.latency_hud_enabled) {
           LatencyHud::Render(overlay_copy);
         }
         frame = &overlay_copy;
+      } else {
+        // No overlay at all: drop any stale cache so toggling the cursor back
+        // on cannot serve a composite from before the setting changed.
+        overlay_cache_valid_ = false;
       }
 
       FrameCallback cb;
@@ -428,24 +622,7 @@ void DisplayCaptureWgc::CaptureLoop() {
     RECT crop{};
     if (target_hwnd_) {
       if (!IsWindow(target_hwnd_)) {
-        // Emit a single source_lost frame so the session fails gracefully
-        // instead of stalling on the last captured frame.
-        if (!source_lost_emitted_) {
-          source_lost_emitted_ = true;
-          CapturedVideoFrame vf;
-          vf.width = 2;
-          vf.height = 2;
-          vf.stride = 8;
-          vf.timestamp = frame_start;
-          vf.data.assign(2 * 8, 0);
-          vf.source_lost = true;
-          FrameCallback cb;
-          {
-            std::lock_guard<std::mutex> lock(mutex_);
-            cb = callback_;
-          }
-          if (cb) cb(vf);
-        }
+        EmitSourceLost(frame_start);
         LOG_WARN << "Capture window closed; stopping window capture";
         break;
       }
@@ -462,10 +639,10 @@ void DisplayCaptureWgc::CaptureLoop() {
       if (best >= 0 && best != output_index_) {
         LOG_INFO << "Capture window moved to output " << best << "; switching duplication";
         output_index_ = best;
-        if (!CreateDuplication()) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(250));
-          continue;
-        }
+        // Rebuilt by the retry guard before the next acquire, so a failed
+        // switch never reaches AcquireNextFrame with a null duplication.
+        desk_dupl_.Reset();
+        continue;
       }
       crop.left = std::max(wr.left, output_rect_.left);
       crop.top = std::max(wr.top, output_rect_.top);
@@ -498,6 +675,27 @@ void DisplayCaptureWgc::CaptureLoop() {
       }
     }
 
+    // Loop invariant: AcquireNextFrame requires a live duplication, and every
+    // path that can lose one (mode change, TDR, window moved outputs) drops it
+    // and jumps back here. This is the single rebuild site, so a failed
+    // rebuild can never fall through to the acquire below and dereference a
+    // null duplication, and the retry budget covers every path.
+    if (!desk_dupl_) {
+      if (dupl_retries >= kMaxDuplicationRetries) {
+        LOG_ERROR << "Desktop duplication unavailable after " << dupl_retries
+                  << " attempts; stopping capture";
+        if (target_hwnd_) EmitSourceLost(frame_start);
+        break;
+      }
+      ++dupl_retries;
+      if (CreateDuplication()) {
+        dupl_retries = 0;
+      } else {
+        std::this_thread::sleep_for(std::chrono::milliseconds(kDuplicationRetryMs));
+      }
+      continue;
+    }
+
     // Wait budget for the acquire: measured after the cadence tick so the call
     // blocks until the next tick instead of returning immediately on a tick
     // iteration and needing a second loop pass to do the real wait.
@@ -511,20 +709,13 @@ void DisplayCaptureWgc::CaptureLoop() {
       continue;
     }
     if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_INVALID_CALL) {
-      // Mode change / desktop switch / TDR: rebuild the duplication instead of
-      // killing the capture session.
+      // Mode change / desktop switch / TDR: drop the duplication and let the
+      // retry guard below rebuild it. One recreate site means one failure
+      // budget and one place that guarantees a live pointer before the acquire.
       LOG_WARN << "DXGI duplication lost (hr=0x" << std::hex << hr << std::dec
                << "); re-creating";
+      desk_dupl_.Reset();
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      if (!CreateDuplication()) {
-        if (++dupl_failures >= 10) {
-          LOG_ERROR << "Could not re-create desktop duplication; stopping capture";
-          break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-      } else {
-        dupl_failures = 0;
-      }
       continue;
     }
     if (FAILED(hr)) {
@@ -547,21 +738,18 @@ void DisplayCaptureWgc::CaptureLoop() {
     // Video and audio (WASAPI QPC position) timestamps both reference the
     // source; this makes pipeline asymmetry visible without affecting sync.
     {
-      static double s_age_sum_ms = 0.0;
-      static int s_age_count = 0;
-      static auto s_last_age_log = std::chrono::steady_clock::now();
       const auto now = std::chrono::steady_clock::now();
-      s_age_sum_ms +=
+      age_sum_ms_ +=
           std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(
               now - frame_ts)
               .count();
-      ++s_age_count;
-      if (now - s_last_age_log >= std::chrono::seconds(5) && s_age_count > 0) {
-        LOG_DEBUG << "DXGI frame present age avg: " << (s_age_sum_ms / s_age_count)
-                  << " ms (" << s_age_count << " frames)";
-        s_last_age_log = now;
-        s_age_sum_ms = 0.0;
-        s_age_count = 0;
+      ++age_count_;
+      if (now - last_age_log_ >= std::chrono::seconds(5) && age_count_ > 0) {
+        LOG_DEBUG << "DXGI frame present age avg: " << (age_sum_ms_ / age_count_)
+                  << " ms (" << age_count_ << " frames)";
+        last_age_log_ = now;
+        age_sum_ms_ = 0.0;
+        age_count_ = 0;
       }
     }
 
@@ -591,22 +779,34 @@ void DisplayCaptureWgc::CaptureLoop() {
 
     D3D11_MAPPED_SUBRESOURCE mapped;
     if (SUCCEEDED(d3d_context_->Map(staging_tex_.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
-      // Crop rect in texture coordinates (output-local).
-      int cx = crop.left - output_rect_.left;
-      int cy = crop.top - output_rect_.top;
-      int cw = (crop.right - crop.left) & ~1;
-      int ch = (crop.bottom - crop.top) & ~1;
-      cw = std::min(cw, staging_w_ - (cx & ~1));
-      ch = std::min(ch, staging_h_ - cy);
-      cx &= ~1;
+      // Crop rect in texture coordinates (output-local). Every edge is snapped
+      // to even: 4:2:0 chroma is subsampled 2x2, so an odd origin or size would
+      // hand the encoder chroma planes that do not line up with the luma rows it
+      // was given (a one-pixel skew, and for odd `cy` an out-of-bounds read on
+      // the final row). RECT members are LONG, so each extent is narrowed to
+      // int before meeting the staging dimensions: std::min cannot deduce one
+      // type across (long, int).
+      int cx = static_cast<int>(crop.left - output_rect_.left) & ~1;
+      int cy = static_cast<int>(crop.top - output_rect_.top) & ~1;
+      int cw = std::min(static_cast<int>(crop.right - crop.left), staging_w_ - cx) & ~1;
+      int ch = std::min(static_cast<int>(crop.bottom - crop.top), staging_h_ - cy) & ~1;
 
       if (cw > 0 && ch > 0) {
+        // Reuse the buffer of a frame the pacer has already superseded.
+        // Without this, every capture allocated and zero-filled a full BGRA
+        // frame (8.3 MB at 1080p) only for the row loop below to overwrite all
+        // of it: a third full-frame pass, ~0.5 GB/s on a 1080p60 stream. In the
+        // steady state two buffers alternate and nothing is allocated at all.
         CapturedVideoFrame vf;
+        vf.data = pacer.TakeSupersededBuffer();
         vf.width = cw;
         vf.height = ch;
         vf.stride = cw * 4;
+        // resize() runs only when the recycled buffer is the wrong size (a mode
+        // or resolution change), so it costs nothing on the steady-state path.
+        const size_t needed = static_cast<size_t>(vf.stride) * ch;
+        if (vf.data.size() != needed) vf.data.resize(needed);
         vf.timestamp = frame_ts;
-        vf.data.resize(static_cast<size_t>(vf.stride) * ch);
         const uint8_t* src = static_cast<const uint8_t*>(mapped.pData) +
                              static_cast<size_t>(cy) * mapped.RowPitch +
                              static_cast<size_t>(cx) * 4;

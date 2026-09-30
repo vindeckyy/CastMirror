@@ -50,6 +50,9 @@ class FramePacer {
     have_last_emit_ts_ = false;
     pending_ = CapturedVideoFrame{};
     last_ = CapturedVideoFrame{};
+    // A reset invalidates every resolution the spare was sized for; keeping it
+    // would hand the producer a buffer that no longer matches the new mode.
+    spare_.clear();
   }
 
   // Stages a freshly captured frame. Only the newest one is kept: a frame that
@@ -60,6 +63,15 @@ class FramePacer {
     pending_crop_y_ = crop_y;
     have_pending_ = true;
   }
+
+  // Hands back a pixel buffer from a frame that has already been emitted, so
+  // the producer can refill it instead of allocating and zero-filling a full
+  // frame on every capture. Empty until a frame has been superseded, and empty
+  // again once handed out, so the caller falls back to its own allocation.
+  //
+  // The steady state is two buffers alternating: the capture loop takes the
+  // retired buffer, refills it, and the next tick retires the frame it replaces.
+  std::vector<uint8_t> TakeSupersededBuffer() { return std::move(spare_); }
 
   // Milliseconds the caller may spend waiting for new content before the next
   // tick is due; 0 when a tick is already due. Capped so a long stall still
@@ -92,6 +104,14 @@ class FramePacer {
     if (now < next_emit_) return decision;
 
     if (have_pending_) {
+      // The frame this tick replaces has already been emitted, so its pixels are
+      // dead and become the producer's next reusable buffer. Retiring it here
+      // (not in Submit) is what makes the steady state work: Tick consumes
+      // pending_ before the next capture arrives, so by the time Submit runs
+      // there is nothing left staged to reuse.
+      if (have_last_ && spare_.size() < last_.data.size()) {
+        spare_.swap(last_.data);
+      }
       last_ = std::move(pending_);
       last_crop_x_ = pending_crop_x_;
       last_crop_y_ = pending_crop_y_;
@@ -143,6 +163,10 @@ class FramePacer {
   int pending_crop_x_ = 0;
   int pending_crop_y_ = 0;
   bool have_pending_ = false;
+  // A retired buffer kept for the producer to refill. Deliberately not a pool:
+  // one spare is enough to reach a steady state of two alternating buffers,
+  // because Submit() always retires the frame it replaces.
+  std::vector<uint8_t> spare_;
 
   CapturedVideoFrame last_;
   int last_crop_x_ = 0;

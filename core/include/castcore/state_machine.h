@@ -36,13 +36,10 @@ class StateMachine {
 
   // Phase 0.5: assertion helper — verify IsActive() matches external capture state.
   // Call with display_capture->IsCapturing() (or synthetic equivalent).
-  void AssertCaptureInvariant(bool capture_running) const {
-    bool active = IsActive();
-    // Use global helper from types.h via qualified name to avoid hiding.
-    ::castcore::CheckCaptureInvariant(active, capture_running);
-    if (active != capture_running) {
-      // Caller may LOG_WARN additionally; helper already asserts in debug.
-    }
+  // Reports in Release as well as asserting in debug; see types.h.
+  void AssertCaptureInvariant(bool capture_running,
+                              const char* context = "StateMachine") const {
+    ::castcore::CheckCaptureInvariant(IsActive(), capture_running, context);
   }
 
   // Convenience: check if transition would be valid without mutating state.

@@ -136,7 +136,6 @@ class SyntheticDisplayCapture : public IDisplayCapture {
 
  private:
   void CaptureLoop() {
-    int frame_counter = 0;
     int ball_x = 100, ball_y = 100;
     int dx = 6, dy = 4;
     int ball_size = 80;
@@ -217,7 +216,6 @@ class SyntheticDisplayCapture : public IDisplayCapture {
         cb(vf);
       }
 
-      frame_counter++;
       auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_time);
       if (elapsed < frame_interval) {
         std::this_thread::sleep_for(frame_interval - elapsed);
@@ -1142,20 +1140,24 @@ std::unique_ptr<IDisplayCapture> CreateWaylandPortalCapture();
 #endif
 
 std::unique_ptr<IDisplayCapture> DisplayCaptureFactory::Create() {
+#if !defined(_WIN32)
+  // X11-only escape hatch. On Windows this must not be able to select the
+  // synthetic backend: a persisted force_x11_capture or a stray
+  // CASTMIRROR_FORCE_X11 in the environment would otherwise silently cast a
+  // generated test pattern instead of the screen.
   const char* force_x11 = std::getenv("CASTMIRROR_FORCE_X11");
   bool env_force = force_x11 && force_x11[0] != '\0' && std::strcmp(force_x11, "0") != 0;
   bool cfg_force = ConfigStore::Instance().Get().force_x11_capture;
   if (env_force || cfg_force) {
-#if !defined(_WIN32)
     EnsureX11Threads();
     Display* d = XOpenDisplay(nullptr);
     if (d) {
       XCloseDisplay(d);
       return std::make_unique<X11DisplayCapture>();
     }
-#endif
     return std::make_unique<SyntheticDisplayCapture>();
   }
+#endif
 
 #if defined(CASTCORE_HAVE_PIPEWIRE)
   const char* wayland_display = std::getenv("WAYLAND_DISPLAY");

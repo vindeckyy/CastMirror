@@ -1,5 +1,7 @@
 #include "castcore/rtcp_parser.h"
 #include "castcore/logger.h"
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <map>
 
@@ -95,6 +97,34 @@ bool ParseInternal(const uint8_t* data, size_t length,
                                          (static_cast<uint32_t>(block[14]) << 8) |
                                          static_cast<uint32_t>(block[15]);
           out_feedback.jitter = ReadUint32BE(&block[20]);
+
+          // RFC 3550 6.4.1 round-trip time. LSR (report block bytes 24..27) is
+          // the middle 32 bits of the NTP timestamp from our last Sender Report;
+          // DLSR (bytes 28..31) is the delay between the receiver receiving that
+          // SR and emitting this RR, in 1/65536 s. Therefore
+          //   rtt = (now_mid32 - LSR - DLSR) / 65536 s
+          // with now_mid32 = ((unix_seconds + 2208988800) << 16) | ntp_fraction.
+          const uint32_t lsr = ReadUint32BE(&block[24]);
+          const uint32_t dlsr = ReadUint32BE(&block[28]);
+          if (lsr != 0) {  // 0 => receiver has not seen a Sender Report from us yet
+            const auto now_epoch = std::chrono::system_clock::now().time_since_epoch();
+            const uint64_t now_us = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::microseconds>(now_epoch).count());
+            const uint32_t unix_seconds = static_cast<uint32_t>(now_us / 1000000ULL);
+            const uint32_t fraction = static_cast<uint32_t>(
+                ((now_us % 1000000ULL) * 65536ULL) / 1000000ULL);
+            const uint32_t now_mid32 =
+                ((unix_seconds + 2208988800u) << 16) | (fraction & 0xFFFFu);
+            // Signed modular difference: a negative result is a wrapped or bogus
+            // DLSR and is ignored rather than reported as a huge RTT.
+            const int32_t delta = static_cast<int32_t>(now_mid32 - lsr - dlsr);
+            if (delta > 0) {
+              double rtt_ms = (static_cast<double>(delta) / 65536.0) * 1000.0;
+              constexpr double kMaxSaneRttMs = 3000.0;  // clamp bogus values
+              if (rtt_ms > kMaxSaneRttMs) rtt_ms = kMaxSaneRttMs;
+              out_feedback.rtt_ms = rtt_ms;
+            }
+          }
         }
         parsed_any = true;
       }
@@ -107,9 +137,11 @@ bool ParseInternal(const uint8_t* data, size_t length,
         out_feedback.receiver_ssrc = ReadUint32BE(&block[4]);
         out_feedback.sender_ssrc = ReadUint32BE(&block[8]);
 
-        if (count_or_subtype == 1) {
-          // Picture Loss Indicator (PLI) - FMT 1 per RFC 4585
-          out_feedback.picture_loss_indicator = true;
+        if (count_or_subtype == 1 && pt == 206) {
+          // Picture Loss Indicator (PLI) - PT 206 (Payload-Specific Feedback),
+          // FMT 1 per RFC 4585. PT 204 is Application-Defined; the same FMT
+          // value there is NOT a PLI and must not trigger a keyframe.
+            out_feedback.picture_loss_indicator = true;
           parsed_any = true;
         } else if (block_len >= 20) {
           uint32_t magic = ReadUint32BE(&block[12]);
@@ -118,10 +150,12 @@ bool ParseInternal(const uint8_t* data, size_t length,
             uint32_t ref_fid = ReferenceFrameId(media_ssrc, fallback_last_frame_id,
                                                last_frame_by_ssrc);
             uint8_t ckpt_id_8 = block[16];
-            uint8_t loss_fields_count = block[17];
-            // Clamp loss_fields_count to prevent excessive iteration on fuzzed large value
-            if (loss_fields_count > 32) loss_fields_count = 32;
+            // Spec range is 0..255 loss fields. The walk below is bounded by
+            // block_len (itself bounded by the datagram length), so all 255 can
+            // be consumed without reading past the message.
+            const uint8_t loss_fields_count = block[17];
             out_feedback.current_playout_delay_ms = ReadUint16BE(&block[18]);
+            out_feedback.has_playout_delay = true;
             out_feedback.checkpoint_frame_id = ExpandFrameId(ckpt_id_8, ref_fid);
 
             size_t loss_offset = 20;
@@ -147,10 +181,14 @@ bool ParseInternal(const uint8_t* data, size_t length,
               uint32_t cst2_magic = ReadUint32BE(&block[loss_offset]);
               if (cst2_magic == 0x43535432) { // 'CST2'
                 uint8_t bvec_octets = block[loss_offset + 5];
-                // Clamp bvec_octets to remaining bytes to avoid over-read on fuzz
-                size_t remaining = block_len - (loss_offset + 6);
-                if (bvec_octets > remaining) bvec_octets = static_cast<uint8_t>(remaining);
-                if (bvec_octets > 32) bvec_octets = 32;
+                // Spec range is 2..254 octets. Clamp to what this message
+                // actually carries so a large or truncated count cannot read
+                // out of bounds.
+                const size_t remaining = block_len - (loss_offset + 6);
+                const size_t max_octets = std::min<size_t>(remaining, 254);
+                if (static_cast<size_t>(bvec_octets) > max_octets) {
+                  bvec_octets = static_cast<uint8_t>(max_octets);
+                }
                 size_t ack_offset = loss_offset + 6;
                 for (int oct = 0; oct < bvec_octets && ack_offset + static_cast<size_t>(oct) < block_len; ++oct) {
                   uint8_t byte_val = block[ack_offset + oct];
@@ -169,7 +207,10 @@ bool ParseInternal(const uint8_t* data, size_t length,
         }
       }
     } else if (pt == 207) { // Extended Report
-      if (block_len >= 12 && block[4] == 4) { // Receiver Reference Time Report
+      // block[0..3] is the XR header and block[4..7] the report author SSRC, so
+      // the first report block's type (BT) lives at block[8]. BT 4 is the
+      // Receiver Reference Time Report (RFC 3611 4.1).
+      if (block_len >= 12 && block[8] == 4) {
         parsed_any = true;
       }
     } else {

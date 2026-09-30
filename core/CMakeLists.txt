@@ -54,6 +54,7 @@ set(CASTCORE_SOURCES
 )
 
 add_library(castcore STATIC ${CASTCORE_SOURCES})
+set(CASTCORE_INSTALL_TARGETS castcore)
 
 target_include_directories(castcore PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -126,6 +127,7 @@ if(WIN32)
     target_compile_definitions(castcore PUBLIC CASTCORE_STATIC)
 
     add_library(castcore_dll SHARED ${CASTCORE_SOURCES})
+    list(APPEND CASTCORE_INSTALL_TARGETS castcore_dll)
     set_target_properties(castcore_dll PROPERTIES PREFIX "" OUTPUT_NAME "castcore")
     target_compile_definitions(castcore_dll PRIVATE CASTCORE_EXPORTS)
     target_include_directories(castcore_dll PUBLIC
@@ -147,3 +149,39 @@ if(WIN32)
         d3d11 dxgi mfplat mfuuid ole32 ws2_32 iphlpapi avrt winmm
     )
 endif()
+
+# ---------------------------------------------------------------------------
+# Install rules.
+#
+# Without these the project can only ship applications: there is no way to
+# build a castcore -dev package and nothing downstream can link the library.
+# The public headers and the generated protobuf header are part of the API, so
+# they are installed too.
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+install(TARGETS ${CASTCORE_INSTALL_TARGETS}
+    EXPORT castcoreTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/castcore
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
+
+# The protobuf-generated header lands in the binary dir and is included by
+# cast_channel.h, so it has to travel with the public headers.
+install(FILES ${PROTO_HDRS}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/castcore
+)
+
+install(EXPORT castcoreTargets
+    FILE castcoreConfig.cmake
+    NAMESPACE castcore::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/castcore
+)
+

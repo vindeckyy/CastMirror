@@ -161,19 +161,12 @@ bool CastEngine::StartCasting(const std::string& device_id,
                              QualityPreset preset,
                              bool audio_enabled,
                              uint32_t bitrate_kbps) {
-  const auto& cfg = ConfigStore::Instance().Get();
-  SessionOptions options;
-  options.preset = preset;
-  options.enable_audio = audio_enabled;
-  options.video_bitrate_kbps = bitrate_kbps;
-  options.audio_bitrate_bps = cfg.audio_bitrate_bps;
-  options.capture_fps = cfg.capture_fps;
-  options.target_delay_ms = cfg.target_delay_ms;
-  options.silence_host_speakers = cfg.silence_host_speakers;
-  options.adaptive_enabled = cfg.adaptive_enabled;
-  options.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
-  options.verify_device_cert = cfg.verify_device_cert;
-  return StartCasting(device_id, display_id, options);
+  SessionOverrides overrides;
+  overrides.preset = preset;
+  overrides.enable_audio = audio_enabled;
+  overrides.video_bitrate_kbps = bitrate_kbps;
+  return StartCasting(device_id, display_id,
+                      BuildSessionOptions(ConfigStore::Instance().Get(), overrides));
 }
 
 bool CastEngine::StartCasting(const std::string& device_id, int display_id, const SessionOptions& options) {

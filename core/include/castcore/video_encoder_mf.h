@@ -43,11 +43,35 @@ class MediaFoundationVideoEncoder : public IVideoEncoder {
   bool SetOutputType();
   bool SetInputType();
   // Converts a BGRA CapturedVideoFrame into the negotiated input pixel format,
-  // writing into input_frame_buf_. Returns false on conversion failure.
-  bool ConvertInput(const CapturedVideoFrame& frame);
-  // Drains all currently-available output samples into out_encoded_frame.
-  // Returns false when no output was produced (input still being buffered).
+  // writing into dst (which must hold InputBufferSize() bytes). The caller owns
+  // dst: the conversion runs straight into the locked MFT media buffer, so no
+  // intermediate frame-sized copy exists. Returns false on conversion failure.
+  bool ConvertInput(const CapturedVideoFrame& frame, uint8_t* dst);
+  // Bytes one converted input frame occupies: NV12 and IYUV are both 3/2
+  // bytes per pixel, so the size does not depend on the negotiated subtype.
+  size_t InputBufferSize() const {
+    return static_cast<size_t>(config_.width) * config_.height * 3 / 2;
+  }
+  // (Re)allocates the reusable input media buffer + sample when the required
+  // size changed. Both are kept for the lifetime of the stream: the MFT copies
+  // the sample during ProcessInput, so one buffer can serve every frame.
+  bool EnsureInputBuffer();
+  // (Re)allocates the reusable output sample for caller-allocated output,
+  // growing it when the MFT reports it was too small. Returns false when the
+  // buffer cannot be created.
+  bool EnsureOutputBuffer();
+  // Refreshes the cached output stream info after configuration or a dynamic
+  // type change. Returns whether the MFT provides its own samples.
+  bool RefreshOutputStreamInfo();
+  // Drains the next available output sample into out_encoded_frame. Returns
+  // false when no output was produced (input still being buffered). Only the
+  // first available sample is taken: a low-latency encoder emits at most one
+  // frame per input, and appending several would pack multiple pictures behind
+  // a single RTP timestamp. Anything still queued is picked up next call.
   bool DrainOutput(EncodedFrame& out_encoded_frame);
+  // Copies one MFT output sample's bytes and clean-point flag into
+  // out_encoded_frame. Does not take ownership of sample.
+  bool CopyOutputSample(IMFSample* sample, EncodedFrame& out_encoded_frame);
 #endif
 
   VideoEncoderConfig config_;
@@ -57,8 +81,6 @@ class MediaFoundationVideoEncoder : public IVideoEncoder {
   std::chrono::steady_clock::time_point rtp_clock_origin_{};
   bool rtp_clock_origin_set_ = false;
   bool is_hardware_ = false;
-  bool mf_started_ = false;
-  int64_t sample_time_100ns_ = 0;
 
 #if defined(_WIN32)
   Microsoft::WRL::ComPtr<IMFTransform> mft_;
@@ -67,10 +89,28 @@ class MediaFoundationVideoEncoder : public IVideoEncoder {
   DWORD output_stream_id_ = 0;
   // Negotiated input format: MFVideoFormat_NV12 or MFVideoFormat_IYUV.
   GUID input_subtype_ = {0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};
-  std::vector<uint8_t> input_frame_buf_;
   GpuProcessor gpu_processor_;
   int gpu_src_w_ = 0;
   int gpu_src_h_ = 0;
+
+  // Reusable input path. The conversion writes straight into the locked
+  // input buffer, and the MFT copies out of it during ProcessInput, so both
+  // objects are allocated once per stream instead of once per frame. At
+  // 1080p that removes a 3.1 MB allocation plus a 3.1 MB memcpy every tick.
+  Microsoft::WRL::ComPtr<IMFMediaBuffer> input_buffer_;
+  Microsoft::WRL::ComPtr<IMFSample> input_sample_;
+  size_t input_buffer_size_ = 0;
+
+  // Reusable output path for MFTs that do not provide their own samples.
+  // Sized from MFT_OUTPUT_STREAM_INFO::cbSize and grown on demand when the
+  // transform reports MF_E_BUFFER_TOO_SMALL, so an oversized first frame is
+  // retried instead of dropped.
+  Microsoft::WRL::ComPtr<IMFSample> output_sample_;
+  DWORD output_buffer_size_ = 0;
+  // Cached stream info, re-read on configuration and on a dynamic type change.
+  MFT_OUTPUT_STREAM_INFO output_info_{};
+  bool have_output_info_ = false;
+  bool output_provides_samples_ = false;
 #endif
 };
 

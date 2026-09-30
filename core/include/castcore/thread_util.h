@@ -8,7 +8,12 @@
 namespace castcore {
 
 // Join a worker after Stop() has already interrupted it (CV notify, Pulse
-// wakeup, UDP shutdown). If this is called from the worker itself, detach.
+// wakeup, UDP shutdown). timeout_ms is a reporting budget only: a join can't
+// be abandoned, so the only alternative to an unbounded wait is leaving the
+// worker detached while objects it touches are destroyed - which is worse.
+// A worker that exceeds the budget is logged loudly instead of silently
+// hanging the Stop <= 500 ms contract.
+// If called from the worker itself, detach (joining self would throw).
 inline void JoinOrDetach(std::thread& t, int timeout_ms, const char* name) {
   if (!t.joinable()) {
     return;
@@ -29,7 +34,6 @@ inline void JoinOrDetach(std::thread& t, int timeout_ms, const char* name) {
   } else if (elapsed_ms > 100) {
     LOG_INFO << "JoinOrDetach \"" << name << "\" took " << elapsed_ms << "ms";
   }
-  (void)timeout_ms;
 }
 
 // Phase 0.5: measure elapsed time of a scope and warn if exceeds budget.

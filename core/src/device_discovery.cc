@@ -41,6 +41,20 @@ constexpr const char* kCastServiceType = "_googlecast._tcp.local";
 constexpr const char* kMdnsMulticastGroup = "224.0.0.251";
 constexpr uint16_t kMdnsPort = 5353;
 
+// Jitter for the subnet-probe retry backoff.
+//
+// This used to be `rand()`, which is a process-global: concurrent discovery
+// calls contend on the same state, it is not reproducible under
+// ThreadSanitizer, and seeding it deterministically would silently change the
+// production backoff. A per-thread engine keeps the same 10-34 ms spread while
+// removing the shared state. Discovery runs on a dedicated thread, so the
+// seeding cost is paid once.
+int RetryJitterMs(int base_ms, int spread_ms) {
+  static thread_local std::mt19937 engine(std::random_device{}());
+  std::uniform_int_distribution<int> dist(0, spread_ms > 0 ? spread_ms - 1 : 0);
+  return base_ms + dist(engine);
+}
+
 // Helper: Attempt non-blocking TCP connect with timeout in milliseconds
 bool CheckTcpPort(const std::string& ip, uint16_t port, int timeout_ms) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -103,7 +117,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
       if (attempt + 1 < kMaxAttempts) {
-        int jitter_ms = (attempt * 17 + (rand() % 30));
+        int jitter_ms = RetryJitterMs(attempt * 17, 30);
         std::this_thread::sleep_for(std::chrono::milliseconds(jitter_ms));
         continue;
       }
@@ -187,7 +201,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     if (!connected) {
       close(fd);
       if (attempt + 1 < kMaxAttempts) {
-        int jitter_ms = 20 + (rand() % 40) + attempt * 15;
+        int jitter_ms = RetryJitterMs(20 + attempt * 15, 40);
         std::this_thread::sleep_for(std::chrono::milliseconds(jitter_ms));
         continue;
       }
@@ -207,7 +221,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     if (send(fd, req.data(), req.size(), 0) < 0) {
       close(fd);
       if (attempt + 1 < kMaxAttempts) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20 + (rand() % 30)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(RetryJitterMs(20, 30)));
         continue;
       }
       return false;
@@ -239,7 +253,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
 
     if (!recv_ok) {
       if (attempt + 1 < kMaxAttempts) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(15 + (rand() % 35)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(RetryJitterMs(15, 35)));
         continue;
       }
       return false;
@@ -248,7 +262,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     size_t body_pos = resp.find("\r\n\r\n");
     if (body_pos == std::string::npos) {
       if (attempt + 1 < kMaxAttempts) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 20)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(RetryJitterMs(10, 20)));
         continue;
       }
       return false;
@@ -275,13 +289,13 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
       return true;
     } catch (const nlohmann::json::exception&) {
       if (attempt + 1 < kMaxAttempts) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 25)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(RetryJitterMs(10, 25)));
         continue;
       }
       return false;
     } catch (...) {
       if (attempt + 1 < kMaxAttempts) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10 + (rand() % 25)));
+        std::this_thread::sleep_for(std::chrono::milliseconds(RetryJitterMs(10, 25)));
         continue;
       }
       return false;

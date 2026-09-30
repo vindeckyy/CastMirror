@@ -42,10 +42,14 @@ class DeviceDiscovery {
                                       uint16_t port,
                                       const std::vector<std::string>& txt_entries);
 
+  // Parse one mDNS response packet and merge any device it describes into the
+  // device list. Public so this parser — which consumes untrusted LAN input —
+  // can be unit-tested directly. Normally only reached from DiscoveryLoop().
+  void ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip);
+
  private:
   void DiscoveryLoop();
   void SendMdnsQuery(int socket_fd);
-  void ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip);
   void ProbeLocalSubnets();
 
   std::atomic<bool> running_{false};

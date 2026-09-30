@@ -22,6 +22,9 @@
   #include <unistd.h>
   #include <fcntl.h>
   #include <poll.h>
+  #ifdef IP_TOS
+    #include <netinet/ip.h>
+  #endif
 #endif
 
 namespace castcore {
@@ -110,6 +113,26 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   int rcvbuf = 2 * 1024 * 1024;
   setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndbuf), sizeof(sndbuf));
   setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&rcvbuf), sizeof(rcvbuf));
+
+  // Mark the media packets as real-time traffic (DSCP AF41, class 4).
+  //
+  // CastMirror's latency is dominated by queueing delay, not by encode time.
+  // Without this, a Cast session's UDP is indistinguishable from bulk traffic
+  // to a managed switch or a Wi-Fi access point, so media packets queue behind
+  // whatever else the link is carrying. AF41 is the standard Expedited
+  // Forwarding class for this, and receivers ignore it, so the only effect is
+  // on the local network's queue order.
+  //
+  // Best-effort by design: the kernel doubles SO_SNDBUF/SO_RCVBUF, may clamp or
+  // ignore the TOS, and a LAN without QoS simply drops the marking. A failure
+  // here must never prevent a session, so it is not treated as an error.
+  int dscp_af41 = 0x28;  // AF41 = DSCP 34, shifted left 2 into the TOS byte
+  if (setsockopt(socket_fd_, IPPROTO_IP, IP_TOS,
+                 reinterpret_cast<const char*>(&dscp_af41),
+                 sizeof(dscp_af41)) != 0) {
+    LOG_DEBUG << "Could not set IP_TOS (AF41) on the media socket; "
+                 "packets will use the default queue: " << std::strerror(errno);
+  }
 
 #if defined(_WIN32)
   u_long non_blocking_mode = 1;
@@ -497,11 +520,16 @@ uint32_t CastTransport::SafeCacheEraseLimit(uint32_t checkpoint, uint32_t last_s
   // Handle 32-bit wrap: compute signed difference checkpoint - last_sent
   int32_t diff = static_cast<int32_t>(checkpoint - last_sent);
   if (diff > 0) {
-    // checkpoint is ahead of last_sent (including wrap-around)
+    // checkpoint is ahead of last_sent (including wrap-around).
     if (diff > 32) {
+      // Too far ahead to be believable: keep the whole cache.
       return 0;
     }
-    return last_sent;
+    // Within the truncation window the checkpoint may still be an
+    // 8-bit-truncated id that ExpandFrameId() expanded 1..32 frames ahead of
+    // what we have actually sent. The newest in-flight frame must never be
+    // erased, so only drop up to last_sent - 1.
+    return last_sent > 0 ? last_sent - 1 : 0;
   }
   // checkpoint <= last_sent (or behind) : safe to erase up to checkpoint
   // Also guard against checkpoint far behind due to wrap (diff < -1000000) is still safe as checkpoint is old
