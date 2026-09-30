@@ -31,16 +31,25 @@ Windows-focused release-readiness pass.
 - Changing preset overwrote the target delay you had set.
 - The Stop button lost its red on mouse-over, and the LIVE badge was unreadable in the light theme.
 - Config saves could interleave and corrupt the file, and a failed write replaced the good file.
+- Colours were converted with BT.601 while TVs decode HD video as BT.709, so reds and greens looked shifted. The stream is now converted and tagged as BT.709.
+- The offer named a codec the encoder never produced when a mirroring-incompatible codec was requested.
+- A TV that was switched off stayed in the device list forever. Discovery now drops it after ten minutes of silence. Devices added by address stay.
+- Closing the app during a cast dropped the final Stopping and Idle events.
+- The RTCP socket was closed before its thread stopped, which could hand the descriptor to an unrelated socket.
+- A window source started through the C API lost its title and geometry, so "cast to last" fell back to the monitor.
+- The status line kept saying "Scanning" after a TV had been found.
 
 ### Added
 - Windows installer with firewall rules, an optional sign-in start, and a clean uninstall.
-- Global shortcuts, keyboard shortcuts, and live-region announcements for screen readers.
+- Keyboard shortcuts and live-region announcements for screen readers.
 - Remembers the window size and the last TV and source.
 - Show or hide the mouse pointer in the mirrored picture.
 - Configurable reconnect window (30 seconds to 10 minutes).
 - Logs window seeds from disk, copies the selection, and can copy a bug-report bundle with IP addresses masked.
 - Crash minidumps with a notice on the next launch. Nothing is uploaded.
 - About dialog with an on-request update check.
+- The window shows the engine's advice ("Wi-Fi is dropping packets...") and reconnect progress. C API stats grew to ABI version 3.
+- Optional global shortcuts: Ctrl+Alt+C, Ctrl+Alt+F, Ctrl+Alt+M.
 - Licence bundle with the GPL notice and source offer for the libx264 build.
 
 ### Removed

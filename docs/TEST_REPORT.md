@@ -31,6 +31,25 @@ All phases of the CastMirror implementation plan defined in `ARCHITECTURE.md` ha
 
 ---
 
+## 1a. Windows release-readiness baseline
+
+Run on the Windows client's release-readiness pass (MSYS2 UCRT64 GCC, Windows 11, real display, a real audio endpoint, no hardware H.264 MFT on the test machine).
+
+| Suite | Result |
+|---|---|
+| Native (`ctest`, `build\`) | 192 of 192 passed, 2 X11-only cases skipped |
+| Client unit tests (`dotnet test tests\winui`) | 18 of 18 passed |
+| UI smoke test (`scripts\smoke_winui.ps1`) | passed: main window, Settings, Logs and About open, a second launch wakes the first, no new exceptions in the error log |
+| Packaged app (`package.ps1`) | passed its checks; the published `CastMirror.exe` starts with MSYS2 off `PATH` |
+
+What this run did not cover, and why it matters:
+
+- **Hardware H.264 encoders.** The Media Foundation path for asynchronous GPU encoders (NVIDIA, AMD, Intel) is written to Microsoft's contract and unit-neutral here; this machine has no hardware MFT, so the software fallback ran. It needs a run on each vendor's hardware.
+- **HDR.** The FP16 tone-mapping is tested on synthetic pixels only.
+- **A live cast.** The end-to-end tests use the simulated receiver in `tests/test_cast_e2e.cc`. No session was started against a physical Chromecast in this pass.
+- **Long sessions.** No 8-hour soak.
+- **Sanitizers.** ThreadSanitizer and AddressSanitizer are not available for the MinGW toolchain, so the threading fixes are covered by regression tests, not by a sanitizer run.
+
 ## 2. Detailed Test Results
 
 <!-- testsuite:start -->
