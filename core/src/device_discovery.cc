@@ -624,10 +624,16 @@ size_t SkipDnsName(const uint8_t* buf, size_t len, size_t offset) {
 
 void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, const std::string& sender_ip) {
   if (length < 12) return;
+  // Only responses describe devices. Other hosts' queries can carry known-answer
+  // records, and our own multicast queries loop back to this socket.
+  if ((buffer[2] & 0x80) == 0) return;
 
   std::vector<std::string> txt_entries;
   uint16_t parsed_port = 8009;
   std::string parsed_name;
+  // The device's own address when the response carries an A record; the packet
+  // source can be a reflector or a different interface of a multi-homed device.
+  std::string parsed_ip;
 
   // Structured DNS Resource Record parser
   uint16_t qdcount = (buffer[4] << 8) | buffer[5];
@@ -665,6 +671,11 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
           txt_pos += tlen;
         }
       }
+    } else if (rtype == 1 && rdlength == 4 && parsed_ip.empty()) { // A Record
+      char ip_buf[INET_ADDRSTRLEN];
+      if (inet_ntop(AF_INET, &buffer[offset], ip_buf, sizeof(ip_buf))) {
+        parsed_ip = ip_buf;
+      }
     } else if (rtype == 33 && rdlength >= 6) { // SRV Record
       uint16_t srv_port = (buffer[offset + 4] << 8) | buffer[offset + 5];
       if (srv_port == 8009 || srv_port == 8008) {
@@ -701,7 +712,13 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length, 
   }
 
   if (!txt_entries.empty()) {
-    CastDevice dev = ParseFromMdnsData(parsed_name, sender_ip, parsed_port, txt_entries);
+    // A Cast device always publishes its id or friendly name. Unrelated mDNS
+    // traffic (printers, AirPlay, other TXT records on the LAN) has neither and
+    // must not show up as a phantom TV.
+    const auto keys = ParseTxtRecord(txt_entries);
+    if (!keys.count("id") && !keys.count("fn")) return;
+    CastDevice dev = ParseFromMdnsData(parsed_name, parsed_ip.empty() ? sender_ip : parsed_ip,
+                                       parsed_port, txt_entries);
     AddOrUpdateDevice(dev);
   }
 }

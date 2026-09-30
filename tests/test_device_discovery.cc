@@ -272,3 +272,41 @@ TEST(DeviceDiscoveryTest, ProcessMdnsResponseUsesFallbackScanWhenNoStructuredTxt
   EXPECT_EQ(devices.front().name, "Patio");
   EXPECT_EQ(devices.front().model_name, "Chromecast");
 }
+
+TEST(DeviceDiscoveryTest, ProcessMdnsResponseIgnoresQueriesAndNonCastTxt) {
+  DeviceDiscovery discovery;
+
+  // A query (QR bit clear) that happens to carry a TXT answer is not a device.
+  std::vector<uint8_t> query = MdnsHeader(0, 2, 0, 0);
+  query[2] = 0x00;
+  query[3] = 0x00;
+  AppendSrvRecord(query, kInstance, 8009);
+  AppendTxtRecord(query, kInstance, {"id=uuid-q", "fn=Query Echo"});
+  discovery.ProcessMdnsResponse(query.data(), query.size(), "192.168.7.20");
+  EXPECT_TRUE(discovery.GetDevices().empty());
+
+  // A response whose TXT carries neither id nor fn (a printer, say).
+  std::vector<uint8_t> printer = MdnsHeader(0, 2, 0, 0);
+  AppendSrvRecord(printer, kInstance, 8009);
+  AppendTxtRecord(printer, kInstance, {"rp=ipp/print", "ty=Office Printer"});
+  discovery.ProcessMdnsResponse(printer.data(), printer.size(), "192.168.7.21");
+  EXPECT_TRUE(discovery.GetDevices().empty());
+}
+
+TEST(DeviceDiscoveryTest, ProcessMdnsResponsePrefersTheARecordAddress) {
+  std::vector<uint8_t> pkt = MdnsHeader(0, 3, 0, 0);
+  AppendSrvRecord(pkt, kInstance, 8009);
+  AppendTxtRecord(pkt, kInstance, {"id=uuid-a", "fn=Bedroom"});
+  AppendName(pkt, "Bedroom.local");
+  AppendU16(pkt, 1);       // A
+  AppendU16(pkt, 0x8001);
+  AppendU32(pkt, 120);
+  AppendU16(pkt, 4);
+  for (uint8_t b : {uint8_t{192}, uint8_t{168}, uint8_t{7}, uint8_t{33}}) pkt.push_back(b);
+
+  DeviceDiscovery discovery;
+  discovery.ProcessMdnsResponse(pkt.data(), pkt.size(), "192.168.7.1");  // e.g. a reflector
+  auto devices = discovery.GetDevices();
+  ASSERT_EQ(devices.size(), 1u);
+  EXPECT_EQ(devices.front().ip_address, "192.168.7.33");
+}
