@@ -1,4 +1,5 @@
 #include "castcore/config.h"
+#include <mutex>
 #include "castcore/logger.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
@@ -314,6 +315,10 @@ bool ConfigStore::Load(const std::string& custom_path) {
 }
 
 bool ConfigStore::Save(const std::string& custom_path) {
+  // Saves come from the UI, C API, engine and session threads; two writers
+  // sharing one .tmp file would interleave and corrupt it.
+  static std::mutex save_mutex;
+  std::lock_guard<std::mutex> save_lock(save_mutex);
   std::string path_to_save = custom_path.empty() ? config_path_ : custom_path;
 
   try {
@@ -388,7 +393,10 @@ bool ConfigStore::Save(const std::string& custom_path) {
       if (!file.is_open()) return false;
       file << j.dump(2) << std::endl;
       file.flush();
-      // fsync handled by ofstream close flush; ensure directory exists
+      if (!file.good()) {
+        LOG_ERROR << "Failed to write configuration to " << tmp_path;
+        return false;  // keep the previous file rather than renaming a truncated one over it
+      }
     }
     try {
       // Backup existing
