@@ -31,6 +31,7 @@ set(TEST_SOURCES
     test_device_discovery.cc
     test_net_platform.cc
     test_gpu_processor.cc
+    test_pixel_convert.cc
     test_audio_capture.cc
 )
 

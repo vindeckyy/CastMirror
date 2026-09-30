@@ -754,10 +754,46 @@ void DisplayCaptureWgc::CaptureLoop() {
     }
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> desktop_tex;
-    desktop_res.As(&desktop_tex);
+    if (FAILED(desktop_res.As(&desktop_tex)) || !desktop_tex) {
+      desk_dupl_->ReleaseFrame();
+      continue;
+    }
 
     D3D11_TEXTURE2D_DESC desc;
     desktop_tex->GetDesc(&desc);
+
+    // What the surface actually holds decides how it is read. With HDR on, Windows
+    // hands out 16-bit float; reading that as 8-bit BGRA (the old behaviour) sends
+    // the TV noise.
+    SourcePixelFormat source_format = SourcePixelFormat::kBgra8;
+    size_t source_bytes_per_pixel = 4;
+    switch (desc.Format) {
+      case DXGI_FORMAT_B8G8R8A8_UNORM:
+      case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+        break;
+      case DXGI_FORMAT_R8G8B8A8_UNORM:
+      case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        source_format = SourcePixelFormat::kRgba8;
+        break;
+      case DXGI_FORMAT_R10G10B10A2_UNORM:
+        source_format = SourcePixelFormat::kRgb10A2;
+        break;
+      case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        source_format = SourcePixelFormat::kRgbaF16;
+        source_bytes_per_pixel = 8;
+        break;
+      default:
+        LOG_ERROR << "Unsupported desktop surface format " << static_cast<int>(desc.Format)
+                  << "; stopping capture instead of sending a corrupted picture";
+        desk_dupl_->ReleaseFrame();
+        running_ = false;
+        continue;
+    }
+    if (source_format != last_logged_format_) {
+      LOG_INFO << "Desktop surface format " << static_cast<int>(desc.Format)
+               << (source_format == SourcePixelFormat::kRgbaF16 ? " (HDR, tone-mapped to SDR)" : "");
+      last_logged_format_ = source_format;
+    }
 
     // Cache the staging texture; recreate only when the output size changes.
     if (!staging_tex_ || staging_w_ != static_cast<int>(desc.Width) ||
@@ -809,12 +845,9 @@ void DisplayCaptureWgc::CaptureLoop() {
         vf.timestamp = frame_ts;
         const uint8_t* src = static_cast<const uint8_t*>(mapped.pData) +
                              static_cast<size_t>(cy) * mapped.RowPitch +
-                             static_cast<size_t>(cx) * 4;
-        for (int row = 0; row < ch; ++row) {
-          std::memcpy(vf.data.data() + static_cast<size_t>(row) * vf.stride,
-                      src + static_cast<size_t>(row) * mapped.RowPitch,
-                      static_cast<size_t>(vf.stride));
-        }
+                             static_cast<size_t>(cx) * source_bytes_per_pixel;
+        ConvertToBgra8(src, mapped.RowPitch, source_format, cw, ch,
+                       vf.data.data(), static_cast<size_t>(vf.stride));
 
         d3d_context_->Unmap(staging_tex_.Get(), 0);
 

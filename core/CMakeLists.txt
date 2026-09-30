@@ -39,6 +39,7 @@ set(CASTCORE_SOURCES
     src/display_capture_wayland.cc
     src/audio_capture.cc
     src/gpu_processor.cc
+    src/pixel_convert.cc
     src/video_encoder.cc
     src/latency_hud.cc
     src/display_capture_wgc.cc

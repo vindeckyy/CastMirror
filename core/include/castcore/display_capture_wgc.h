@@ -2,6 +2,7 @@
 #define CASTCORE_DISPLAY_CAPTURE_WGC_H_
 
 #include "castcore/display_capture.h"
+#include "castcore/pixel_convert.h"
 
 #if defined(_WIN32)
 #include <d3d11.h>
@@ -67,6 +68,8 @@ class DisplayCaptureWgc : public IDisplayCapture {
   // worker on every frame it composites.
   std::atomic<bool> show_cursor_{false};
   std::atomic<int> target_fps_{60};
+  // Last surface format logged, so a switch to HDR is reported once, not per frame.
+  SourcePixelFormat last_logged_format_ = SourcePixelFormat::kBgra8;
   CaptureSource active_source_{CaptureSourceKind::kMonitor, 0, ""};
 
 #if defined(_WIN32)
