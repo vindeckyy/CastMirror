@@ -12,7 +12,9 @@ namespace {
 
 // Ticks on the QPC timeline, so the expectation is stated in source time rather
 // than as a wall-clock read.
-Clock FromQpc(int64_t ticks) { return QpcTicksToSteadyClock(static_cast<uint64_t>(ticks)); }
+Clock FromQpc(int64_t ticks) {
+  return QpcTicksToSteadyClock(static_cast<uint64_t>(ticks));
+}
 
 }  // namespace
 

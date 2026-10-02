@@ -1058,9 +1058,10 @@ void CastSession::AdaptationLoop() {
         std::lock_guard<std::mutex> elock(video_encoder_mutex_);
         if (video_encoder_) {
           const VideoEncoderConfig enc_cfg = video_encoder_->GetConfig();
-          const bool geometry_changed = enc_cfg.width != (updated.current_resolution.width & ~1) ||
-                                        enc_cfg.height != (updated.current_resolution.height & ~1) ||
-                                        enc_cfg.framerate != updated.current_framerate;
+          const bool geometry_changed =
+              enc_cfg.width != (updated.current_resolution.width & ~1) ||
+              enc_cfg.height != (updated.current_resolution.height & ~1) ||
+              enc_cfg.framerate != updated.current_framerate;
           const bool bitrate_changed = enc_cfg.bitrate_kbps != updated.bitrate_kbps;
           if (geometry_changed) {
             VideoEncoderConfig new_cfg = enc_cfg;

@@ -346,9 +346,9 @@ TEST(EncoderTest, SetBitrateChangesTheEncodedRateInPlace) {
   const size_t at_400 = MeasureEncodedBytes(encoder.get(), 30);
 
   EXPECT_EQ(encoder->GetConfig().bitrate_kbps, 400u);
-  EXPECT_LT(at_400, at_4000)
-      << "SetBitrate must change the encoded rate in place: 30 frames were "
-      << at_4000 << " bytes at 4000 kbps but " << at_400 << " bytes at 400 kbps";
+  EXPECT_LT(at_400, at_4000) << "SetBitrate must change the encoded rate in place: 30 frames were "
+                             << at_4000 << " bytes at 4000 kbps but " << at_400
+                             << " bytes at 400 kbps";
 }
 
 // Same check with geometry unchanged across a Reconfigure, which is the path
@@ -373,9 +373,9 @@ TEST(EncoderTest, ReconfiguredEncoderHonoursTheNewBitrate) {
   MeasureEncodedBytes(encoder.get(), 10);
   const size_t at_400 = MeasureEncodedBytes(encoder.get(), 30);
 
-  EXPECT_LT(at_400, at_4000)
-      << "Reconfigure must reopen at the new rate: " << at_4000 << " bytes at "
-      << "4000 kbps but " << at_400 << " bytes at 400 kbps";
+  EXPECT_LT(at_400, at_4000) << "Reconfigure must reopen at the new rate: " << at_4000
+                             << " bytes at "
+                             << "4000 kbps but " << at_400 << " bytes at 400 kbps";
 }
 
 TEST(EncoderTest, VideoRtpTimestampsFollowCaptureClock) {

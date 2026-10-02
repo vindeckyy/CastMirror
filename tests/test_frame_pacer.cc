@@ -66,9 +66,8 @@ TEST(FramePacerTest, IdleTicksReSendTheLastFrameAtExactCadence) {
   for (size_t i = 1; i < stamps.size(); ++i) {
     const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
     EXPECT_GE(step, us(33000)) << "emit " << i << " did not advance by a cadence interval";
-    EXPECT_LE(step, us(33333) + ms(1))
-        << "emit " << i << " advanced " << step.count()
-        << " us; re-sends must track elapsed time, not a fixed step";
+    EXPECT_LE(step, us(33333) + ms(1)) << "emit " << i << " advanced " << step.count()
+                                       << " us; re-sends must track elapsed time, not a fixed step";
   }
 }
 
@@ -358,9 +357,8 @@ TEST(FramePacerTest, ReSendsAdvanceByTheElapsedTime) {
   for (size_t i = 1; i < stamps.size(); ++i) {
     const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
     EXPECT_GE(step, us(33000)) << "emit " << i << " did not advance by one interval";
-    EXPECT_LE(step, us(33333) + ms(1))
-        << "emit " << i << " advanced " << step.count()
-        << " us, more than one interval plus the tick granularity";
+    EXPECT_LE(step, us(33333) + ms(1)) << "emit " << i << " advanced " << step.count()
+                                       << " us, more than one interval plus the tick granularity";
   }
 }
 
@@ -421,14 +419,12 @@ TEST(FramePacerTest, FrozenPresentTimeAdvancesAtWallClockRate) {
 
   for (size_t i = 1; i < stamps.size(); ++i) {
     const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
-    EXPECT_GE(step, interval)
-        << "emit " << i << " stepped " << step.count()
-        << " us; a frozen source must still advance at wall-clock rate";
+    EXPECT_GE(step, interval) << "emit " << i << " stepped " << step.count()
+                              << " us; a frozen source must still advance at wall-clock rate";
   }
   // 119 intervals of wall clock have passed, so the stamp must cover nearly all
   // of it. A fixed 1 ms step would leave it ~3.9 s short.
   const us covered = std::chrono::duration_cast<us>(stamps.back() - stamps.front());
-  EXPECT_GE(covered, 119 * us(33333) - us(1000))
-      << "the timeline only covered " << covered.count()
-      << " us of the 3966327 us that actually elapsed";
+  EXPECT_GE(covered, 119 * us(33333) - us(1000)) << "the timeline only covered " << covered.count()
+                                                 << " us of the 3966327 us that actually elapsed";
 }
