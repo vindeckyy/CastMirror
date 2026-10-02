@@ -66,4 +66,21 @@
     <Error Condition="!Exists('$(MSBuildThisFileDirectory)..\..\build\core\castcore.dll')"
            Text="castcore.dll not found at build\core\castcore.dll. Build the native core first: cmake -S . -B build -G Ninja &amp;&amp; cmake --build build (MSYS2 UCRT64 toolchain)." />
   </Target>
+
+  <!-- castcore.dll is linked against FFmpeg, OpenSSL, protobuf and the MinGW
+       runtime, and those are hard imports: the loader resolves the whole
+       closure before the managed entry point runs. Shipping only castcore.dll
+       left the app throwing DllNotFoundException on its first native call
+       unless something else happened to put the toolchain on PATH, which is
+       what run-gui.bat did. Copy the closure so the exe works from a shortcut.
+       The stamp keeps this to once per castcore build rather than once per
+       managed build. -->
+  <Target Name="CopyCastCoreDependencies"
+          AfterTargets="Build"
+          Inputs="$(MSBuildThisFileDirectory)..\..\build\core\castcore.dll"
+          Outputs="$(OutDir)\.native-deps.stamp">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\scripts\copy_native_deps.ps1&quot; -Destination &quot;$(OutDir.TrimEnd('\'))&quot;"
+          StandardOutputImportance="normal" />
+    <Touch Files="$(OutDir)\.native-deps.stamp" AlwaysCreate="true" />
+  </Target>
 </Project>

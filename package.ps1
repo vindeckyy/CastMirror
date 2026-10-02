@@ -54,35 +54,13 @@ Write-Host "========================================================" -Foregroun
 $castCoreDll = Join-Path $buildDir "core\castcore.dll"
 Copy-Item $castCoreDll -Destination $publishDir -Force
 
-$visited = [System.Collections.Generic.HashSet[string]]::new()
-$toCheck = [System.Collections.Generic.Queue[string]]::new()
-$toCheck.Enqueue($castCoreDll)
-
-while ($toCheck.Count -gt 0) {
-    $current = $toCheck.Dequeue()
-    $name = [System.IO.Path]::GetFileName($current)
-    if ($visited.Contains($name)) { continue }
-    $visited.Add($name) | Out-Null
-
-    $dump = & (Join-Path $binDir "objdump.exe") -p $current | Select-String 'DLL Name:'
-    foreach ($line in $dump) {
-        if ($line -match 'DLL Name:\s*(.*)') {
-            $dll = $matches[1].Trim()
-            $dllPath = Join-Path $binDir $dll
-            if (Test-Path $dllPath) {
-                if (-not $visited.Contains($dll)) {
-                    $toCheck.Enqueue($dllPath)
-                    $destPath = Join-Path $publishDir $dll
-                    if (-not (Test-Path $destPath)) {
-                        Copy-Item $dllPath -Destination $destPath -Force
-                    }
-                }
-            }
-        }
-    }
-}
-
-Write-Host "Copied $($visited.Count) native runtime libraries." -ForegroundColor Green
+# castcore.dll's DLL closure has to travel with it: FFmpeg, OpenSSL, protobuf
+# and the MinGW runtime are hard imports, so a missing member surfaces as
+# DllNotFoundException on the first native call rather than at startup. The walk
+# lives in one script because the Debug output directory needs the same closure
+# (see CopyCastCoreDependencies in CastMirrorApp.csproj).
+& (Join-Path $rootDir "scripts\copy_native_deps.ps1") -Destination $publishDir -ToolchainBin $binDir -CoreDll $castCoreDll
+if ($LASTEXITCODE -ne 0) { throw "failed to copy castcore's native dependencies into the publish dir" }
 
 # Licence texts travel with the binaries. libx264 is GPL, so shipping the DLLs
 # without THIRD-PARTY-LICENSES.txt (which carries the GPL notice and the source
@@ -106,8 +84,13 @@ $exe = Join-Path $publishDir "CastMirror.exe"
 $shippedDll = Join-Path $publishDir "castcore.dll"
 if (-not (Test-Path $exe)) { throw "publish output missing CastMirror.exe" }
 if (-not (Test-Path $shippedDll)) { throw "publish output missing castcore.dll" }
-$exports = & (Join-Path $binDir "objdump.exe") -p $shippedDll | Select-String 'castmirror_abi_version'
+$exports = & (Join-Path $binDir "objdump.exe") -p $shippedDll 2>&1 | Select-String 'castmirror_abi_version'
 if (-not $exports) { throw "publish\castcore.dll does not export castmirror_abi_version - wrong or stale DLL" }
+
+# Presence is not loadability, but the closure copied above is what makes it
+# loadable: every non-system DLL castcore imports is copied in, recursively, and
+# Windows components are left to the loader. check_windows_package.ps1
+# re-checks the shipped layout from the outside.
 Write-Host "Smoke check passed: CastMirror.exe + castcore.dll (ABI export present)." -ForegroundColor Green
 
 & (Join-Path $rootDir "scripts\check_windows_package.ps1") -PublishDir $publishDir
