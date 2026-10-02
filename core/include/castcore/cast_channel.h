@@ -85,9 +85,17 @@ class CastChannel {
   std::atomic<bool> should_stop_{false};
   bool verify_device_cert_ = true;
 
-  int socket_fd_ = -1;
+  // Atomic so Disconnect() can shut the socket down from another thread to abort
+  // a Connect() that is blocked in connect() or SSL_connect().
+  std::atomic<int> socket_fd_{-1};
   SSL_CTX* ssl_ctx_ = nullptr;
   SSL* ssl_ = nullptr;
+
+  // Held by Connect() for as long as it owns socket_fd_, ssl_ctx_ and ssl_ while
+  // they are half built, so Disconnect() never frees them underneath it.
+  std::mutex connect_mutex_;
+  void AbortSocket();
+  void ReleaseConnection();
 
   std::atomic<int> next_request_id_{1};
   std::mutex send_mutex_;

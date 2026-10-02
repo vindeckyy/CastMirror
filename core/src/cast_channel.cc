@@ -98,6 +98,12 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     Disconnect();
   }
 
+  // From here until the handshake is done the socket, SSL_CTX and SSL are
+  // half built and owned by this call. Stop() cancels a Start() by calling
+  // Disconnect() from another thread; that waits on this lock instead of
+  // freeing them while SSL_connect is still using them.
+  std::unique_lock<std::mutex> lifecycle(connect_mutex_);
+
   ip_address_ = ip_address;
   port_ = port;
   should_stop_ = false;
@@ -159,19 +165,33 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     const bool in_progress = (err == EINPROGRESS);
 #endif
     if (in_progress) {
-      fd_set write_fds;
-      FD_ZERO(&write_fds);
-      FD_SET(socket_fd_, &write_fds);
-      struct timeval connect_tv{};
-      connect_tv.tv_sec = connect_ms / 1000;
-      connect_tv.tv_usec = (connect_ms % 1000) * 1000;
-      if (select(static_cast<int>(socket_fd_) + 1, nullptr, &write_fds, nullptr, &connect_tv) > 0) {
-        int so_error = 0;
-        socklen_t so_len = sizeof(so_error);
-        if (getsockopt(
-                socket_fd_, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &so_len) ==
-            0) {
-          connected = (so_error == 0);
+      // Wait in short slices so a Disconnect() that is waiting for this call to
+      // finish is not held up for the whole connect timeout. shutdown() does not
+      // wake a connect that is still in progress on every platform.
+      const int fd = socket_fd_.load();
+      const auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::milliseconds(connect_ms);
+      while (!should_stop_.load()) {
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              deadline - std::chrono::steady_clock::now())
+                              .count();
+        if (left <= 0) break;
+        fd_set write_fds;
+        FD_ZERO(&write_fds);
+        FD_SET(fd, &write_fds);
+        struct timeval slice_tv{};
+        slice_tv.tv_sec = 0;
+        slice_tv.tv_usec = static_cast<int>(std::min<int64_t>(left, 50)) * 1000;
+        const int ready = select(fd + 1, nullptr, &write_fds, nullptr, &slice_tv);
+        if (ready < 0) break;
+        if (ready > 0) {
+          int so_error = 0;
+          socklen_t so_len = sizeof(so_error);
+          if (getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &so_len) ==
+              0) {
+            connected = (so_error == 0);
+          }
+          break;
         }
       }
     }
@@ -244,7 +264,7 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     char err_buf[256];
     ERR_error_string_n(ssl_err, err_buf, sizeof(err_buf));
     LOG_ERROR << "SSL handshake failed with Cast device at " << ip_address << ": " << err_buf;
-    Disconnect();
+    ReleaseConnection();
     return false;
   }
 
@@ -259,6 +279,10 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
 
   // Send initial CONNECT to receiver-0
   ConnectVirtual(kPlatformReceiverId, kPlatformSenderId);
+
+  // The handshake state is published now. The callback below may call back into
+  // the channel, so it runs without the lock.
+  lifecycle.unlock();
 
   StatusCallback cb;
   {
@@ -277,19 +301,45 @@ void CastChannel::SetAppTransportId(const std::string& transport_id) {
   app_transport_id_ = transport_id;
 }
 
+void CastChannel::AbortSocket() {
+  const int fd = socket_fd_.load();
+  if (fd < 0) return;
+#if defined(_WIN32)
+  shutdown(fd, SD_BOTH);
+#else
+  shutdown(fd, SHUT_RDWR);
+#endif
+}
+
 void CastChannel::Disconnect() {
   bool was_connected = is_connected_.exchange(false);
   should_stop_ = true;
   auth_cv_.notify_all();
+  AbortSocket();
 
-  if (socket_fd_ >= 0) {
-#if defined(_WIN32)
-    shutdown(socket_fd_, SD_BOTH);
-#else
-    shutdown(socket_fd_, SHUT_RDWR);
-#endif
+  // A Connect() on another thread (Stop() cancelling Start()) still owns the
+  // socket, SSL_CTX and SSL until it returns; freeing them now would be a
+  // use-after-free inside SSL_connect. The cancel above makes its blocking call
+  // fail, so this wait is short. Connect() clears should_stop_ when it begins,
+  // so keep asserting the cancel until the lock is ours.
+  std::unique_lock<std::mutex> lifecycle(connect_mutex_, std::defer_lock);
+  while (!lifecycle.try_lock()) {
+    should_stop_ = true;
+    AbortSocket();
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
+  ReleaseConnection();
+  lifecycle.unlock();
 
+  if (was_connected) {
+    LOG_INFO << "Disconnected Cast Channel from " << ip_address_;
+    NotifyDisconnected("Disconnected");
+  }
+}
+
+// Joins the channel threads and frees the TLS and socket state. The caller holds
+// connect_mutex_.
+void CastChannel::ReleaseConnection() {
   if (receive_thread_.joinable() && std::this_thread::get_id() != receive_thread_.get_id()) {
     receive_thread_.join();
   }
@@ -313,11 +363,6 @@ void CastChannel::Disconnect() {
       socket_fd_ = -1;
     }
     app_transport_id_.clear();
-  }
-
-  if (was_connected) {
-    LOG_INFO << "Disconnected Cast Channel from " << ip_address_;
-    NotifyDisconnected("Disconnected");
   }
 }
 
