@@ -45,12 +45,12 @@
   const showcaseData = {
     winmain: {
       src: "assets/screenshot-windows-main.png",
-      alt: "CastMirror on Windows: two Cast devices, the capture source, quality preset and bitrate controls",
-      caption: "Windows: pick a TV, pick a display or window, choose a preset, and press Cast."
+      alt: "CastMirror on Windows: a navigation rail, two Cast devices as cards, and a casting panel with Start casting and the casting options",
+      caption: "Windows: pick a TV, choose the entire screen or one window, and press Start casting."
     },
     winsettings: {
       src: "assets/screenshot-windows-settings.png",
-      alt: "CastMirror settings on Windows",
+      alt: "CastMirror settings on Windows: expandable groups for picture, audio, latency, discovery, desktop integration, appearance and diagnostics, with Audio open",
       caption: "Windows settings: audio source, reconnect window, shortcuts, start at sign-in and discovery."
     },
     linuxcast: {

@@ -232,7 +232,17 @@ Maintain: `Online`, `Idle`, `Busy` (another app casting), `Unavailable`. Do not 
 
 ## 9. UI/UX and application state
 
-**Layout & Navigation:**
+**Windows shell (`app/winui`):**
+One window with a custom title bar, a navigation rail, a content column and a casting rail, over a status bar:
+- **Title bar:** the brand, a device search field (Ctrl+K) that filters every device list, buttons for Logs, Settings and About, and a monogram chip. The system caption buttons are drawn over the right end of the bar, so the bar is 48 DIP tall to match them and the controls stop short of their inset.
+- **Navigation rail:** Home, Devices, Cast, Settings and Help and support, with the selected entry marked by a pill, and a status card with the version at the bottom. Settings opens its own window; the rail entry says so.
+- **Content column:** the section the rail selects. Home has the hero banner and a card per device. Devices is the full list. Cast holds the capture source, quality preset, bitrate and system audio, plus Freeze and Mute while live. Help lists the first things to try.
+- **Casting rail:** session status with the Start casting, Stop casting or Disconnect button, the device list, and **Casting options**: the entire screen or one application window. Choosing a window shows a picker; the radio, the picker and the Cast page source list all follow the view model's selected source.
+- **Status bar:** device count and version, plus the stream quality line while a cast runs.
+
+Colours and shared shapes are tokens in `App.xaml` (the `Shell*` brushes, `ShellCardStyle`, the button and list styles) with dark, light and high-contrast values, so the shell stays legible in every scheme. `MainViewModel` holds all state and the XAML binds to it with `x:Bind`. Settings and Logs are separate windows.
+
+**Linux layout and navigation (GTK):**
 The application is organized into four dedicated tabs powered by `AdwViewStack`, with an adaptive `AdwViewSwitcherTitle` in the header bar and an `AdwViewSwitcherBar` in the bottom bar with an `AdwBreakpoint` for narrow window widths (≤ 680px):
 - **Cast:** LAN receiver list with model glyphs (Google TV Streamer, Nest Hub, custom IP), display monitor or application window selector (with live desktop app icon resolution), quality preset cards (Auto, High, Balanced, Smooth), inline bitrate slider, and primary Cast Display action button.
 - **Live session:** Real-time streaming status banner, hardware-accelerated Cairo vector sparklines (FPS, Bitrate, RTT, Packet Loss), dynamic adaptive ladder rung indicators, and live studio controls (Freeze display, Mute TV audio with silence injection).
@@ -318,7 +328,7 @@ Heartbeat miss → reconnect. Never leave a zombie capture.
 
 ## 14. Testing strategy
 
-- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->214<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(` macros by `python3 scripts/count_tests.py`.
+- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->230<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(` macros by `python3 scripts/count_tests.py`.
 - **Network Simulation:** Linux Traffic Control (`scripts/simulate_network.sh` using `tc qdisc netem`) for packet loss, latency jitter, and packet reordering.
 - **Benchmarks:** `tools/poc-encode`, `tools/poc-join`, and `scripts/bench_baseline.sh` recording CSV baselines in `docs/bench/baseline.csv`.
 - **Simulated Receiver:** `tools/fake-receiver` for zero-hardware automated E2E testing of the TLS handshake, OFFER/ANSWER negotiation, Cast RTP packet handling, and clean session teardown.

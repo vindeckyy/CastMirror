@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-windows-main.png" width="760" alt="CastMirror main window listing two Cast devices, with the capture source, quality preset and bitrate controls">
+  <img src="docs/assets/screenshot-windows-main.png" width="760" alt="CastMirror on Windows: a navigation rail, two Cast devices as cards, and a casting panel with Start casting and the casting options">
 </p>
 
 ## Install
@@ -35,9 +35,9 @@ CastMirror needs Windows 10 version 2004 or later, 64-bit. Checksums for every d
 
 ## Use it
 
-1. Pick your TV from the list. If it doesn't appear, press **Rescan** (F5) or use **Add by IP**.
-2. Pick what to share: a whole display or a single window.
-3. Choose a quality preset and press **Cast display** (Ctrl+Enter).
+1. Pick your TV from the device cards on Home, or from the list in the casting panel. If it doesn't appear, press **Refresh** (F5) or use **Add by IP**. **Ctrl+K** searches the list.
+2. Under **Casting options**, pick what to share: the entire screen, or one application window. For a window, choose it from the list that appears.
+3. Choose a quality preset on the **Cast** page, then press **Start casting** (Ctrl+Enter) or **Cast** on a device card.
 
 While casting you can freeze the picture, mute the TV, and change the bitrate without restarting. Closing the window keeps the cast running in the tray. Quit from the tray icon.
 
@@ -52,7 +52,7 @@ While casting you can freeze the picture, mute the TV, and change the bitrate wi
 
 ### Keyboard shortcuts
 
-In the window: **Ctrl+Enter** start or stop, **F5** rescan, **Ctrl+,** settings, **Ctrl+L** logs.
+In the window: **Ctrl+Enter** start or stop, **F5** refresh devices, **Ctrl+K** search devices, **Ctrl+,** settings, **Ctrl+L** logs.
 
 Optional system-wide shortcuts (Settings, Desktop integration, Global shortcuts): **Ctrl+Alt+C** start or stop, **Ctrl+Alt+F** freeze, **Ctrl+Alt+M** mute the TV.
 

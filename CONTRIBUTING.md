@@ -23,6 +23,7 @@ The Windows app is the primary product. Linux builds get fixes, not new features
 - **Changing the C API?** Bump the ABI version in `c_api.h`, update the struct mirrors and the `VerifyNativeAbi` check in `CastCoreBridge.cs`, and rebuild both sides together.
 - **New setting?** Add the key in three places: `core/include/castcore/config.h` and `config.cc` (load and save), `core/src/c_api.cc` (get and set JSON), and `CastMirrorSettings` in `Services/SettingsService.cs`. Unknown keys are ignored, so a client and engine from different builds still talk.
 - **Dialogs** go through `Services/Dialogs.cs`, which applies the forced theme and prevents two dialogs at once.
+- **Layout and colour** come from `App.xaml`: the `Shell*` brushes and the shared styles (`ShellCardStyle`, `FlushListItemStyle`, the button styles). Don't hard-code a colour or an inset in a view. Check the window in dark, light and high contrast, and line new controls up with the 16 px card inset the existing cards use.
 - **Buttons that change colour** need a template-safe style (override the `ButtonBackground*` resources) rather than a code-set `Background`, which hover and pressed states overwrite.
 - **User-facing text** is plain and specific. Say what happened and what to do. No filler, no "seamless", no exclamation marks. Read new strings aloud before you commit them.
 - **Translations.** English is the source text, in the XAML and in `Localizer.T(...)` calls. `app\winui\Strings\translations.tsv` holds one row per string (English, es, de, fr); edit it and run `scripts\build_translations.ps1` to regenerate the JSON files. A missing translation shows the English text. New UI text needs a row in every language, and `tests\winui` fails if a XAML string has none or a row matches nothing. To add a language, add a column and its code to the script. Check longer languages (German) for clipped text; let headings wrap.
@@ -64,7 +65,7 @@ Use the PR template. Include:
 
 - Why the change exists
 - How you verified it (`ctest`, GUI, real Cast device)
-- Screenshots for GUI layout or copy changes
+- Screenshots for GUI layout or copy changes. The Windows ones in `docs/assets` show a 1280x800 window with placeholder device names, so retake them when the layout moves
 
 ## Protocol work
 
