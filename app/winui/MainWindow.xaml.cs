@@ -21,9 +21,12 @@ namespace CastMirror
         private bool _exiting;
         private HotkeyService? _hotkeys;
 
-        // Below this the two-column layout has nowhere to go.
-        private const int MinWidthDip = 760;
-        private const int MinHeightDip = 560;
+        // The shell is a three-column dashboard (rail, content, casting rail), so
+        // below these the casting rail is the first thing to be crushed.
+        private const int MinWidthDip = 1040;
+        private const int MinHeightDip = 640;
+        private const int DefaultWidthDip = 1280;
+        private const int DefaultHeightDip = 800;
 
         /// <summary>Registers or releases the global shortcuts to match the setting; returns any that were taken.</summary>
         public System.Collections.Generic.IReadOnlyList<string> ApplyHotkeySetting()
@@ -73,6 +76,26 @@ namespace CastMirror
             Add(VirtualKey.F5, VirtualKeyModifiers.None, () => ViewModel.RescanDevices());
             Add((VirtualKey)188 /* comma */, VirtualKeyModifiers.Control, () => OnOpenSettingsClicked(this, new RoutedEventArgs()));
             Add(VirtualKey.L, VirtualKeyModifiers.Control, () => OnOpenLogsClicked(this, new RoutedEventArgs()));
+            Add(VirtualKey.K, VirtualKeyModifiers.Control, FocusSearch);
+        }
+
+        /// <summary>
+        /// Lets the shell's own title bar replace the system one. The interactive
+        /// controls (search, buttons) keep their input because they are not part
+        /// of the drag region; only the empty stretches of the bar drag the
+        /// window.
+        /// </summary>
+        private void UseCustomTitleBar()
+        {
+            ExtendsContentIntoTitleBar = true;
+            // Tall caption buttons (48 DIP) match the bar's height, so the glyphs
+            // sit on the same centre line as the controls beside them.
+            AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+            SetTitleBar(TitleBarGrid);
+            // RightInset is in physical pixels and changes with the display scale.
+            TitleBarGrid.SizeChanged += (_, _) =>
+                CaptionInsetColumn.Width = new GridLength(
+                    AppWindow.TitleBar.RightInset / WindowScaler.ScaleOf(AppWindow));
         }
 
         private async void OnAboutClicked(object sender, RoutedEventArgs e)
@@ -201,21 +224,22 @@ namespace CastMirror
         public MainWindow(bool startInBackground = false)
         {
             this.InitializeComponent();
+            UseCustomTitleBar();
             UiTranslator.Apply(this);
             StartHidden = startInBackground && ViewModel.Settings.EnableTrayOnStartup;
             Title = "CastMirror";
-            // 1100x720 is a logical (DIP) size. AppWindow.Resize takes physical
-            // pixels, so passing those numbers raw would give a window that
-            // shrinks as the display scale rises - 550x360 DIPs at 200%, with
-            // the cast panel scrolled and unusable. WindowScaler converts to
-            // the monitor's scale and clamps to its work area.
+            // A logical (DIP) size. AppWindow.Resize takes physical pixels, so
+            // passing those numbers raw would give a window that shrinks as the
+            // display scale rises - 640x400 DIPs at 200%, with the three-column
+            // shell crushed. WindowScaler converts to the monitor's scale and
+            // clamps to its work area.
             // The engine's default size (920x700) means "never saved" here.
             CastMirrorSettings saved = ViewModel.Settings;
             bool hasSavedSize = saved.WindowWidth >= MinWidthDip && saved.WindowHeight >= MinHeightDip &&
                                 !(saved.WindowWidth == 920 && saved.WindowHeight == 700);
             WindowScaler.ResizeToDips(AppWindow,
-                hasSavedSize ? saved.WindowWidth : 1100,
-                hasSavedSize ? saved.WindowHeight : 720);
+                hasSavedSize ? saved.WindowWidth : DefaultWidthDip,
+                hasSavedSize ? saved.WindowHeight : DefaultHeightDip);
             WindowScaler.EnforceMinimumSize(AppWindow, MinWidthDip, MinHeightDip);
 
             ThemeService.Register(Content as FrameworkElement);
@@ -323,6 +347,87 @@ namespace CastMirror
             }
 
             _logsWindow.Activate();
+        }
+
+        private void OnNavClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement nav) return;
+
+            if (nav.Tag is not string tag) return;
+            ViewModel.Section = tag switch
+            {
+                "Home" => MainViewModel.ShellSection.Home,
+                "Devices" => MainViewModel.ShellSection.Devices,
+                "Cast" => MainViewModel.ShellSection.Cast,
+                "Settings" => MainViewModel.ShellSection.Settings,
+                "Help" => MainViewModel.ShellSection.Help,
+                _ => ViewModel.Section
+            };
+
+            // Settings lives in its own window; the rail entry explains where it
+            // went rather than opening it behind the user's back.
+        }
+
+        private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (sender is not TextBox box) return;
+            // TextChanged also fires when the view model pushes text back into the
+            // box. Assigning only on a real difference keeps that from looping;
+            // clearing the box still empties the filter because the values differ.
+            if (!string.Equals(box.Text, ViewModel.SearchText, StringComparison.Ordinal))
+            {
+                ViewModel.SearchText = box.Text;
+            }
+        }
+
+        private void OnSearchKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            // Enter commits the filter. There is no suggestion list to pick from,
+            // so this replaces the AutoSuggestBox query the field used to raise.
+            if (e.Key != VirtualKey.Enter || sender is not TextBox box) return;
+            ViewModel.SearchText = box.Text;
+        }
+
+        /// <summary>Focuses the search field (Ctrl+K) and clears any selection.</summary>
+        private void FocusSearch()
+        {
+            SearchBox.Focus(FocusState.Programmatic);
+        }
+
+        private void OnDeviceCardClicked(object sender, ItemClickEventArgs e)
+        {
+            if (e.ClickedItem is DeviceItem device) ViewModel.SelectedDevice = device;
+        }
+
+        private void OnCastToDeviceClicked(object sender, RoutedEventArgs e)
+        {
+            // The button lives in the card, so the clicked item is the button's
+            // DataContext rather than the sender.
+            if ((sender as FrameworkElement)?.DataContext is not DeviceItem device) return;
+            ViewModel.SelectedDevice = device;
+            ViewModel.ToggleCast();
+        }
+
+        private void OnCastModeChecked(object sender, RoutedEventArgs e)
+        {
+            if (sender is not RadioButton { Tag: string tag }) return;
+            var mode = tag == "Window" ? MainViewModel.CastMode.Window : MainViewModel.CastMode.Screen;
+            // IsChecked is one-way, so a click never reaches the view model on its
+            // own. The same event also echoes the view model's own change back;
+            // that case already matches and is skipped.
+            if (mode == ViewModel.SelectedCastMode) return;
+            // Windows opened since launch are not in the list yet.
+            if (mode == MainViewModel.CastMode.Window) ViewModel.RefreshSources();
+            ViewModel.SelectedCastMode = mode;
+        }
+
+        private void OnWindowPicked(object sender, SelectionChangedEventArgs e)
+        {
+            // Ignore the empty selection a list rebuild raises; it is not a choice.
+            if (e.AddedItems.Count > 0 && e.AddedItems[0] is SourceItem source)
+            {
+                ViewModel.SelectedSource = source;
+            }
         }
 
         private async void OnFirstRunScanClicked(object sender, RoutedEventArgs e)

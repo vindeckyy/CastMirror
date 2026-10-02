@@ -8,7 +8,8 @@
     mc:Ignorable="d"
     Title="CastMirror">
 
-    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid x:Name="RootGrid" Background="{ThemeResource ShellBackgroundBrush}">
         <!-- Disabled while the welcome card is showing, so Tab and screen readers
              stay on the card. -->
         <ContentControl x:Name="MainContent" IsTabStop="False"
@@ -20,278 +21,846 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header / Status Bar -->
-        <Border Grid.Row="0" Padding="16,12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
-            <Grid>
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <FontIcon Glyph="&#xE7F4;" FontSize="20" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
-                    <TextBlock Text="CastMirror" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <!-- Solid green with white text reads in both themes; the themed
-                         "success background" brush is a pale tint in Light. -->
-                    <Border Background="#FF0F7B0F" CornerRadius="4" Padding="6,2" Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
-                        <TextBlock Text="LIVE" FontSize="11" FontWeight="Bold" Foreground="White"/>
-                    </Border>
-                </StackPanel>
-
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                    <Button Content="Logs" Click="OnOpenLogsClicked" ToolTipService.ToolTip="Open the log viewer (Ctrl+L)"/>
-                    <Button Content="Settings" Click="OnOpenSettingsClicked" ToolTipService.ToolTip="Open settings (Ctrl+,)"/>
-                    <Button Content="About" Click="OnAboutClicked"/>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- Main Content Area -->
-        <Grid Grid.Row="1" Margin="24,24,12,24">
+        <!-- Title bar. Extends into the window chrome (see MainWindow.xaml.cs),
+             so the brand, the search field and the account chip all sit on one
+             line above the content. -->
+        <Grid Grid.Row="0" x:Name="TitleBarGrid" Height="48"
+              Background="{ThemeResource ShellChromeBrush}"
+              >
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*"/>
-                <ColumnDefinition Width="1*" MinWidth="300"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <!-- The system caption buttons are drawn over the right end of the
+                     bar; this keeps the controls clear of them. Sized in code. -->
+                <ColumnDefinition x:Name="CaptionInsetColumn" Width="12"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Left: Session Status Stage -->
-            <Border Grid.Column="0" Margin="0,0,16,0" Background="#111115" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                        Margin="18,0,0,0">
+                <Border Width="32" Height="32" CornerRadius="9" Background="{ThemeResource AccentGradientBrush}">
+                    <FontIcon Glyph="&#xE7F4;" FontSize="16" Foreground="White"/>
+                </Border>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="CastMirror" FontSize="15" FontWeight="SemiBold"
+                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                    <TextBlock Text="Your screen, anywhere" FontSize="11"
+                               Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                </StackPanel>
+                <!-- Solid green with white text reads in both themes; the themed
+                     "success background" brush is a pale tint in Light. -->
+                <Border Background="#FF0F7B0F" CornerRadius="4" Padding="6,2"
+                        Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
+                    <TextBlock Text="LIVE" FontSize="11" FontWeight="Bold" Foreground="White"/>
+                </Border>
+            </StackPanel>
+
+            <!-- Search sits centred like the reference, and only filters devices:
+                 they are the only content in the window worth searching. -->
+            <Grid Grid.ColumnSpan="4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                  Width="400" Height="38">
+                <!-- A plain TextBox, not an AutoSuggestBox: there are no suggestions
+                     to offer (the field only filters devices), and the reference
+                     puts the text beside the magnifier. AutoSuggestBox hard-codes
+                     TextAlignment="Center" on its inner box and drives it from its
+                     own visual states, so that cannot be corrected from outside. -->
+                <TextBox x:Name="SearchBox"
+                         Style="{StaticResource SearchBoxStyle}"
+                         PlaceholderText="Search devices"
+                         AutomationProperties.Name="Search devices"
+                         KeyDown="OnSearchKeyDown"
+                         TextChanged="OnSearchTextChanged"/>
+                <!-- After the box so it paints on top of the box's own fill. -->
+                <FontIcon Glyph="&#xE721;" FontSize="14" Margin="14,0,0,0"
+                          HorizontalAlignment="Left" VerticalAlignment="Center"
+                          Foreground="{ThemeResource ShellTextTertiaryBrush}" IsHitTestVisible="False"/>
+            </Grid>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Style="{StaticResource TitleBarIconButtonStyle}" Click="OnOpenLogsClicked"
+                        ToolTipService.ToolTip="Open the log viewer (Ctrl+L)"
+                        AutomationProperties.Name="Open logs">
+                    <FontIcon Glyph="&#xE9D9;" FontSize="16"/>
+                </Button>
+                <Button Style="{StaticResource TitleBarIconButtonStyle}" Click="OnOpenSettingsClicked"
+                        ToolTipService.ToolTip="Open settings (Ctrl+,)"
+                        AutomationProperties.Name="Open settings">
+                    <FontIcon Glyph="&#xE713;" FontSize="16"/>
+                </Button>
+                <Button Style="{StaticResource TitleBarIconButtonStyle}" Click="OnAboutClicked"
+                        ToolTipService.ToolTip="About CastMirror"
+                        AutomationProperties.Name="About CastMirror">
+                    <FontIcon Glyph="&#xE946;" FontSize="16"/>
+                </Button>
+                <Border Style="{StaticResource AvatarChipStyle}" Margin="4,0,0,0">
+                    <TextBlock Text="{x:Bind ViewModel.UserInitials, Mode=OneWay}"
+                               Foreground="White" FontSize="12" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- Body: nav rail, content, and the casting rail. -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="232"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320" MinWidth="300"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Nav rail -->
+            <Border Grid.Column="0" Background="{ThemeResource ShellChromeBrush}"
+                    BorderThickness="0,0,1,0" BorderBrush="{ThemeResource ShellDividerBrush}">
                 <Grid>
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" MaxWidth="420">
-                        <FontIcon Glyph="&#xE7F4;" FontSize="48" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
-                        <TextBlock Text="{x:Bind ViewModel.PreviewTitle, Mode=OneWay}"
-                                   FontSize="20" FontWeight="SemiBold" Foreground="White"
-                                   HorizontalAlignment="Center" TextAlignment="Center"
-                                   AutomationProperties.LiveSetting="Polite"/>
-                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                                   Foreground="#FFC8C8CE"
-                                   TextAlignment="Center" TextWrapping="Wrap"/>
-                        <ProgressRing IsActive="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}"
-                                      Visibility="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}"
-                                      Width="32" Height="32"
-                                      AutomationProperties.Name="Searching for Cast devices"/>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Margin="12,16,12,8" Spacing="2">
+                        <!-- The rail is a list of destinations, not a set of choices, so
+                             these are Buttons rather than RadioButtons: WinUI 3's
+                             RadioButton template is built around a hard-coded 20px
+                             glyph in an Auto column, and no brush override makes that
+                             column go away (a custom template is not an option either,
+                             because a VisualStateManager block fails the XAML
+                             compiler). Each entry draws its own selection pill behind
+                             its content, bound to the section the view model shows.
+                             The casting options in the right rail stay RadioButtons
+                             because they are a real choice and their mark is the point. -->
+                        <!-- The stock Button hover fill is a grey slab wider than the
+                             pill and reads as a second, competing selection. Point it
+                             at the card hover brush instead. This has to be a local
+                             dictionary: an application-level ThemeDictionaries entry
+                             does not outrank the framework's own button brushes. -->
+                        <StackPanel.Resources>
+                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="{ThemeResource ShellNavHoverColor}" />
+                            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="{ThemeResource ShellNavHoverColor}" />
+                        </StackPanel.Resources>
+                        <Button x:Name="NavHome" Style="{StaticResource NavRailButtonStyle}"
+                                Tag="Home" Click="OnNavClick"
+                                AutomationProperties.Name="Home">
+                            <Grid>
+                                <Border CornerRadius="8" Background="{ThemeResource ShellAccentSoftBrush}"
+                                        Visibility="{x:Bind ViewModel.IsHomeSection, Mode=OneWay}"
+                                        IsHitTestVisible="False"/>
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                            Margin="14,0,0,0">
+                                    <FontIcon Glyph="&#xE80F;" FontSize="16"/>
+                                    <TextBlock Text="Home"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="NavDevices" Style="{StaticResource NavRailButtonStyle}"
+                                Tag="Devices" Click="OnNavClick"
+                                AutomationProperties.Name="Devices">
+                            <Grid>
+                                <Border CornerRadius="8" Background="{ThemeResource ShellAccentSoftBrush}"
+                                        Visibility="{x:Bind ViewModel.IsDevicesSection, Mode=OneWay}"
+                                        IsHitTestVisible="False"/>
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                            Margin="14,0,0,0">
+                                    <FontIcon Glyph="&#xE7F4;" FontSize="16"/>
+                                    <TextBlock Text="Devices"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="NavCast" Style="{StaticResource NavRailButtonStyle}"
+                                Tag="Cast" Click="OnNavClick"
+                                AutomationProperties.Name="Cast">
+                            <Grid>
+                                <Border CornerRadius="8" Background="{ThemeResource ShellAccentSoftBrush}"
+                                        Visibility="{x:Bind ViewModel.IsCastSection, Mode=OneWay}"
+                                        IsHitTestVisible="False"/>
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                            Margin="14,0,0,0">
+                                    <FontIcon Glyph="&#xE714;" FontSize="16"/>
+                                    <TextBlock Text="Cast"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="NavSettings" Style="{StaticResource NavRailButtonStyle}"
+                                Tag="Settings" Click="OnNavClick"
+                                AutomationProperties.Name="Settings">
+                            <Grid>
+                                <Border CornerRadius="8" Background="{ThemeResource ShellAccentSoftBrush}"
+                                        Visibility="{x:Bind ViewModel.IsSettingsSection, Mode=OneWay}"
+                                        IsHitTestVisible="False"/>
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                            Margin="14,0,0,0">
+                                    <FontIcon Glyph="&#xE713;" FontSize="16"/>
+                                    <TextBlock Text="Settings"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Button x:Name="NavHelp" Style="{StaticResource NavRailButtonStyle}"
+                                Tag="Help" Click="OnNavClick"
+                                AutomationProperties.Name="Help and support">
+                            <Grid>
+                                <Border CornerRadius="8" Background="{ThemeResource ShellAccentSoftBrush}"
+                                        Visibility="{x:Bind ViewModel.IsHelpSection, Mode=OneWay}"
+                                        IsHitTestVisible="False"/>
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center"
+                                            Margin="14,0,0,0">
+                                    <FontIcon Glyph="&#xE897;" FontSize="16"/>
+                                    <TextBlock Text="Help and support"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
                     </StackPanel>
+
+                    <!-- Engine health, so the rail says something useful in the
+                         space the reference fills with an app card. -->
+                    <Border Grid.Row="2" Style="{StaticResource ShellCardStyle}"
+                            Margin="12,8,12,16" Padding="12">
+                        <StackPanel Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Ellipse Width="8" Height="8"
+                                         Fill="{ThemeResource ShellSuccessBrush}"
+                                         VerticalAlignment="Center"/>
+                                <TextBlock Text="All systems operational" FontSize="12" FontWeight="Medium"
+                                           TextWrapping="Wrap"
+                                           Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.VersionText, Mode=OneWay}" FontSize="11"
+                                       Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                        </StackPanel>
+                    </Border>
                 </Grid>
             </Border>
 
-            <!-- Right: Device Selector & Quality Controls. Scrolls so the Cast
-                 button stays reachable at small window sizes and high display scale. -->
-            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Spacing="16" Margin="0,0,12,0">
+            <!-- Content -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Error banner spans the content column, above every section. -->
+                <Border Grid.Row="0" Margin="20,16,20,0" Padding="12,10" CornerRadius="10"
+                        Background="{ThemeResource ShellCardBrush}"
+                        BorderThickness="1" BorderBrush="{ThemeResource ShellDangerBrush}"
+                        Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}">
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <!-- Wraps instead of being cut off: translations are often longer than the English. -->
-                        <TextBlock Text="Cast to TV" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"
-                                   TextWrapping="Wrap" Margin="0,0,8,0"/>
-                        <Button Grid.Column="1" Content="Rescan" Click="OnRescanClicked" Padding="10,4" FontSize="12" Margin="0,0,8,0"
-                                ToolTipService.ToolTip="Look for devices again (F5)"/>
-                        <Button Grid.Column="2" Content="Add by IP" Click="OnAddByIpClicked" Padding="10,4" FontSize="12"/>
+                        <FontIcon Glyph="&#xE783;" FontSize="16" VerticalAlignment="Center"
+                                  Foreground="{ThemeResource ShellDangerBrush}"/>
+                        <TextBlock Grid.Column="1" Margin="10,0,10,0" TextWrapping="Wrap" FontSize="12"
+                                   Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                                   Foreground="{ThemeResource ShellTextPrimaryBrush}"
+                                   VerticalAlignment="Center"
+                                   AutomationProperties.LiveSetting="Assertive"/>
+                        <Button Grid.Column="2" Click="OnDismissErrorClicked" Padding="8,2"
+                                Style="{StaticResource GhostButtonStyle}"
+                                AutomationProperties.Name="Dismiss" ToolTipService.ToolTip="Dismiss">
+                            <FontIcon Glyph="&#xE711;" FontSize="12"/>
+                        </Button>
                     </Grid>
+                </Border>
 
-                    <Border Background="{ThemeResource SystemFillColorCriticalBackgroundBrush}"
-                            CornerRadius="4" Padding="10,8"
-                            Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
-                                       TextWrapping="Wrap"
-                                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                                       FontSize="12"
-                                       VerticalAlignment="Center"
-                                       AutomationProperties.LiveSetting="Assertive"/>
-                            <Button Grid.Column="1"
-                                    Click="OnDismissErrorClicked"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="6,2"
-                                    Margin="8,0,0,0"
-                                    AutomationProperties.Name="Dismiss"
-                                    ToolTipService.ToolTip="Dismiss">
-                                <FontIcon Glyph="&#xE711;" FontSize="12"
-                                          Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollMode="Disabled">
+                    <StackPanel Margin="20,16,20,20" Spacing="20">
+
+                        <!-- Home -->
+                        <StackPanel Spacing="20" Visibility="{x:Bind ViewModel.IsHomeSection, Mode=OneWay}">
+                            <!-- Hero -->
+                            <Border CornerRadius="16" Padding="28,26" Background="{ThemeResource HeroGradientBrush}">
+                                <StackPanel Spacing="14" MaxWidth="520" VerticalAlignment="Center">
+                                        <TextBlock Text="Mirror your screen" FontSize="30" FontWeight="Bold"
+                                                   Foreground="White" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Effortlessly" FontSize="30" FontWeight="Bold"
+                                                   Foreground="{ThemeResource AccentGradientBrush}"/>
+                                        <TextBlock Text="Send this PC's screen and sound to any Cast device on your network, in high quality and with low latency."
+                                                   FontSize="13" TextWrapping="Wrap" MaxWidth="460"
+                                                   Foreground="#FFD7DEEA" HorizontalAlignment="Left"/>
+                                        <!-- Two feature chips share the row evenly, so a
+                                             narrow window ellipsises a label instead
+                                             of clipping it mid-word. -->
+                                        <Grid Margin="0,4,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                                <Border Style="{StaticResource IconTileStyle}">
+                                                    <FontIcon Glyph="&#xE7F4;" FontSize="15" Foreground="White"/>
+                                                </Border>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="HD and above" FontSize="12" FontWeight="SemiBold"
+                                                               Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="Up to 4K" FontSize="11" Foreground="#FFAEBAD0"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="10,0,0,0">
+                                                <Border Style="{StaticResource IconTileStyle}">
+                                                    <FontIcon Glyph="&#xE945;" FontSize="15" Foreground="White"/>
+                                                </Border>
+                                                <StackPanel VerticalAlignment="Center">
+                                                    <TextBlock Text="Low latency" FontSize="12" FontWeight="SemiBold"
+                                                               Foreground="White" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="Real time" FontSize="11" Foreground="#FFAEBAD0"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                            </Border>
+
+                            <!-- Select a Device -->
+                            <StackPanel Spacing="14">
+                                <Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Style="{StaticResource IconTileStyle}">
+                                            <FontIcon Glyph="&#xE7F4;" FontSize="16" Foreground="{ThemeResource ShellAccentBrush}"/>
+                                        </Border>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="Select a Device" Style="{StaticResource SectionTitleStyle}"/>
+                                            <TextBlock Text="Choose where you want to cast your screen"
+                                                       Style="{StaticResource SectionSubtitleStyle}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <Button Content="Refresh" Click="OnRescanClicked"
+                                                Style="{StaticResource GhostButtonStyle}"
+                                                ToolTipService.ToolTip="Look for devices again (F5)"/>
+                                        <Button Content="Add by IP" Click="OnAddByIpClicked"
+                                                Style="{StaticResource GhostButtonStyle}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- Empty state: scanning, none found, or no
+                                     search match. Each says what to do next. -->
+                                <Border Style="{StaticResource ShellCardStyle}" Padding="24"
+                                        Visibility="{x:Bind ViewModel.IsSearchingVisible, Mode=OneWay}">
+                                    <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                        <ProgressRing IsActive="True" Width="28" Height="28"/>
+                                        <TextBlock Text="{x:Bind ViewModel.PreviewTitle, Mode=OneWay}"
+                                                   FontWeight="SemiBold" HorizontalAlignment="Center"
+                                                   Foreground="{ThemeResource ShellTextPrimaryBrush}"
+                                                   AutomationProperties.LiveSetting="Polite"/>
+                                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                                                   FontSize="12" TextWrapping="Wrap" TextAlignment="Center"
+                                                   Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource ShellCardStyle}" Padding="24"
+                                        Visibility="{x:Bind ViewModel.HasNoSearchResults, Mode=OneWay}">
+                                    <StackPanel Spacing="6" HorizontalAlignment="Center">
+                                        <TextBlock Text="No matches" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                        <TextBlock Text="No device matches that search."
+                                                   FontSize="12" TextWrapping="Wrap" TextAlignment="Center"
+                                                   Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Style="{StaticResource ShellCardStyle}" Padding="24"
+                                        Visibility="{x:Bind ViewModel.NoDevicesFound, Mode=OneWay}">
+                                    <StackPanel Spacing="10" HorizontalAlignment="Center">
+                                        <FontIcon Glyph="&#xE7F4;" FontSize="26"
+                                                  Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                                        <TextBlock Text="No Cast devices found" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                        <TextBlock Text="Make sure your TV or speaker is on and on the same Wi-Fi. If your router blocks discovery, you can add a device by IP address."
+                                                   FontSize="12" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="420"
+                                                   Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                        <Button Content="Add by IP" Click="OnAddByIpClicked"
+                                                Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <GridView ItemsSource="{x:Bind ViewModel.VisibleDevices, Mode=OneWay}"
+                                          SelectionMode="None"
+                                          IsItemClickEnabled="True"
+                                          ItemClick="OnDeviceCardClicked"
+                                          AutomationProperties.Name="Cast devices">
+                                    <GridView.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="252" ItemHeight="248"/>
+                                        </ItemsPanelTemplate>
+                                    </GridView.ItemsPanel>
+                                    <GridView.ItemContainerStyle>
+                                        <Style TargetType="GridViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Padding" Value="0"/>
+                                            <Setter Property="Margin" Value="0,0,12,12"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="BorderThickness" Value="0"/>
+                                            <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource ShellAccentBrush}"/>
+                                        </Style>
+                                    </GridView.ItemContainerStyle>
+                                    <GridView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource ShellCardStyle}" Padding="0" CornerRadius="12">
+                                                <Grid>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                    </Grid.RowDefinitions>
+
+                                                    <!-- Thumbnail band. A generated
+                                                         monogram rather than a
+                                                         stock photo: there is no
+                                                         per-device artwork to show. -->
+                                                    <Border Grid.Row="0" Height="104" CornerRadius="11,11,0,0"
+                                                            Background="{ThemeResource ShellCardHoverBrush}">
+                                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6">
+                                                            <TextBlock Text="{Binding Monogram}" FontSize="26" FontWeight="Bold"
+                                                                       Foreground="{ThemeResource ShellAccentBrush}"
+                                                                       HorizontalAlignment="Center"/>
+                                                            <TextBlock Text="{Binding ModelName}" FontSize="11"
+                                                                       Foreground="{ThemeResource ShellTextTertiaryBrush}"
+                                                                       HorizontalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </Border>
+
+                                                    <StackPanel Grid.Row="1" Margin="14,12,14,0" Spacing="2">
+                                                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                                                                     Fill="{ThemeResource ShellSuccessBrush}"/>
+                                                            <TextBlock Text="Online" FontSize="11"
+                                                                       Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+
+                                                    <Button Grid.Row="2" Margin="14,10,14,0" Content="Cast"
+                                                            HorizontalAlignment="Stretch"
+                                                            Style="{StaticResource PrimaryActionButtonStyle}"
+                                                            Click="OnCastToDeviceClicked"
+                                                            AutomationProperties.Name="Cast to this device">
+                                                    </Button>
+
+                                                    <TextBlock Grid.Row="3" Margin="14,8,14,12" FontSize="10"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Text="{Binding AddressText}"
+                                                               Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </GridView.ItemTemplate>
+                                </GridView>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Devices -->
+                        <StackPanel Spacing="14" Visibility="{x:Bind ViewModel.IsDevicesSection, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Border Style="{StaticResource IconTileStyle}">
+                                    <FontIcon Glyph="&#xE7F4;" FontSize="16" Foreground="{ThemeResource ShellAccentBrush}"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Devices" Style="{StaticResource SectionTitleStyle}"/>
+                                    <TextBlock Text="{x:Bind ViewModel.DeviceCountText, Mode=OneWay}"
+                                               Style="{StaticResource SectionSubtitleStyle}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="8">
+                                <ListView ItemsSource="{x:Bind ViewModel.VisibleDevices, Mode=OneWay}"
+                                          SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}"
+                                          SelectionMode="Single"
+                                          ItemContainerStyle="{StaticResource FlushListItemStyle}"
+                                          AutomationProperties.Name="Cast devices">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Padding="10,8" ColumnSpacing="12">
+                                                <Grid.ContextFlyout>
+                                                    <MenuFlyout Opening="OnDeviceFlyoutOpening">
+                                                        <MenuFlyoutItem Text="Remove this device" Click="OnRemoveDeviceClicked"/>
+                                                    </MenuFlyout>
+                                                </Grid.ContextFlyout>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border Style="{StaticResource IconTileStyle}">
+                                                    <TextBlock Text="{Binding Monogram}" FontSize="12" FontWeight="Bold"
+                                                               Foreground="{ThemeResource ShellAccentBrush}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" FontWeight="Medium"
+                                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                                    <TextBlock Text="{Binding ModelName}" FontSize="12"
+                                                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                                    <TextBlock Text="{Binding AddressText}" FontSize="11"
+                                                               Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12"
+                                                           Foreground="{ThemeResource ShellSuccessBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Refresh" Click="OnRescanClicked" Style="{StaticResource GhostButtonStyle}"/>
+                                <Button Content="Add by IP" Click="OnAddByIpClicked" Style="{StaticResource GhostButtonStyle}"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Cast: source, quality, audio and the live controls -->
+                        <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.IsCastSection, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Border Style="{StaticResource IconTileStyle}">
+                                    <FontIcon Glyph="&#xE714;" FontSize="16" Foreground="{ThemeResource ShellAccentBrush}"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Cast" Style="{StaticResource SectionTitleStyle}"/>
+                                    <TextBlock Text="Pick what to send and how to encode it"
+                                               Style="{StaticResource SectionSubtitleStyle}"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Capture source" FontSize="14" FontWeight="Medium"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                    <ComboBox ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
+                                              SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=TwoWay}"
+                                              DisplayMemberPath="Name"
+                                              HorizontalAlignment="Stretch"
+                                              AutomationProperties.Name="Capture source"/>
+                                    <Button Content="Refresh sources" Click="OnRefreshSourcesClicked"
+                                            Style="{StaticResource GhostButtonStyle}"
+                                            HorizontalAlignment="Left"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Quality preset" FontSize="14" FontWeight="Medium"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}"
+                                              HorizontalAlignment="Stretch"
+                                              AutomationProperties.Name="Quality preset">
+                                        <ComboBoxItem Content="Auto"/>
+                                        <ComboBoxItem Content="High"/>
+                                        <ComboBoxItem Content="Balanced"/>
+                                        <ComboBoxItem Content="Smooth"/>
+                                        <ComboBoxItem Content="Game (low latency)"/>
+                                        <ComboBoxItem Content="Cinema"/>
+                                    </ComboBox>
+                                    <StackPanel Spacing="2" Margin="0,6,0,0">
+                                        <TextBlock x:Name="BitrateLabel" Text="Bitrate" FontSize="14" FontWeight="Medium"
+                                                   Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                        <Slider Minimum="1000" Maximum="25000" StepFrequency="500" SnapsTo="StepValues"
+                                                Value="{x:Bind ViewModel.BitrateCapKbps, Mode=TwoWay}"
+                                                AutomationProperties.LabeledBy="{x:Bind BitrateLabel}"/>
+                                        <TextBlock Text="{x:Bind ViewModel.BitrateCapText, Mode=OneWay}" FontSize="12"
+                                                   Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Header="System audio" IsOn="{x:Bind ViewModel.AudioEnabled, Mode=TwoWay}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18"
+                                    Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Live session" FontSize="14" FontWeight="Medium"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="20">
+                                        <ToggleSwitch Header="Freeze" IsOn="{x:Bind ViewModel.FreezeStream, Mode=TwoWay}"/>
+                                        <ToggleSwitch Header="Mute TV audio" IsOn="{x:Bind ViewModel.MuteTvAudio, Mode=TwoWay}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Settings is its own window; this explains where it went. -->
+                        <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.IsSettingsSection, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Border Style="{StaticResource IconTileStyle}">
+                                    <FontIcon Glyph="&#xE713;" FontSize="16" Foreground="{ThemeResource ShellAccentBrush}"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Settings" Style="{StaticResource SectionTitleStyle}"/>
+                                    <TextBlock Text="Encoding, audio, latency and desktop integration"
+                                               Style="{StaticResource SectionSubtitleStyle}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="Every setting lives in the settings window, grouped the same way as before. The gear in the title bar opens it."
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                    <Button Content="Open settings" Click="OnOpenSettingsClicked"
+                                            Style="{StaticResource PrimaryActionButtonStyle}"
+                                            HorizontalAlignment="Left">
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Help -->
+                        <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.IsHelpSection, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Border Style="{StaticResource IconTileStyle}">
+                                    <FontIcon Glyph="&#xE897;" FontSize="16" Foreground="{ThemeResource ShellAccentBrush}"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Help and support" Style="{StaticResource SectionTitleStyle}"/>
+                                    <TextBlock Text="Where things live, and what to try when a cast misbehaves"
+                                               Style="{StaticResource SectionSubtitleStyle}"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="No devices show up" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                    <TextBlock Text="The TV must be on and on the same Wi-Fi as this PC. Some routers block mDNS; the subnet scan in Settings connects to port 8009 on each address instead, and you can always add a device by IP."
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Picture stutters or audio drifts" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                    <TextBlock Text="CastMirror reports what it sees in the status line. A rising RTT or packet loss means the network, not the encoder: try a lower quality preset, or the Game preset for the least delay."
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource ShellCardStyle}" Padding="18">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Keyboard shortcuts" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                    <TextBlock Text="Ctrl+Enter starts or stops casting, F5 rescans, Ctrl+, opens settings, Ctrl+L opens the logs. The global shortcuts in Settings work from any app."
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="Open logs" Click="OnOpenLogsClicked" Style="{StaticResource GhostButtonStyle}"/>
+                                <Button Content="About CastMirror" Click="OnAboutClicked" Style="{StaticResource GhostButtonStyle}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- Casting rail -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollMode="Disabled"
+                          Background="{ThemeResource ShellChromeBrush}"
+                          BorderThickness="1,0,0,0" BorderBrush="{ThemeResource ShellDividerBrush}">
+                <StackPanel Margin="16" Spacing="14">
+                    <!-- Session status -->
+                    <Border Style="{StaticResource ShellCardStyle}" Padding="16">
+                        <StackPanel Spacing="12">
+                            <StackPanel Orientation="Horizontal" Spacing="9">
+                                <Ellipse Width="9" Height="9" VerticalAlignment="Center"
+                                         Fill="{ThemeResource ShellSuccessBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.SessionHeadline, Mode=OneWay}"
+                                           FontSize="15" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                            </StackPanel>
+                            <TextBlock Text="{x:Bind ViewModel.SessionSubtitle, Mode=OneWay}"
+                                       FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                            <Button Content="Disconnect" Click="OnActionButtonClicked"
+                                    Style="{StaticResource GhostButtonStyle}"
+                                    HorizontalAlignment="Stretch"
+                                    Visibility="{x:Bind ViewModel.IsSessionActive, Mode=OneWay}"/>
+                            <Button Content="Start casting" Click="OnActionButtonClicked"
+                                    Style="{StaticResource PrimaryActionButtonStyle}"
+                                    HorizontalAlignment="Stretch"
+                                    IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
+                                    ToolTipService.ToolTip="Start casting (Ctrl+Enter)"
+                                    Visibility="{x:Bind ViewModel.ShowCastButton, Mode=OneWay}">
                             </Button>
-                        </Grid>
+                            <Button Content="Stop casting" Click="OnActionButtonClicked"
+                                    Style="{StaticResource DangerButtonStyle}"
+                                    HorizontalAlignment="Stretch"
+                                    IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
+                                    ToolTipService.ToolTip="Stop casting (Ctrl+Enter)"
+                                    Visibility="{x:Bind ViewModel.ShowStopButton, Mode=OneWay}">
+                            </Button>
+                            <ProgressRing IsActive="{x:Bind ViewModel.CastPending, Mode=OneWay}"
+                                          Visibility="{x:Bind ViewModel.CastPending, Mode=OneWay}"
+                                          Width="20" Height="20" HorizontalAlignment="Center"
+                                          AutomationProperties.Name="Working"/>
+                        </StackPanel>
                     </Border>
 
-                    <ListView ItemsSource="{x:Bind ViewModel.Devices, Mode=OneWay}"
-                              SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}"
-                              MaxHeight="220"
-                              AutomationProperties.Name="Cast devices">
-                        <ListView.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Padding="8,6">
-                                    <Grid.ContextFlyout>
-                                        <MenuFlyout Opening="OnDeviceFlyoutOpening">
-                                            <MenuFlyoutItem Text="Remove this device" Click="OnRemoveDeviceClicked"/>
-                                        </MenuFlyout>
-                                    </Grid.ContextFlyout>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <FontIcon Glyph="&#xE7F4;" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
-                                        <TextBlock Text="{Binding ModelName}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        <TextBlock Text="{Binding AddressText}" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="2" Text="{Binding StatusText}" FontSize="12" Foreground="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                    <!-- Available devices -->
+                    <Border Style="{StaticResource ShellCardStyle}" Padding="0">
+                        <StackPanel>
+                            <Grid Margin="16,14,16,10">
+                                <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE7F4;" FontSize="15"
+                                              Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                    <TextBlock Text="Available devices" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                </StackPanel>
+                                <Border HorizontalAlignment="Right" CornerRadius="9" Padding="8,2"
+                                        Background="{ThemeResource ShellAccentSoftBrush}" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.DeviceCountText, Mode=OneWay}"
+                                               FontSize="11" Foreground="{ThemeResource ShellAccentBrush}"/>
+                                </Border>
+                            </Grid>
+                            <ListView ItemsSource="{x:Bind ViewModel.VisibleDevices, Mode=OneWay}"
+                                      SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}"
+                                      SelectionMode="Single"
+                                      MaxHeight="260"
+                                      ItemContainerStyle="{StaticResource FlushListItemStyle}"
+                                      AutomationProperties.Name="Available devices">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Padding="16,9" ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                                                     Fill="{ThemeResource ShellSuccessBrush}"/>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Name}" FontSize="13"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Foreground="{ThemeResource ShellAccentBrush}"/>
+                                                <TextBlock Text="{Binding ModelName}" FontSize="11"
+                                                           Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                                            </StackPanel>
+                                            <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="11"
+                                                      VerticalAlignment="Center"
+                                                      Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </StackPanel>
+                    </Border>
 
-                    <!-- Capture Source Picker -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Capture Source" FontSize="14" FontWeight="Medium" VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Content="Refresh" Click="OnRefreshSourcesClicked" Padding="10,4" FontSize="12"/>
-                    </Grid>
-                    <ComboBox ItemsSource="{x:Bind ViewModel.Sources, Mode=OneWay}"
-                              SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=TwoWay}"
-                              DisplayMemberPath="Name"
-                              AutomationProperties.Name="Capture source"
-                              HorizontalAlignment="Stretch"/>
-
-                    <!-- Quality Preset Selector -->
-                    <TextBlock Text="Quality Preset" FontSize="14" FontWeight="Medium"/>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.PresetIndex, Mode=TwoWay}" HorizontalAlignment="Stretch"
-                              AutomationProperties.Name="Quality preset">
-                        <ComboBoxItem Content="Auto"/>
-                        <ComboBoxItem Content="High"/>
-                        <ComboBoxItem Content="Balanced"/>
-                        <ComboBoxItem Content="Smooth"/>
-                        <ComboBoxItem Content="Game (low latency)"/>
-                        <ComboBoxItem Content="Cinema"/>
-                    </ComboBox>
-
-                    <!-- Inline bitrate slider: bound to the same stored cap as the
-                         Settings slider, so the two surfaces stay synchronized. -->
-                    <StackPanel Spacing="2">
-                        <TextBlock x:Name="BitrateLabel" Text="Bitrate" FontSize="14" FontWeight="Medium"/>
-                        <Slider Minimum="1000" Maximum="25000" StepFrequency="500" SnapsTo="StepValues"
-                                Value="{x:Bind ViewModel.BitrateCapKbps, Mode=TwoWay}"
-                                AutomationProperties.LabeledBy="{x:Bind BitrateLabel}"/>
-                        <TextBlock Text="{x:Bind ViewModel.BitrateCapText, Mode=OneWay}" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-
-                    <!-- Audio Toggle -->
-                    <ToggleSwitch Header="System audio" IsOn="{x:Bind ViewModel.AudioEnabled, Mode=TwoWay}"/>
-
-                    <!-- Live session controls -->
-                    <StackPanel Orientation="Horizontal" Spacing="20"
-                                Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
-                        <ToggleSwitch Header="Freeze" IsOn="{x:Bind ViewModel.FreezeStream, Mode=TwoWay}"/>
-                        <ToggleSwitch Header="Mute TV audio" IsOn="{x:Bind ViewModel.MuteTvAudio, Mode=TwoWay}"/>
-                    </StackPanel>
-
-                    <!-- Primary action. Two buttons instead of one that recolors itself:
-                         a code-set Background is overridden by the control's hover and
-                         pressed states, so the Stop button lost its red on mouse-over. -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Button Content="Cast display"
-                                Style="{StaticResource AccentButtonStyle}"
-                                Visibility="{x:Bind ViewModel.ShowCastButton, Mode=OneWay}"
-                                IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
-                                FontSize="16"
-                                FontWeight="SemiBold"
-                                Padding="0,12"
-                                HorizontalAlignment="Stretch"
-                                ToolTipService.ToolTip="Start casting (Ctrl+Enter)"
-                                Click="OnActionButtonClicked"/>
-                        <Button Content="Stop casting"
-                                Visibility="{x:Bind ViewModel.ShowStopButton, Mode=OneWay}"
-                                IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
-                                FontSize="16"
-                                FontWeight="SemiBold"
-                                Padding="0,12"
-                                HorizontalAlignment="Stretch"
-                                ToolTipService.ToolTip="Stop casting (Ctrl+Enter)"
-                                Click="OnActionButtonClicked">
-                            <Button.Resources>
-                                <SolidColorBrush x:Key="ButtonBackground" Color="#FFC42B1C"/>
-                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#FFA82316"/>
-                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#FF8E1D12"/>
-                                <SolidColorBrush x:Key="ButtonBorderBrush" Color="#FFC42B1C"/>
-                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#FFA82316"/>
-                                <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#FF8E1D12"/>
-                                <SolidColorBrush x:Key="ButtonForeground" Color="White"/>
-                                <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
-                                <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
-                            </Button.Resources>
-                        </Button>
-                        <ProgressRing Grid.Column="1"
-                                      IsActive="{x:Bind ViewModel.CastPending, Mode=OneWay}"
-                                      Visibility="{x:Bind ViewModel.CastPending, Mode=OneWay}"
-                                      Width="24" Height="24"
-                                      Margin="10,0,0,0"
-                                      AutomationProperties.Name="Working"/>
-                    </Grid>
-
-                    <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               AutomationProperties.LiveSetting="Polite"/>
-                    <TextBlock Text="{x:Bind ViewModel.HealthHint, Mode=OneWay}"
-                               Visibility="{x:Bind ViewModel.HasHealthHint, Mode=OneWay}"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               Foreground="{ThemeResource SystemFillColorCautionBrush}"
-                               AutomationProperties.LiveSetting="Polite"/>
+                    <!-- Casting options -->
+                    <Border Style="{StaticResource ShellCardStyle}" Padding="0">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="9" Margin="16,14,16,10">
+                                <FontIcon Glyph="&#xE890;" FontSize="15"
+                                          Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                <TextBlock Text="Casting options" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                            </StackPanel>
+                            <!-- Each option is exactly as tall as the template's glyph
+                                 cell (32px) with no vertical padding, because that
+                                 cell is pinned to the top of the control while the
+                                 label is centred: any taller row lifts the mark off
+                                 the text it belongs to. The 20px spacing keeps the
+                                 pitch the same as the old 52px rows. -->
+                            <StackPanel Spacing="20">
+                                <RadioButton GroupName="CastMode" IsChecked="{x:Bind ViewModel.IsScreenMode, Mode=OneWay}"
+                                             Height="32" Margin="16,0" Padding="8,0,0,0"
+                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                             VerticalContentAlignment="Center"
+                                             Checked="OnCastModeChecked" Tag="Screen"
+                                             AutomationProperties.Name="Cast the entire screen">
+                                    <TextBlock Text="Cast the entire screen" FontSize="13"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                </RadioButton>
+                                <RadioButton GroupName="CastMode" IsChecked="{x:Bind ViewModel.IsWindowMode, Mode=OneWay}"
+                                             Height="32" Margin="16,0" Padding="8,0,0,0"
+                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                                             VerticalContentAlignment="Center"
+                                             Checked="OnCastModeChecked" Tag="Window"
+                                             Visibility="{x:Bind ViewModel.SupportsWindowCapture, Mode=OneWay}"
+                                             AutomationProperties.Name="Cast one application window">
+                                    <TextBlock Text="Cast one application window" FontSize="13"
+                                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                                </RadioButton>
+                                <!-- One-way on purpose: a two-way SelectedItem would write
+                                     null back whenever the list is rebuilt. -->
+                                <ComboBox ItemsSource="{x:Bind ViewModel.WindowSources, Mode=OneWay}"
+                                          SelectedItem="{x:Bind ViewModel.SelectedSource, Mode=OneWay}"
+                                          SelectionChanged="OnWindowPicked"
+                                          DisplayMemberPath="Name"
+                                          PlaceholderText="Choose a window"
+                                          Margin="16,0" HorizontalAlignment="Stretch"
+                                          Visibility="{x:Bind ViewModel.IsWindowMode, Mode=OneWay}"
+                                          AutomationProperties.Name="Window to cast"/>
+                            </StackPanel>
+                            <StackPanel Margin="16,4,16,16" Spacing="6">
+                                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Foreground="{ThemeResource ShellTextSecondaryBrush}"
+                                           AutomationProperties.LiveSetting="Polite"/>
+                                <TextBlock Text="{x:Bind ViewModel.HealthHint, Mode=OneWay}"
+                                           Visibility="{x:Bind ViewModel.HasHealthHint, Mode=OneWay}"
+                                           FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource ShellDangerBrush}"
+                                           AutomationProperties.LiveSetting="Polite"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </ScrollViewer>
         </Grid>
 
-        <!-- Stats Drawer / Footer -->
-        <Border Grid.Row="2" Padding="24,8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Auto">
-                <StackPanel Orientation="Horizontal" Spacing="24">
-                    <StackPanel Spacing="2">
-                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.FpsSeries, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw"/>
-                        <TextBlock Text="{x:Bind ViewModel.StatsFpsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                    <StackPanel Spacing="2">
-                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.BitrateSeries, Mode=OneWay}" Stroke="#FF198754" AutomationProperties.AccessibilityView="Raw"/>
-                        <TextBlock Text="{x:Bind ViewModel.StatsBitrateText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                    <StackPanel Spacing="2">
-                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.RttSeries, Mode=OneWay}" Stroke="#FFFD7E14" AutomationProperties.AccessibilityView="Raw"/>
-                        <TextBlock Text="{x:Bind ViewModel.StatsLatencyText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                    <StackPanel Spacing="2">
-                        <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.LossSeries, Mode=OneWay}" Stroke="#FFDC3545" AutomationProperties.AccessibilityView="Raw"/>
-                        <TextBlock Text="{x:Bind ViewModel.StatsLossText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                    <TextBlock Text="{x:Bind ViewModel.StatsQualityText, Mode=OneWay}" FontSize="12" VerticalAlignment="Bottom" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        <!-- Status bar -->
+        <Border Grid.Row="2" Height="34" Padding="28,0,16,0"
+                Background="{ThemeResource ShellChromeBrush}"
+                BorderThickness="0,1,0,0" BorderBrush="{ThemeResource ShellDividerBrush}">
+            <Grid>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE7F4;" FontSize="12" VerticalAlignment="Center"
+                              Foreground="{ThemeResource ShellAccentBrush}"/>
+                    <TextBlock Text="CastMirror" FontSize="11" VerticalAlignment="Center"
+                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                    <Rectangle Width="1" Height="12" Margin="4,0" VerticalAlignment="Center"
+                               Fill="{ThemeResource ShellDividerBrush}"/>
+                    <TextBlock Text="Your screen, anywhere" FontSize="11" VerticalAlignment="Center"
+                               Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
                 </StackPanel>
-            </ScrollViewer>
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="{x:Bind ViewModel.StatsQualityText, Mode=OneWay}" FontSize="11"
+                               VerticalAlignment="Center"
+                               Visibility="{x:Bind ViewModel.HasStatsQuality, Mode=OneWay}"
+                               Foreground="{ThemeResource ShellTextTertiaryBrush}"/>
+                    <Rectangle Width="1" Height="12" Margin="4,0" VerticalAlignment="Center"
+                               Visibility="{x:Bind ViewModel.HasStatsQuality, Mode=OneWay}"
+                               Fill="{ThemeResource ShellDividerBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.DeviceCountText, Mode=OneWay}" FontSize="11"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                    <Rectangle Width="1" Height="12" Margin="4,0" VerticalAlignment="Center"
+                               Fill="{ThemeResource ShellDividerBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.VersionText, Mode=OneWay}" FontSize="11"
+                               VerticalAlignment="Center"
+                               Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                </StackPanel>
+            </Grid>
         </Border>
         </Grid>
         </ContentControl>
 
         <!-- First-run card: shown until the user has seen the discovery explainer -->
-        <Grid x:Name="FirstRunOverlay" Background="#B3000000" Visibility="{x:Bind ViewModel.ShowFirstRun, Mode=OneWay}">
-            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="8" Padding="24"
+        <Grid x:Name="FirstRunOverlay" Background="{ThemeResource ShellScrimBrush}" Visibility="{x:Bind ViewModel.ShowFirstRun, Mode=OneWay}">
+            <Border Style="{StaticResource ShellCardStyle}" CornerRadius="16" Padding="28"
                     MaxWidth="460" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <StackPanel Spacing="12">
-                    <FontIcon Glyph="&#xE7F4;" FontSize="32" Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
-                    <TextBlock Text="Welcome to CastMirror" FontSize="20" FontWeight="SemiBold"/>
-                    <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    <FontIcon Glyph="&#xE7F4;" FontSize="32" Foreground="{ThemeResource ShellAccentBrush}"/>
+                    <TextBlock Text="Welcome to CastMirror" FontSize="20" FontWeight="SemiBold"
+                               Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="{ThemeResource ShellTextSecondaryBrush}"
                                Text="CastMirror looks for TVs and speakers on your Wi-Fi. Turn the TV on and put it on the same network as this PC. If nothing shows up, your router may be blocking discovery, and scanning the network will find devices directly."/>
-                    <Button x:Name="FirstRunScanButton" Content="Scan my network for TVs" Click="OnFirstRunScanClicked" HorizontalAlignment="Stretch"/>
+                    <Button x:Name="FirstRunScanButton" Content="Scan my network for TVs" Click="OnFirstRunScanClicked"
+                            Style="{StaticResource PrimaryActionButtonStyle}" HorizontalAlignment="Stretch">
+                    </Button>
                     <Button Content="Not now" Click="OnFirstRunDismissClicked" HorizontalAlignment="Stretch"
-                            Background="Transparent" BorderThickness="0"/>
+                            Background="Transparent" BorderThickness="0"
+                            Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
                 </StackPanel>
             </Border>
         </Grid>

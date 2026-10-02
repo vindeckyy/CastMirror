@@ -59,7 +59,7 @@ try {
         $notNow = Find-Button $main 'Not now'
         if ($notNow) { Press $notNow; Start-Sleep -Seconds 1 }
 
-        foreach ($pair in @(@('Settings', 'CastMirror Settings'), @('Logs', 'CastMirror Logs'))) {
+        foreach ($pair in @(@('Open settings', 'CastMirror Settings'), @('Open logs', 'CastMirror Logs'))) {
             $button = Find-Button $main $pair[0]
             Check ($null -ne $button) "$($pair[0]) button exists"
             if ($button) {
@@ -73,7 +73,7 @@ try {
             }
         }
 
-        $about = Find-Button $main 'About'
+        $about = Find-Button $main 'About CastMirror'
         Check ($null -ne $about) 'About button exists'
         if ($about) {
             Press $about; Start-Sleep -Seconds 2

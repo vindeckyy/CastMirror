@@ -7,6 +7,231 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- Design tokens for the app shell. The window is a deep navy
+                 surface with a single blue-to-violet accent, so the palette is
+                 defined once here and referenced by name everywhere else. Every
+                 scheme carries real values: the shell still has to be legible
+                 when the user forces the light theme in Settings, and high
+                 contrast has to stay readable too. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FF0B1120" />
+                    <SolidColorBrush x:Key="ShellChromeBrush" Color="#FF111A2E" />
+                    <SolidColorBrush x:Key="ShellCardBrush" Color="#FF151F35" />
+                    <SolidColorBrush x:Key="ShellCardHoverBrush" Color="#FF1B2742" />
+                    <Color x:Key="ShellNavHoverColor">#14FFFFFF</Color>
+                    <SolidColorBrush x:Key="ShellStrokeBrush" Color="#FF22304D" />
+                    <SolidColorBrush x:Key="ShellDividerBrush" Color="#FF1B2740" />
+                    <SolidColorBrush x:Key="ShellTextPrimaryBrush" Color="#FFF1F5F9" />
+                    <SolidColorBrush x:Key="ShellTextSecondaryBrush" Color="#FF94A3B8" />
+                    <SolidColorBrush x:Key="ShellTextTertiaryBrush" Color="#FF64748B" />
+                    <SolidColorBrush x:Key="ShellAccentBrush" Color="#FF3B82F6" />
+                    <SolidColorBrush x:Key="ShellAccentSoftBrush" Color="#1F3B82F6" />
+                    <SolidColorBrush x:Key="ShellSuccessBrush" Color="#FF22C55E" />
+                    <SolidColorBrush x:Key="ShellDangerBrush" Color="#FFEF4444" />
+                    <SolidColorBrush x:Key="ShellScrimBrush" Color="#CC060A14" />
+                    <!-- The single accent ramp: blue into violet. -->
+                    <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FF3B82F6" Offset="0" />
+                        <GradientStop Color="#FF8B5CF6" Offset="1" />
+                    </LinearGradientBrush>
+                    <!-- Hero backdrop: its own ramp so the banner reads as
+                         artwork rather than as another card. -->
+                    <LinearGradientBrush x:Key="HeroGradientBrush" StartPoint="0,0" EndPoint="1,0.75">
+                        <GradientStop Color="#FF122347" Offset="0" />
+                        <GradientStop Color="#FF2A1358" Offset="1" />
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FFF4F6FB" />
+                    <SolidColorBrush x:Key="ShellChromeBrush" Color="#FFFFFFFF" />
+                    <SolidColorBrush x:Key="ShellCardBrush" Color="#FFFFFFFF" />
+                    <SolidColorBrush x:Key="ShellCardHoverBrush" Color="#FFF1F5FD" />
+                    <Color x:Key="ShellNavHoverColor">#0F000000</Color>
+                    <SolidColorBrush x:Key="ShellStrokeBrush" Color="#FFDDE3EE" />
+                    <SolidColorBrush x:Key="ShellDividerBrush" Color="#FFE7ECF4" />
+                    <SolidColorBrush x:Key="ShellTextPrimaryBrush" Color="#FF0F172A" />
+                    <SolidColorBrush x:Key="ShellTextSecondaryBrush" Color="#FF475569" />
+                    <SolidColorBrush x:Key="ShellTextTertiaryBrush" Color="#FF64748B" />
+                    <SolidColorBrush x:Key="ShellAccentBrush" Color="#FF2563EB" />
+                    <SolidColorBrush x:Key="ShellAccentSoftBrush" Color="#1F2563EB" />
+                    <SolidColorBrush x:Key="ShellSuccessBrush" Color="#FF16A34A" />
+                    <SolidColorBrush x:Key="ShellDangerBrush" Color="#FFDC2626" />
+                    <SolidColorBrush x:Key="ShellScrimBrush" Color="#99101828" />
+                    <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FF2563EB" Offset="0" />
+                        <GradientStop Color="#FF7C3AED" Offset="1" />
+                    </LinearGradientBrush>
+                    <LinearGradientBrush x:Key="HeroGradientBrush" StartPoint="0,0" EndPoint="1,0.75">
+                        <GradientStop Color="#FFDBE7FF" Offset="0" />
+                        <GradientStop Color="#FFE9DDFF" Offset="1" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="RadioButtonOuterEllipseFill" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonOuterEllipseStroke" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonOuterEllipseFillPointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonOuterEllipseStrokePointerOver" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFill" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStroke" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonCheckGlyphFill" Color="Transparent" />
+                    <SolidColorBrush x:Key="RadioButtonCheckGlyphStroke" Color="Transparent" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="ShellBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="ShellChromeBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="ShellCardBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="ShellCardHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <Color x:Key="ShellNavHoverColor">{ThemeResource SystemColorHighlightColor}</Color>
+                    <SolidColorBrush x:Key="ShellStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="ShellDividerBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+                    <SolidColorBrush x:Key="ShellTextPrimaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="ShellTextSecondaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="ShellTextTertiaryBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+                    <SolidColorBrush x:Key="ShellAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="ShellAccentSoftBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="ShellSuccessBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="ShellDangerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="ShellScrimBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="{ThemeResource SystemColorHighlightColor}" Offset="0" />
+                        <GradientStop Color="{ThemeResource SystemColorHighlightColor}" Offset="1" />
+                    </LinearGradientBrush>
+                    <LinearGradientBrush x:Key="HeroGradientBrush" StartPoint="0,0" EndPoint="1,0.75">
+                        <GradientStop Color="{ThemeResource SystemColorWindowColor}" Offset="0" />
+                        <GradientStop Color="{ThemeResource SystemColorWindowColor}" Offset="1" />
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!-- Card: the shell's one container shape. -->
+            <Style x:Key="ShellCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource ShellCardBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ShellStrokeBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="12" />
+            </Style>
+
+            <!-- Section heading above a group of cards. -->
+            <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="17" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{ThemeResource ShellTextPrimaryBrush}" />
+            </Style>
+            <Style x:Key="SectionSubtitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{ThemeResource ShellTextSecondaryBrush}" />
+            </Style>
+
+            <Style x:Key="IconTileStyle" TargetType="Border">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="Height" Value="34" />
+                <Setter Property="CornerRadius" Value="9" />
+                <Setter Property="Background" Value="{ThemeResource ShellAccentSoftBrush}" />
+            </Style>
+
+            <!-- Quiet text button used for inline actions (Refresh, Add by IP). -->
+            <Style x:Key="GhostButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ShellStrokeBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Padding" Value="12,6" />
+                <Setter Property="Foreground" Value="{ThemeResource ShellTextPrimaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+
+            <!-- The primary action. A control's own hover and pressed brushes
+                 replace a code-set Background, which would drop the gradient
+                 the moment the pointer touched the button. Each button using
+                 this style also restates ButtonBackground* in its own
+                 Resources, which is what actually keeps the ramp. -->
+            <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="{ThemeResource AccentGradientBrush}" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="20,13" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <!-- Destructive action (Stop casting): a red ramp instead of the
+                 accent one, for the same reason. -->
+            <Style x:Key="DangerButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="#FFC42B1C" />
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="20,13" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <!-- List row with no container padding of its own, so the padding a row
+                 template declares is the whole inset and lines up with the card
+                 header above the list. -->
+            <Style x:Key="FlushListItemStyle" TargetType="ListViewItem"
+                   BasedOn="{StaticResource DefaultListViewItemStyle}">
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+
+            <!-- Nav rail entry. Content is stretched so the selection pill each
+                 entry draws behind its own content fills the whole row. The fill
+                 is only a hover affordance: the entry itself paints nothing, and
+                 its selection is the pill the entry carries. -->
+            <Style x:Key="NavRailButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Height" Value="44" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Foreground" Value="{ThemeResource ShellTextSecondaryBrush}" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <!-- The search field in the title bar. The box paints the pill itself:
+                 the left padding clears the magnifier that is layered over it in
+                 MainWindow.xaml. -->
+            <Style x:Key="SearchBoxStyle" TargetType="TextBox">
+                <Setter Property="Background" Value="{ThemeResource ShellCardBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource ShellStrokeBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="19" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="36,7,12,0" />
+                <Setter Property="TextAlignment" Value="Left" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+
+            <!-- Circular icon button in the title bar (notifications, settings). -->
+            <Style x:Key="TitleBarIconButtonStyle" TargetType="Button">
+                <Setter Property="Width" Value="36" />
+                <Setter Property="Height" Value="36" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="{ThemeResource ShellTextSecondaryBrush}" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+            </Style>
+
+            <!-- The monogram chip in the title bar. -->
+            <Style x:Key="AvatarChipStyle" TargetType="Border">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="CornerRadius" Value="16" />
+                <Setter Property="Background" Value="{ThemeResource AccentGradientBrush}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

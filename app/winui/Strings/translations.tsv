@@ -25,10 +25,7 @@ Bitrate|Tasa de bits|Bitrate|Débit
 Bitrate CastMirror holds while streaming. Drops only on network congestion and ramps back up quickly when the link recovers.|Tasa de bits que CastMirror mantiene durante la transmisión. Solo baja si la red se congestiona y vuelve a subir rápido cuando la conexión se recupera.|Bitrate, den CastMirror beim Streamen hält. Sinkt nur bei Netzwerküberlastung und steigt schnell wieder, sobald die Verbindung sich erholt.|Débit que CastMirror maintient pendant la diffusion. Il ne baisse qu'en cas de congestion du réseau et remonte vite quand la liaison se rétablit.
 Capture frame rate|Fotogramas por segundo de captura|Aufnahme-Bildrate|Fréquence d'images de capture
 Capture source|Origen de captura|Aufnahmequelle|Source de capture
-Capture Source|Origen de captura|Aufnahmequelle|Source de capture
 Cast devices|Dispositivos Cast|Cast-Geräte|Appareils Cast
-Cast display|Transmitir pantalla|Bildschirm übertragen|Diffuser l'écran
-Cast to TV|Al televisor|Auf Fernseher|Vers la TV
 CastMirror|CastMirror|CastMirror|CastMirror
 CastMirror Logs|Registros de CastMirror|CastMirror-Protokolle|Journaux CastMirror
 CastMirror looks for TVs and speakers on your Wi-Fi. Turn the TV on and put it on the same network as this PC. If nothing shows up, your router may be blocking discovery, and scanning the network will find devices directly.|CastMirror busca televisores y altavoces en tu Wi-Fi. Enciende el televisor y conéctalo a la misma red que este PC. Si no aparece nada, puede que tu router bloquee la detección; analizar la red encuentra los dispositivos directamente.|CastMirror sucht Fernseher und Lautsprecher in deinem WLAN. Schalte den Fernseher ein und verbinde ihn mit demselben Netzwerk wie diesen PC. Wenn nichts erscheint, blockiert dein Router womöglich die Erkennung; ein Netzwerkscan findet Geräte direkt.|CastMirror cherche les téléviseurs et enceintes sur votre Wi-Fi. Allumez le téléviseur et connectez-le au même réseau que ce PC. Si rien n'apparaît, votre routeur bloque peut-être la détection ; analyser le réseau trouve les appareils directement.
@@ -87,14 +84,12 @@ Open the log viewer (Ctrl+L)|Abrir el visor de registros (Ctrl+L)|Protokollansic
 Opus bitrate. 192 kbps is recommended; 64 kbps is best for weak Wi-Fi.|Tasa de bits de Opus. Se recomiendan 192 kbps; 64 kbps es lo mejor con Wi-Fi débil.|Opus-Bitrate. 192 kbit/s werden empfohlen; 64 kbit/s ist bei schwachem WLAN am besten.|Débit Opus. 192 kbit/s est recommandé ; 64 kbit/s convient mieux à un Wi-Fi faible.
 Picture & encoding|Imagen y codificación|Bild und Codierung|Image et encodage
 Quality preset|Ajuste de calidad|Qualitätsvoreinstellung|Préréglage de qualité
-Quality Preset|Ajuste de calidad|Qualitätsvoreinstellung|Préréglage de qualité
 Refresh|Actualizar|Aktualisieren|Actualiser
 Remove this device|Quitar este dispositivo|Dieses Gerät entfernen|Supprimer cet appareil
 Rescan|Buscar de nuevo|Erneut suchen|Réanalyser
 Run self-test|Ejecutar autodiagnóstico|Selbsttest ausführen|Lancer l'autotest
 Scan my network for TVs|Analizar mi red en busca de televisores|Mein Netzwerk nach Fernsehern durchsuchen|Analyser mon réseau à la recherche de téléviseurs
 Scan the network for TVs|Analizar la red en busca de televisores|Netzwerk nach Fernsehern durchsuchen|Analyser le réseau à la recherche de téléviseurs
-Searching for Cast devices|Buscando dispositivos Cast|Suche nach Cast-Geräten|Recherche d'appareils Cast
 Sends whatever your PC is playing to the TV. It follows the default speakers, so switching to headphones moves the audio with you.|Envía al televisor lo que reproduce tu PC. Sigue los altavoces predeterminados, así que al cambiar a auriculares el audio te acompaña.|Sendet alles, was dein PC abspielt, an den Fernseher. Es folgt den Standardlautsprechern, beim Wechsel auf Kopfhörer wandert der Ton also mit.|Envoie au téléviseur tout ce que lit votre PC. Le son suit les haut-parleurs par défaut : si vous passez au casque, il vous suit.
 Settings|Ajustes|Einstellungen|Paramètres
 Show a system tray icon|Mostrar un icono en la bandeja del sistema|Symbol im Infobereich anzeigen|Afficher une icône dans la zone de notification
@@ -138,7 +133,7 @@ Connection lost|Conexión perdida|Verbindung verloren|Connexion perdue
 Reconnecting to {0}.|Reconectando con {0}.|Verbinde erneut mit {0}.|Reconnexion à {0}.
 Make sure your TV or speaker is powered on and on the same Wi-Fi network.|Comprueba que tu televisor o altavoz esté encendido y en la misma red Wi-Fi.|Stelle sicher, dass dein Fernseher oder Lautsprecher eingeschaltet und im selben WLAN ist.|Vérifiez que votre téléviseur ou enceinte est allumé et sur le même réseau Wi-Fi.
 Scanning your Wi-Fi network for Cast devices.|Buscando dispositivos Cast en tu red Wi-Fi.|Dein WLAN wird nach Cast-Geräten durchsucht.|Recherche d'appareils Cast sur votre réseau Wi-Fi.
-Choose a TV, then press Cast display.|Elige un televisor y pulsa Transmitir pantalla.|Wähle einen Fernseher und drücke dann Bildschirm übertragen.|Choisissez un téléviseur, puis appuyez sur Diffuser l'écran.
+Choose a device, then press Start casting.|Elige un dispositivo y pulsa Iniciar transmisión.|Wähle ein Gerät und starte die Übertragung.|Choisissez un appareil puis lancez la diffusion.
 Casting|Transmitiendo|Übertragung läuft|Diffusion en cours
 Connecting...|Conectando...|Verbinde...|Connexion...
 No Cast devices found|No se encontraron dispositivos Cast|Keine Cast-Geräte gefunden|Aucun appareil Cast trouvé
@@ -189,3 +184,45 @@ Everything your PC plays, or just one app. If that app isn't running when you st
 Refresh list|Actualizar lista|Liste aktualisieren|Actualiser la liste
 Everything on this PC|Todo el PC|Alles auf diesem PC|Tout le PC
 {0} (not running)|{0} (no en ejecución)|{0} (läuft nicht)|{0} (non lancée)
+About CastMirror|Acerca de CastMirror|Über CastMirror|À propos de CastMirror
+All systems operational|Todos los sistemas operativos|Alle Systeme funktionsfähig|Tous les systèmes sont opérationnels
+Available devices|Dispositivos disponibles|Verfügbare Geräte|Appareils disponibles
+Cast|Transmitir|Übertragen|Diffuser
+Cast one application window|Transmitir una ventana de aplicación|Ein Anwendungsfenster übertragen|Diffuser une fenêtre d'application
+Cast the entire screen|Transmitir toda la pantalla|Den gesamten Bildschirm übertragen|Diffuser tout l'écran
+Cast to this device|Transmitir a este dispositivo|Auf dieses Gerät übertragen|Diffuser vers cet appareil
+CastMirror reports what it sees in the status line. A rising RTT or packet loss means the network, not the encoder: try a lower quality preset, or the Game preset for the least delay.|CastMirror informa en la barra de estado lo que detecta. Un RTT alto o pérdida de paquetes indica que el problema es la red, no el codificador: prueba un ajuste de calidad menor o el ajuste Juego para la menor latencia.|CastMirror zeigt im Statusbereich, was es erkennt. Eine steigende RTT oder Paketverluste bedeuten, dass das Netzwerk schuld ist, nicht der Encoder: Verwende eine niedrigere Qualitätsstufe oder die Stufe Spiel für geringste Latenz.|CastMirror indique dans la barre d'état ce qu'il détecte. Un RTT élevé ou une perte de paquets indique le réseau, et non l'encodeur : essayez une qualité plus basse ou le préréglage Jeu pour la latence minimale.
+Casting options|Opciones de transmisión|Übertragungsoptionen|Options de diffusion
+Choose where you want to cast your screen|Elige adónde quieres transmitir tu pantalla|Wähle, wohin du deinen Bildschirm übertragen möchtest|Choisissez où diffuser votre écran
+Ctrl+Enter starts or stops casting, F5 rescans, Ctrl+, opens settings, Ctrl+L opens the logs. The global shortcuts in Settings work from any app.|Ctrl+Iniciar inicia o detiene la transmisión, F5 vuelve a buscar, Ctrl+, abre los ajustes y Ctrl+L abre los registros. Los atajos globales de los ajustes funcionan desde cualquier aplicación.|Strg+Eingabe startet oder stoppt die Übertragung, F5 sucht erneut, Strg+, öffnet die Einstellungen, Strg+L öffnet die Protokolle. Die globalen Tastenkürzel in den Einstellungen funktionieren aus jeder App heraus.|Ctrl+Entrée démarre ou arrête la diffusion, F5 relance la recherche, Ctrl+, ouvre les paramètres, Ctrl+L ouvre les journaux. Les raccourcis globaux des paramètres fonctionnent depuis n'importe quelle application.
+Devices|Dispositivos|Geräte|Appareils
+Disconnect|Desconectar|Trennen|Déconnecter
+Effortlessly|Sin esfuerzo|Mühelos|Sans effort
+Encoding, audio, latency and desktop integration|Codificación, audio, latencia e integración con el escritorio|Codierung, Audio, Latenz und Desktop-Integration|Encodage, audio, latence et intégration au bureau
+Every setting lives in the settings window, grouped the same way as before. The gear in the title bar opens it.|Todos los ajustes están en la ventana de configuración, agrupados igual que antes. El engranaje de la barra de título la abre.|Alle Einstellungen liegen im Einstellungsfenster, so gruppiert wie zuvor. Das Zahnrad in der Titelleiste öffnet es.|Tous les paramètres se trouvent dans la fenêtre des paramètres, regroupés comme avant. L'engrenage dans la barre de titre l'ouvre.
+HD and above|HD y superior|HD und höher|HD et plus
+Help and support|Ayuda y soporte|Hilfe und Support|Aide et assistance
+Home|Inicio|Start|Accueil
+Keyboard shortcuts|Atajos de teclado|Tastenkürzel|Raccourcis clavier
+Live session|Sesión en directo|Live-Sitzung|Session en direct
+Low latency|Baja latencia|Geringe Latenz|Faible latence
+Make sure your TV or speaker is on and on the same Wi-Fi. If your router blocks discovery, you can add a device by IP address.|Asegúrate de que el televisor o el altavoz esté encendido y en la misma red Wi-Fi. Si el router bloquea el descubrimiento, puedes añadir un dispositivo por IP.|Stelle sicher, dass Fernseher oder Lautsprecher eingeschaltet und im selben WLAN sind. Wenn der Router die Suche blockiert, kannst du ein Gerät per IP hinzufügen.|Assurez-vous que la TV ou l'enceinte est allumée et sur le même Wi-Fi. Si votre routeur bloque la découverte, vous pouvez ajouter un appareil par adresse IP.
+Mirror your screen|Proyecta tu pantalla|Spiegele deinen Bildschirm|Diffusez votre écran
+No device matches that search.|Ningún dispositivo coincide con esa búsqueda.|Kein Gerät passt zu dieser Suche.|Aucun appareil ne correspond à cette recherche.
+No devices show up|No aparecen dispositivos|Es werden keine Geräte angezeigt|Aucun appareil n'apparaît
+No matches|Sin coincidencias|Keine Treffer|Aucune correspondance
+Online|En línea|Online|En ligne
+Open logs|Abrir registros|Protokolle öffnen|Ouvrir les journaux
+Open settings|Abrir ajustes|Einstellungen öffnen|Ouvrir les paramètres
+Pick what to send and how to encode it|Elige qué enviar y cómo codificarlo|Wähle, was gesendet und wie es kodiert wird|Choisissez quoi envoyer et comment l'encoder
+Picture stutters or audio drifts|La imagen da saltos o el audio se desincroniza|Bild ruckelt oder Audio driftet ab|L'image saccade ou l'audio se décale
+Real time|En tiempo real|Echtzeit|Temps réel
+Refresh sources|Actualizar orígenes|Quellen aktualisaisieren|Actualiser les sources
+Search devices|Buscar dispositivos|Geräte suchen|Rechercher des appareils
+Select a Device|Selecciona un dispositivo|Gerät auswählen|Sélectionnez un appareil
+Send this PC's screen and sound to any Cast device on your network, in high quality and with low latency.|Envía la pantalla y el sonido de este PC a cualquier dispositivo Cast de tu red, en alta calidad y con baja latencia.|Sende Bildschirm und Ton dieses PCs in hoher Qualität und mit geringer Latenz an jedes Cast-Gerät im Netzwerk.|Envoyez l'écran et le son de ce PC vers n'importe quel appareil Cast de votre réseau, en haute qualité et avec une faible latence.
+Start casting|Iniciar transmisión|Übertragung starten|Démarrer la diffusion
+The TV must be on and on the same Wi-Fi as this PC. Some routers block mDNS; the subnet scan in Settings connects to port 8009 on each address instead, and you can always add a device by IP.|El televisor debe estar encendido y en la misma red Wi-Fi que este PC. Algunos routers bloquean mDNS; el escaneo de subred en Ajustes se conecta al puerto 8009 de cada dirección, y siempre puedes añadir un dispositivo por IP.|Der Fernseher muss eingeschaltet und im selben WLAN wie dieser PC sein. Manche Router blockieren mDNS; der Subnetzscan in den Einstellungen verbindet sich stattdessen mit Port 8009 jeder Adresse, und du kannst ein Gerät jederzeit per IP hinzufügen.|La TV doit être allumée et sur le même Wi-Fi que ce PC. Certains routeurs bloquent mDNS ; l'analyse du sous-réseau dans les paramètres se connecte au port 8009 de chaque adresse, et vous pouvez toujours ajouter un appareil par IP.
+Up to 4K|Hasta 4K|Bis zu 4K|Jusqu'à 4K
+Where things live, and what to try when a cast misbehaves|Dónde está cada cosa y qué probar si una transmisión falla|Wo was zu finden ist und was bei einer Transmission hilft|Où se trouvent les réglages et que faire si la diffusion pose problème
+Your screen, anywhere|Tu pantalla, donde sea|Dein Bildschirm, überall|Votre écran, partout

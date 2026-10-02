@@ -57,6 +57,11 @@
         <ListView x:Name="LogList" Grid.Row="2" Margin="20,0,20,16"
                   ItemsSource="{x:Bind ViewModel.Entries, Mode=OneWay}"
                   SelectionMode="Extended">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource DefaultListViewItemStyle}">
+                    <Setter Property="Padding" Value="0"/>
+                </Style>
+            </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <TextBlock Text="{Binding Display}" FontFamily="Consolas" FontSize="12"

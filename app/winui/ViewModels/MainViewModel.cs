@@ -16,6 +16,7 @@ namespace CastMirror.ViewModels
         private string _name = string.Empty;
         private string _modelName = string.Empty;
         private string _statusText = "Ready";
+        private bool _isSelected;
 
         public string Id { get; set; } = string.Empty;
 
@@ -54,7 +55,14 @@ namespace CastMirror.ViewModels
         public string Name
         {
             get => _name;
-            set { if (_name == value) return; _name = value; OnPropertyChanged(); }
+            set
+            {
+                if (_name == value) return;
+                _name = value;
+                OnPropertyChanged();
+                // The card monogram is derived from the name.
+                OnPropertyChanged(nameof(Monogram));
+            }
         }
 
         public string ModelName
@@ -63,10 +71,38 @@ namespace CastMirror.ViewModels
             set { if (_modelName == value) return; _modelName = value; OnPropertyChanged(); }
         }
 
+        /// <summary>True while this row is the one the primary action will cast to.</summary>
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set { if (_isSelected == value) return; _isSelected = value; OnPropertyChanged(); }
+        }
+
         public string StatusText
         {
             get => _statusText;
             set { if (_statusText == value) return; _statusText = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>Two-letter monogram shown on the device card, e.g. "LR" for "Living Room TV".</summary>
+        public string Monogram
+        {
+            get
+            {
+                var words = (Name ?? string.Empty)
+                    .Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(w => char.IsLetterOrDigit(w[0]))
+                    .ToList();
+                if (words.Count == 0) return "?";
+                if (words.Count == 1)
+                {
+                    string only = words[0];
+                    return only.Length == 1
+                        ? only.ToUpperInvariant()
+                        : (char.ToUpperInvariant(only[0]) + only[1]).ToString();
+                }
+                return (char.ToUpperInvariant(words[0][0]) + char.ToUpperInvariant(words[1][0])).ToString();
+            }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -90,6 +126,8 @@ namespace CastMirror.ViewModels
     {
         public ObservableCollection<DeviceItem> Devices { get; } = new();
         public ObservableCollection<SourceItem> Sources { get; } = new();
+        /// <summary>The windows in <see cref="Sources"/>, for the picker shown in window mode.</summary>
+        public ObservableCollection<SourceItem> WindowSources { get; } = new();
 
         /// <summary>
         /// Engine configuration, shared with the settings window. Mutate through
@@ -135,9 +173,15 @@ namespace CastMirror.ViewModels
             set
             {
                 if (ReferenceEquals(_selectedDevice, value)) return;
+                // The card ring is driven by the row, so the old and new rows
+                // both have to hear about it.
+                if (_selectedDevice != null) _selectedDevice.IsSelected = false;
                 _selectedDevice = value;
+                if (value != null) value.IsSelected = true;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(CanToggleCast));
+                OnPropertyChanged(nameof(TargetDeviceName));
+                OnPropertyChanged(nameof(SessionSubtitle));
             }
         }
 
@@ -151,6 +195,14 @@ namespace CastMirror.ViewModels
                 _selectedSource = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(CanToggleCast));
+                // The Casting Options radio follows the source, so picking a window
+                // in either list flips it to "window" and a display flips it back.
+                if (value != null)
+                {
+                    SelectedCastMode = value.Kind == (int)CastMirrorSourceKind.Window
+                        ? CastMode.Window
+                        : CastMode.Screen;
+                }
             }
         }
 
@@ -216,10 +268,218 @@ namespace CastMirror.ViewModels
         public bool IsLiveVisible => IsStreaming;
         public bool IsSearchingVisible => Devices.Count == 0 && !IsSessionActive && !NoDevicesFound;
         public bool CanToggleCast => !CastPending && (IsSessionActive || (SelectedDevice != null && SelectedSource != null));
-
         /// <summary>The Cast button and the Stop button swap places; each has its own template-safe style.</summary>
         public bool ShowCastButton => !IsSessionActive;
         public bool ShowStopButton => IsSessionActive;
+
+
+        /// <summary>
+        /// Every place that adds to or removes from <see cref="Devices"/> ends
+        /// here, so the shell's derived state (counts, search results, the
+        /// empty-state copy) cannot drift from the list it describes.
+        /// </summary>
+        private void NotifyDeviceListChanged()
+        {
+            OnPropertyChanged(nameof(HasDevices));
+            OnPropertyChanged(nameof(IsSearchingVisible));
+            OnPropertyChanged(nameof(PreviewTitle));
+            OnPropertyChanged(nameof(DeviceCountText));
+            OnPropertyChanged(nameof(VisibleDevices));
+            OnPropertyChanged(nameof(HasNoSearchResults));
+        }
+        // ---- Shell state for the redesigned window -------------------------
+        // The window is a shell (title bar, nav rail, search, device grid) around
+        // the same engine calls, so these properties only describe what the user
+        // is looking at; nothing here reaches the native engine.
+
+        /// <summary>Which top-level destination the nav rail has selected.</summary>
+        public enum ShellSection
+        {
+            Home,
+            Devices,
+            Cast,
+            Settings,
+            Help
+        }
+
+        private ShellSection _section = ShellSection.Home;
+        public ShellSection Section
+        {
+            get => _section;
+            set
+            {
+                if (_section == value) return;
+                _section = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsHomeSection));
+                OnPropertyChanged(nameof(IsDevicesSection));
+                OnPropertyChanged(nameof(IsCastSection));
+                OnPropertyChanged(nameof(IsSettingsSection));
+                OnPropertyChanged(nameof(IsHelpSection));
+            }
+        }
+
+        public bool IsHomeSection => Section == ShellSection.Home;
+        public bool IsDevicesSection => Section == ShellSection.Devices;
+        public bool IsCastSection => Section == ShellSection.Cast;
+        public bool IsSettingsSection => Section == ShellSection.Settings;
+        public bool IsHelpSection => Section == ShellSection.Help;
+
+        private string _searchText = string.Empty;
+        /// <summary>
+        /// The shell's search box. It filters the device list only: device names
+        /// are the only content the window holds that a user would search for.
+        /// </summary>
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                string next = value ?? string.Empty;
+                if (_searchText == next) return;
+                _searchText = next;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(VisibleDevices));
+                OnPropertyChanged(nameof(HasNoSearchResults));
+            }
+        }
+
+        /// <summary>Devices matching <see cref="SearchText"/>, or all of them when the box is empty.</summary>
+        public IEnumerable<DeviceItem> VisibleDevices
+        {
+            get
+            {
+                if (_searchText.Trim().Length == 0) return Devices;
+                return Devices.Where(MatchesSearch);
+            }
+        }
+
+        private bool MatchesSearch(DeviceItem device)
+        {
+            string needle = _searchText.Trim();
+            return device.Name.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
+                || (device.ModelName ?? string.Empty).IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
+                || (device.AddressText ?? string.Empty).IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>True when a search is active and nothing matched, so the grid shows its empty state.</summary>
+        public bool HasNoSearchResults => _searchText.Trim().Length > 0 && !VisibleDevices.Any();
+
+        /// <summary>What the user picked in Casting Options: a whole display or one window.</summary>
+        public enum CastMode
+        {
+            Screen,
+            Window
+        }
+
+        private CastMode _castMode = CastMode.Screen;
+        public CastMode SelectedCastMode
+        {
+            get => _castMode;
+            set
+            {
+                if (_castMode == value) return;
+                _castMode = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsScreenMode));
+                OnPropertyChanged(nameof(IsWindowMode));
+                OnPropertyChanged(nameof(CanToggleCast));
+                // The chosen source has to belong to the chosen mode, or the
+                // primary button would cast a window the options say is off.
+                AlignSelectedSourceToMode();
+            }
+        }
+
+        public bool IsScreenMode => SelectedCastMode == CastMode.Screen;
+        public bool IsWindowMode => SelectedCastMode == CastMode.Window;
+
+        /// <summary>Internal so the Casting Options radio can re-align after its own change.</summary>
+        internal void AlignSelectedSourceToMode()
+        {
+            int kind = _castMode == CastMode.Window
+                ? (int)CastMirrorSourceKind.Window
+                : (int)CastMirrorSourceKind.Monitor;
+            if (SelectedSource != null && SelectedSource.Kind == kind) return;
+            SelectedSource = Sources.FirstOrDefault(s => s.Kind == kind) ?? SelectedSource;
+        }
+
+        /// <summary>True when window capture exists on this machine; the option is hidden when it does not.</summary>
+        public bool SupportsWindowCapture => Sources.Any(s => s.Kind == (int)CastMirrorSourceKind.Window);
+
+        /// <summary>The name of the device a cast would go to, for the status line and the action button.</summary>
+        public string TargetDeviceName => SelectedDevice?.Name ?? string.Empty;
+
+        /// <summary>"4 devices" / "1 device" / "No devices" for the footer's device counter.</summary>
+        public string DeviceCountText
+        {
+            get
+            {
+                if (Devices.Count == 0) return Localizer.T("No devices");
+                if (Devices.Count == 1) return Localizer.Format("{0} device", Devices.Count);
+                return Localizer.Format("{0} devices", Devices.Count);
+            }
+        }
+
+        /// <summary>Headline for the status card: Connected, Connecting, or Ready to cast.</summary>
+        public string SessionHeadline
+        {
+            get
+            {
+                if (IsStreaming) return Localizer.T("Connected");
+                if (IsSessionActive) return Localizer.T("Connecting");
+                return Localizer.T("Ready to cast");
+            }
+        }
+
+        /// <summary>Second line under the status headline, explaining what the state means.</summary>
+        public string SessionSubtitle
+        {
+            get
+            {
+                if (IsStreaming) return Localizer.Format("Streaming to {0}.", TargetDeviceName);
+                if (IsSessionActive) return Localizer.T("Negotiating with the device.");
+                if (SelectedDevice == null) return Localizer.T("Pick a device to begin.");
+                return Localizer.Format("Ready to cast to {0}.", TargetDeviceName);
+            }
+        }
+
+        /// <summary>Greets the signed-in user in the title bar, e.g. "Hello, HB".</summary>
+        public string GreetingText
+        {
+            get
+            {
+                string name = Environment.UserName ?? string.Empty;
+                string first = name.Split('\\', ' ').FirstOrDefault() ?? string.Empty;
+                if (first.Length == 0) return Localizer.T("Hello");
+                if (first.Length > 1) first = (char.ToUpperInvariant(first[0]) + first.Substring(1)).ToString();
+                return Localizer.Format("Hello, {0}", first);
+            }
+        }
+
+        /// <summary>Up to two initials for the avatar chip, e.g. "HB".</summary>
+        public string UserInitials
+        {
+            get
+            {
+                string name = Environment.UserName ?? string.Empty;
+                var parts = name.Split(new[] { '\\', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(p => char.IsLetterOrDigit(p[0]))
+                    .Take(2)
+                    .ToList();
+                if (parts.Count == 0) return "?";
+                return string.Concat(parts.Select(p => char.ToUpperInvariant(p[0])));
+            }
+        }
+
+        /// <summary>The app version, shown in the footer's right-hand corner.</summary>
+        public string VersionText
+        {
+            get
+            {
+                string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+                return "v" + version;
+            }
+        }
 
         public string PreviewTitle
         {
@@ -353,8 +613,21 @@ namespace CastMirror.ViewModels
         public string StatsQualityText
         {
             get => _statsQualityText;
-            private set { if (_statsQualityText == value) return; _statsQualityText = value; OnPropertyChanged(); }
+            private set
+            {
+                if (_statsQualityText == value) return;
+                _statsQualityText = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasStatsQuality));
+            }
         }
+
+        /// <summary>
+        /// True once a session is reporting quality. The footer's divider only
+        /// belongs when there is something on both sides of it, so the idle shell
+        /// does not show a separator with no text after it.
+        /// </summary>
+        public bool HasStatsQuality => !string.IsNullOrEmpty(_statsQualityText);
 
         // Sparkline history: one sample per stats tick, capped so a long session
         // cannot grow without bound. The Sparkline control owns the rendering.
@@ -650,6 +923,12 @@ namespace CastMirror.ViewModels
                 _pendingLastSourceKind = string.Empty;
                 Sources.Clear();
                 foreach (var source in sources) Sources.Add(source);
+                WindowSources.Clear();
+                foreach (var source in sources)
+                {
+                    if (source.Kind == (int)CastMirrorSourceKind.Window) WindowSources.Add(source);
+                }
+                OnPropertyChanged(nameof(SupportsWindowCapture));
                 SelectedSource = Sources.FirstOrDefault(s => s.Kind == previousKind && s.Id == previousId)
                                  ?? Sources.FirstOrDefault();
             }
@@ -783,6 +1062,10 @@ namespace CastMirror.ViewModels
                 _statsTimer?.Stop();
             }
 
+            // The status card and the footer's device line both read from these.
+            OnPropertyChanged(nameof(SessionHeadline));
+            OnPropertyChanged(nameof(SessionSubtitle));
+
             StateChanged?.Invoke(state);
         }
 
@@ -878,15 +1161,13 @@ namespace CastMirror.ViewModels
             // The "scanning" line is stale once a TV has turned up.
             if (Devices.Count > 0 && !IsSessionActive && StatusMessage == Localizer.T(ScanningMessage))
             {
-                StatusMessage = Localizer.T("Choose a TV, then press Cast display.");
+                StatusMessage = Localizer.T("Choose a device, then press Start casting.");
             }
 
             if (changed)
             {
                 NoDevicesFound = false;
-                OnPropertyChanged(nameof(HasDevices));
-                OnPropertyChanged(nameof(IsSearchingVisible));
-                OnPropertyChanged(nameof(PreviewTitle));
+                NotifyDeviceListChanged();
             }
         }
 
@@ -1174,9 +1455,7 @@ namespace CastMirror.ViewModels
             {
                 SelectedDevice = Devices.FirstOrDefault();
             }
-            OnPropertyChanged(nameof(HasDevices));
-            OnPropertyChanged(nameof(IsSearchingVisible));
-            OnPropertyChanged(nameof(PreviewTitle));
+            NotifyDeviceListChanged();
         }
 
         public bool IsManualDevice(DeviceItem device) => _manualDevices.Contains(device);
@@ -1295,9 +1574,7 @@ namespace CastMirror.ViewModels
                 Devices.Add(existing);
                 _manualDevices.Add(existing);
                 NoDevicesFound = false;
-                OnPropertyChanged(nameof(HasDevices));
-                OnPropertyChanged(nameof(IsSearchingVisible));
-                OnPropertyChanged(nameof(PreviewTitle));
+                NotifyDeviceListChanged();
             }
 
             SelectedDevice = existing;

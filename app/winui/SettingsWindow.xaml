@@ -26,8 +26,8 @@
             <StackPanel Spacing="10" MaxWidth="620" HorizontalAlignment="Left">
 
                 <!-- Picture &amp; encoding -->
-                <Expander Header="Picture &amp; encoding" IsExpanded="True" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                <Expander Header="Picture &amp; encoding" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="0,10,0,4">
                         <StackPanel Spacing="2">
                             <TextBlock x:Name="BitrateLabel" Text="Video bitrate cap" FontWeight="Medium"/>
                             <TextBlock Text="Bitrate CastMirror holds while streaming. Drops only on network congestion and ramps back up quickly when the link recovers."
@@ -59,24 +59,24 @@
 
                         <ToggleSwitch x:Name="SteadySwitch" Header="Steady frame rate"
                                       OnContent="On" OffContent="Off" Toggled="OnSteadyToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Keeps resolution and frame rate fixed. Turn it off and CastMirror lowers the resolution when Wi-Fi gets congested."/>
 
                         <ToggleSwitch x:Name="SoftwareEncodeSwitch" Header="Force software encode"
                                       OnContent="On" OffContent="Off" Toggled="OnSoftwareEncodeToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Encodes on the CPU instead of the GPU. Try it if the picture glitches or the GPU encoder fails. Applies to the next cast."/>
                     </StackPanel>
                 </Expander>
 
                 <!-- Audio -->
-                <Expander Header="Audio" IsExpanded="True" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                <Expander Header="Audio" IsExpanded="True" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="0,10,0,4">
                         <ToggleSwitch x:Name="AudioSwitch" Header="Computer sound"
                                       OnContent="On" OffContent="Off" Toggled="OnAudioToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Sends whatever your PC is playing to the TV. It follows the default speakers, so switching to headphones moves the audio with you."/>
 
@@ -118,8 +118,8 @@
                 </Expander>
 
                 <!-- Latency &amp; buffering -->
-                <Expander Header="Latency &amp; buffering" IsExpanded="False" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                <Expander Header="Latency &amp; buffering" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="0,10,0,4">
                         <StackPanel Spacing="2">
                             <TextBlock x:Name="DelayLabel" Text="Target delay" FontWeight="Medium"/>
                             <TextBlock Text="How long the TV holds each frame before showing it. 200 ms keeps the pointer responsive. 400 ms rides out Wi-Fi retransmits. Game and Cinema presets set their own delay."
@@ -134,7 +134,7 @@
 
                         <ToggleSwitch x:Name="CursorSwitch" Header="Show the mouse pointer"
                                       OnContent="On" OffContent="Off" Toggled="OnCursorToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Draws the pointer into the mirrored picture. Applies to the next cast."/>
 
@@ -156,61 +156,61 @@
 
                         <ToggleSwitch x:Name="LatencyHudSwitch" Header="Latency HUD overlay"
                                       OnContent="On" OffContent="Off" Toggled="OnLatencyHudToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Draws frame rate, bitrate and round-trip time into the streamed picture."/>
                     </StackPanel>
                 </Expander>
 
                 <!-- Device discovery -->
-                <Expander Header="Device discovery" IsExpanded="False" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                <Expander Header="Device discovery" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="0,10,0,4">
                         <ToggleSwitch x:Name="SubnetScanSwitch" Header="Scan the network for TVs"
                                       OnContent="On" OffContent="Off" Toggled="OnSubnetScanToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Connects to port 8009 on every address in your local subnet. Use it when your router blocks mDNS and TVs don't show up."/>
                     </StackPanel>
                 </Expander>
 
                 <!-- Desktop integration -->
-                <Expander Header="Desktop integration" IsExpanded="False" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="14" Padding="4,10,4,4">
+                <Expander Header="Desktop integration" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="14" Padding="0,10,0,4">
                         <ToggleSwitch x:Name="TraySwitch" Header="Show a system tray icon"
                                       OnContent="On" OffContent="Off" Toggled="OnTrayToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Keeps an icon in the notification area so you can reopen the window or stop a cast. Closing the window with the tray on hides it there."/>
 
                         <ToggleSwitch x:Name="CloseToTraySwitch" Header="Closing window hides to tray"
                                       OnContent="On" OffContent="Off" Toggled="OnCloseToTrayToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="The close button hides the window instead of quitting, so a cast keeps running. Quit from the tray icon."/>
 
                         <ToggleSwitch x:Name="AutostartSwitch" Header="Start when I sign in"
                                       OnContent="On" OffContent="Off" Toggled="OnAutostartToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Starts CastMirror hidden in the tray, so your TV is ready to cast to. Needs the tray icon; without it the window opens."/>
 
                         <ToggleSwitch x:Name="HotkeySwitch" Header="Global shortcuts"
                                       OnContent="On" OffContent="Off" Toggled="OnHotkeysToggled"/>
-                        <TextBlock Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Work from any app, even when the window is hidden. Ctrl+Alt+C starts or stops the cast, Ctrl+Alt+F freezes the picture, Ctrl+Alt+M mutes the TV."/>
 
                         <ToggleSwitch x:Name="NotifySwitch" Header="Desktop notifications"
                                       OnContent="On" OffContent="Off" Toggled="OnNotifyToggled"/>
-                        <TextBlock x:Name="NotifyHelpText" Margin="0,-8,0,0" FontSize="12" TextWrapping="Wrap"
+                        <TextBlock x:Name="NotifyHelpText" Margin="0,-18,0,4" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Text="Shows a notification when casting starts or stops, when the connection drops, and when a cast fails."/>
                     </StackPanel>
                 </Expander>
 
                 <!-- Appearance -->
-                <Expander Header="Appearance" IsExpanded="False" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="10" Padding="4,10,4,4">
+                <Expander Header="Appearance" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="10" Padding="0,10,0,4">
                         <TextBlock Text="Color scheme" FontWeight="Medium"/>
                         <ComboBox x:Name="ThemeCombo" HorizontalAlignment="Stretch"
                                   AutomationProperties.Name="Color scheme"
@@ -223,8 +223,8 @@
                 </Expander>
 
                 <!-- Diagnostics -->
-                <Expander Header="Diagnostics" IsExpanded="False" HorizontalAlignment="Stretch">
-                    <StackPanel Spacing="10" Padding="4,10,4,4">
+                <Expander Header="Diagnostics" IsExpanded="False" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <StackPanel Spacing="10" Padding="0,10,0,4">
                         <Button Content="Run self-test" Click="OnSelfTestClicked"/>
                         <TextBlock x:Name="SelfTestText" FontSize="12" TextWrapping="Wrap" Visibility="Collapsed"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
