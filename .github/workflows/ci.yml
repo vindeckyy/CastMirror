@@ -306,6 +306,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up MSYS2 UCRT64
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -362,9 +363,13 @@ jobs:
 
       # The WinUI client is what the Windows release ships, so it must compile
       # on every change, not only when a tag is cut. It copies build/core/
-      # castcore.dll, which is why the native build runs first.
+      # castcore.dll, which is why the native build runs first. The build also
+      # copies castcore's DLL closure from the MSYS2 toolchain, which setup-msys2
+      # installs outside the C:\msys64 default the script falls back to.
       - name: Build Windows client (WinUI 3)
         shell: pwsh
+        env:
+          CASTMIRROR_MSYS2_BIN: ${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin
         run: >
           dotnet build app/winui/CastMirrorApp.csproj -c Release
           -p:Platform=x64 -r win-x64 --self-contained true
