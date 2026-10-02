@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstdlib>
-#include <cstring>
+#include <sstream>
 #include <vector>
 
 #if defined(_WIN32)
@@ -283,6 +283,10 @@ bool CastSession::Start(const CastDevice& device, int display_id, const SessionO
 
   last_video_send_ms_.store(SteadyNowMs());
   last_audio_send_ms_.store(SteadyNowMs());
+  // A synthetic audio frame continues the capture timeline from the last frame
+  // emitted, so a session that is stopped and started again must not inherit
+  // the previous run's stamp.
+  last_audio_emit_us_.store(0);
   last_session_log_ = std::chrono::steady_clock::now();
   state_machine_.TransitionTo(SessionState::kStreaming, "Your display is on " + device.name);
   return true;
@@ -776,8 +780,33 @@ void CastSession::ProcessAudioFrameInternal(const CapturedAudioFrame& af, bool a
   last_audio_capture_us_.store(SteadyUs(af.timestamp));
   SampleAvCaptureOffset();
 
+  // The emitted audio timeline must advance by exactly one frame per frame
+  // emitted. Two clocks want to drive it and they do not agree: the capture
+  // layer projects from the QPC render position and only advances when the
+  // endpoint actually delivers a buffer, while the silence frames sent when the
+  // endpoint is quiet (or while muted) are stamped from the wall clock. When the
+  // endpoint goes quiet the capture clock falls behind, so the first real frame
+  // after the gap is stamped before the last silence frame and the receiver's
+  // audio steps backwards, which is the progressive A/V desync.
+  //
+  // The stamp is corrected on the way *into* the encoder, not on the way out:
+  // audio_encoder derives rtp_timestamp from frame.timestamp, and that value is
+  // what the packetizer puts on the wire. Clamping the EncodedFrame afterwards
+  // would move capture_time while leaving the transmitted timestamp untouched.
+  // Frames arrive at the real capture rate, so pinning each stamp to one frame
+  // past the last emitted frame keeps the audio timeline locked to video while
+  // staying monotonic whichever clock supplied the frame.
+  const int64_t rate = af.sample_rate > 0 ? af.sample_rate : 48000;
+  const int64_t frame_us = 1000000LL * static_cast<int64_t>(af.samples_per_channel) / rate;
+  const int64_t min_capture_us = last_audio_emit_us_.load() + frame_us;
+  CapturedAudioFrame stamped = af;
+  if (SteadyUs(af.timestamp) < min_capture_us) {
+    stamped.timestamp =
+        std::chrono::steady_clock::time_point(std::chrono::microseconds(min_capture_us));
+  }
+
   EncodedFrame raw_frame;
-  if (!audio_encoder_->Encode(af, raw_frame)) {
+  if (!audio_encoder_->Encode(stamped, raw_frame)) {
     return;
   }
 
@@ -792,9 +821,15 @@ void CastSession::ProcessAudioFrameInternal(const CapturedAudioFrame& af, bool a
   auto packets = packetizer->PacketizeFrame(raw_frame);
   if (transport->SendPackets(packets)) {
     last_audio_send_ms_.store(SteadyNowMs());
+    last_audio_emit_us_.store(SteadyUs(raw_frame.capture_time));
   }
 }
 
+// A frame the capture layer is not producing: the endpoint went quiet, or the
+// user muted. There is no capture timeline to continue here, so the wall clock
+// is the only reference; ProcessAudioFrameInternal pins the stamp to be at
+// least one frame past the last emitted frame, which is what keeps the audio
+// timeline monotonic and locked to video.
 void CastSession::InjectSilenceAudioFrame() {
   CapturedAudioFrame af;
   af.sample_rate = 48000;
@@ -828,8 +863,19 @@ void CastSession::MaybeLogSessionStats() {
   const int64_t offset_samples = av_offset_count_.exchange(0);
   const int64_t offset_sum = av_offset_sum_us_.exchange(0);
   if (offset_samples > 0) {
-    LOG_INFO << "A/V capture offset avg: " << (offset_sum / offset_samples) << " us over "
-             << offset_samples << " samples";
+    const int64_t offset_us = offset_sum / offset_samples;
+    // Both stamps are source-timeline instants, so a steady offset is pipeline
+    // age asymmetry — audio's render position sits slightly ahead of now and
+    // video's present time slightly behind it — not misalignment. Only the
+    // change between windows desyncs the receiver, so report that too.
+    std::ostringstream drift;
+    if (av_offset_have_prev_.exchange(true)) {
+      const int64_t delta_us = offset_us - av_offset_prev_us_.exchange(offset_us);
+      drift << ", drift " << delta_us << " us";
+    }
+    av_offset_prev_us_.store(offset_us);
+    LOG_INFO << "A/V capture offset avg: " << offset_us << " us over " << offset_samples
+             << " samples" << drift.str();
   }
 }
 
@@ -1011,12 +1057,12 @@ void CastSession::AdaptationLoop() {
       {
         std::lock_guard<std::mutex> elock(video_encoder_mutex_);
         if (video_encoder_) {
-          const auto& enc_cfg = video_encoder_->GetConfig();
-          const bool config_changed = enc_cfg.width != updated.current_resolution.width ||
-                                      enc_cfg.height != updated.current_resolution.height ||
-                                      enc_cfg.framerate != updated.current_framerate ||
-                                      enc_cfg.bitrate_kbps != updated.bitrate_kbps;
-          if (config_changed) {
+          const VideoEncoderConfig enc_cfg = video_encoder_->GetConfig();
+          const bool geometry_changed = enc_cfg.width != (updated.current_resolution.width & ~1) ||
+                                        enc_cfg.height != (updated.current_resolution.height & ~1) ||
+                                        enc_cfg.framerate != updated.current_framerate;
+          const bool bitrate_changed = enc_cfg.bitrate_kbps != updated.bitrate_kbps;
+          if (geometry_changed) {
             VideoEncoderConfig new_cfg = enc_cfg;
             new_cfg.width = updated.current_resolution.width & ~1;
             new_cfg.height = updated.current_resolution.height & ~1;
@@ -1026,10 +1072,17 @@ void CastSession::AdaptationLoop() {
             new_cfg.gop_size = 0;  // let encoder pick (intra_refresh => large GOP)
             reconfigure_failed = !video_encoder_->Reconfigure(new_cfg);
             if (!reconfigure_failed) {
-              // A clean IDR prevents decoder artifacts after any VAAPI/x264
-              // rate-control change, including bitrate-only downshifts.
+              // A clean IDR prevents decoder artifacts after a VAAPI/x264
+              // rate-control change.
               video_encoder_->ForceKeyFrame();
             }
+          } else if (bitrate_changed) {
+            // Rate is settable in place. Reopening the encoder for a
+            // bitrate-only step tore down and rebuilt the codec ~20 times in
+            // 4.5 minutes on a healthy link, and each rebuild blocked the
+            // encode thread for its duration — a visible picture freeze.
+            video_encoder_->SetBitrate(updated.bitrate_kbps);
+            video_encoder_->ForceKeyFrame();
           }
         }
       }

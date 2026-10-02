@@ -142,6 +142,21 @@ class AdaptiveController {
   int eval_interval_ms_ = 1000;
   int rtt_rising_ticks_ = 0;
   double last_eval_rtt_ = 0.0;
+  int stability_cap_clean_ticks_ = 0;
+
+  // Preemptive congestion (a filling queue) shows up as a sustained climb in
+  // the smoothed RTT before any packet is dropped. Each tick must clear a real
+  // margin, and a tick that fails to clear it breaks the streak: without the
+  // break, isolated millisecond-scale EWMA wobble accumulated across unrelated
+  // ticks into a phantom trend that kept re-triggering downshifts.
+  static constexpr double kRttTrendMinRiseMs = 3.0;
+  static constexpr int kRttTrendTicks = 3;
+  // Clean intervals after which a congestion-imposed bitrate ceiling lifts.
+  // Counted separately from consecutive_clean_seconds_ because the bitrate
+  // ramp resets that counter, which would otherwise hold the cap forever.
+  static constexpr int kStabilityCapCleanTicks = 10;
+  // Clean intervals before the bitrate may start ramping back up.
+  static constexpr int kRampUpCleanTicks = 8;
 
   std::chrono::steady_clock::time_point last_eval_time_;
   std::chrono::steady_clock::time_point last_downshift_time_;

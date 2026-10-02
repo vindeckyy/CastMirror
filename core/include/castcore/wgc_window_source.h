@@ -1,14 +1,30 @@
 #ifndef CASTCORE_WGC_WINDOW_SOURCE_H_
 #define CASTCORE_WGC_WINDOW_SOURCE_H_
 
-#if defined(_WIN32)
-
 #include "castcore/types.h"
 
-#include <windows.h>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 
+#if defined(_WIN32)
+
+#include <windows.h>
+
 namespace castcore {
+
+// The content instant of one captured window frame, given the QPC ticks the
+// frame reported (0 when it reported none).
+//
+// A frame that reports an instant updates the carried value. A frame that does
+// not repeats the window's previous content, so the carried instant is reused:
+// the wall clock is NOT an acceptable fallback here, because it runs about 20 ms
+// ahead of the audio timeline and would put that lead into every frame of the
+// session. Before any instant is known, "now" is the only defensible value.
+//
+// Kept free of COM and of the capture pool so the rule can be tested directly.
+std::chrono::steady_clock::time_point ResolveContentInstant(
+    int64_t system_relative_ticks, std::chrono::steady_clock::time_point* prev, bool* have_prev);
 
 // Captures one window through Windows.Graphics.Capture (Windows 10 version 1903+).
 // Unlike cropping the desktop image, this delivers the window's own composed

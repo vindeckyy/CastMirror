@@ -571,7 +571,7 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
         peak = std::max(peak, std::abs(static_cast<float>(s16[i])));
       }
       pending_.insert(pending_.end(), s16, s16 + count);
-      resample_pos_ = 0.0;
+      carry_ = ResamplerCarry{};
       TrackLevel(peak, buffer_age_ms);
       FlushPending();
       return;
@@ -585,45 +585,23 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
       peak = std::max(peak, std::abs(v));
       pending_.push_back(static_cast<int16_t>(v * 32767.0f));
     }
-    resample_pos_ = 0.0;
+    carry_ = ResamplerCarry{};
     TrackLevel(peak * 32767.0f, buffer_age_ms);
     FlushPending();
     return;
   }
 
-  // Linear-interpolation resampler from src_rate_ to output_rate_.
-  const double step = static_cast<double>(src_rate_) / output_rate_;
-  double pos = resample_pos_;
-  // A packet can leave a negative phase carry (the loop exits on the final
-  // sample when downsampling or at exactly 1:1). Clamp into [0, step) so the
-  // unsigned sample-index cast below can never wrap to a huge value.
-  if (!(pos >= 0.0) || pos >= step) {
-    pos = 0.0;
-  }
-  const double frame_count = static_cast<double>(frames);
+  // Linear-interpolation resampler from src_rate_ to output_rate_. The phase
+  // walk lives in ResamplePacket so its rate arithmetic is testable without a
+  // live endpoint; it carries the fractional read position across packets
+  // rather than discarding it at the boundary.
+  const size_t before = pending_.size();
+  ResamplePacket(src_rate_, output_rate_, static_cast<int>(frames), carry_, lr_at, pending_);
   float peak = 0.0f;
-  while (pos + 1.0 < frame_count) {
-    const UINT32 i0 = static_cast<UINT32>(pos);
-    const double frac = pos - static_cast<double>(i0);
-    float l0, r0, l1, r1;
-    lr_at(i0, l0, r0);
-    lr_at(i0 + 1, l1, r1);
-    float l = static_cast<float>(l0 * (1.0 - frac) + l1 * frac);
-    float r = static_cast<float>(r0 * (1.0 - frac) + r1 * frac);
-    l = std::max(-1.0f, std::min(1.0f, l));
-    r = std::max(-1.0f, std::min(1.0f, r));
-    peak = std::max(peak, std::max(std::abs(l), std::abs(r)));
-    pending_.push_back(static_cast<int16_t>(l * 32767.0f));
-    pending_.push_back(static_cast<int16_t>(r * 32767.0f));
-    pos += step;
+  for (size_t i = before; i < pending_.size(); ++i) {
+    peak = std::max(peak, std::abs(static_cast<float>(pending_[i])));
   }
-  TrackLevel(peak * 32767.0f, buffer_age_ms);
-  resample_pos_ = pos - frame_count;
-  if (resample_pos_ < 0.0) {
-    resample_pos_ = 0.0;
-  } else if (resample_pos_ >= step) {
-    resample_pos_ = std::fmod(resample_pos_, step);
-  }
+  TrackLevel(peak, buffer_age_ms);
   FlushPending();
 }
 
@@ -647,7 +625,7 @@ void WasapiAudioCapture::CleanupOnThread() {
     enumerator_.Reset();
   }
   pending_.clear();
-  resample_pos_ = 0.0;
+  carry_ = ResamplerCarry{};
 }
 
 bool WasapiAudioCapture::RestartOnThread() {
@@ -658,7 +636,7 @@ bool WasapiAudioCapture::RestartOnThread() {
     if (InitOnThread()) {
       const HRESULT hr = audio_client_->Start();
       if (SUCCEEDED(hr)) {
-        resample_pos_ = 0.0;
+        carry_ = ResamplerCarry{};
         LOG_INFO << "WASAPI: capture moved to the new default playback device";
         return true;
       }
@@ -779,7 +757,7 @@ void WasapiAudioCapture::CaptureThreadMain() {
         if ((flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0) {
           // The engine dropped or reordered frames, so the queued samples no
           // longer continue into this buffer: the projection state
-          // (pending_start_ts_ / resample_pos_) belongs to a timeline that
+          // (pending_start_ts_ / carry_) belongs to a timeline that
           // ended. Re-anchor it to this buffer's own stamp instead of dropping
           // the queue, which would strand a source whose packet converts to
           // less than one frame. Rate limited (5s window, like the level
@@ -803,7 +781,7 @@ void WasapiAudioCapture::CaptureThreadMain() {
             pending_start_ts_ = buffer_ts - std::chrono::microseconds(queued_us);
             pending_has_start_ = true;
           }
-          resample_pos_ = 0.0;
+          carry_ = ResamplerCarry{};
         }
         ConvertAndEmit(data, num_frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0, buffer_ts);
         capture_client_->ReleaseBuffer(num_frames);

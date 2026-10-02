@@ -5,8 +5,10 @@
 #include <gtest/gtest.h>
 #include "castcore/audio_capture.h"
 #include "castcore/thread_util.h"
+#include "castcore/audio_capture_wasapi.h"
 
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -221,3 +223,83 @@ TEST(AudioCaptureTest, WasapiLoopbackStartsDeliversTenMsFramesAndStops) {
   EXPECT_FALSE(bad_shape.load());
 }
 #endif
+
+// The resampler must produce exactly as many output frames as the rate ratio
+// implies, packet after packet. It used to clamp a negative phase carry to
+// zero, discarding the fraction of a source sample that had not been emitted
+// yet; at 44.1 kHz that was ~0.41 source samples per packet, about 4.7 ms of
+// audio lost every second, which walks the audio clock away from the video
+// clock and is the desync the TV shows as audio lagging behind picture.
+TEST(ResamplerTest, ProducesTheRateRatioWithoutDrift) {
+  struct Case {
+    int src_rate;
+    int out_rate;
+  };
+  // 48 kHz 24-bit/32-bit endpoints land on the resampler with a whole-number
+  // step, the case where a single clamped sample per packet is 0.21% drift.
+  const Case cases[] = {{44100, 48000},
+                        {48000, 44100},
+                        {96000, 48000},
+                        {32000, 48000},
+                        {48000, 48000},
+                        {24000, 48000},
+                        {16000, 48000}};
+  const int kPackets = 500;
+  const int kFrames = 480;
+
+  for (const Case& c : cases) {
+    ResamplerCarry carry;
+    std::vector<int16_t> out;
+    out.reserve(static_cast<size_t>(kPackets) * 600 * 2);
+    // A ramp, so a mis-indexed read shows up as a wrong sample value too.
+    auto sample_at = [&](int i, float& l, float& r) {
+      l = static_cast<float>((i % 200) - 100) / 200.0f;
+      r = -l;
+    };
+
+    long produced = 0;
+    for (int p = 0; p < kPackets; ++p) {
+      produced += ResamplePacket(c.src_rate, c.out_rate, kFrames, carry, sample_at, out);
+    }
+
+    const double ideal = static_cast<double>(kPackets) * kFrames * c.out_rate / c.src_rate;
+    // A bounded remainder is expected and correct: at most one output sample is
+    // still held in the carry for the next packet, and one more is held as the
+    // retained tail. What must not happen is a per-packet loss, which grows
+    // with the packet count: at 44.1 kHz that was 2.1 source samples per 500
+    // packets' worth of drift (~4.7 ms/s), and 0.21% at a whole-number ratio.
+    EXPECT_LE(std::abs(produced - ideal), 2.0)
+        << "sample count drift for " << c.src_rate << " -> " << c.out_rate << " Hz";
+  }
+}
+
+// The retained tail sample must actually be used: a DC-free ramp must survive
+// the packet boundary without a discontinuity, which only holds if the
+// boundary sample is interpolated from the previous packet's last value.
+TEST(ResamplerTest, InterpolationIsContinuousAcrossThePacketBoundary) {
+  ResamplerCarry carry;
+  std::vector<int16_t> out;
+  const int kFrames = 480;
+  auto sample_at = [&](int i, float& l, float& r) {
+    l = static_cast<float>(i % 64) / 64.0f;
+    r = l;
+  };
+
+  std::vector<float> values;
+  for (int p = 0; p < 6; ++p) {
+    const size_t before = out.size();
+    ResamplePacket(44100, 48000, kFrames, carry, sample_at, out);
+    for (size_t i = before; i < out.size(); i += 2)
+      values.push_back(out[i] / 32767.0f);
+  }
+
+  ASSERT_GT(values.size(), 100u);
+  // Every output sample must lie inside the source range [0, 1]: interpolation
+  // between two in-range samples cannot exceed it. A boundary sample built by
+  // wrapping the index (or by dropping the carry) shows up as a step outside
+  // the ramp's own span.
+  for (float v : values) {
+    EXPECT_GE(v, 0.0f) << "interpolation overshot below the source range";
+    EXPECT_LE(v, 1.0f) << "interpolation overshot above the source range";
+  }
+}

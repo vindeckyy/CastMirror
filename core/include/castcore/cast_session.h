@@ -161,8 +161,16 @@ class CastSession {
   std::atomic<int64_t> last_audio_send_ms_{0};
   std::atomic<int64_t> last_video_capture_us_{0};
   std::atomic<int64_t> last_audio_capture_us_{0};
+  // Capture instant of the most recently emitted audio frame, in steady us.
+  // 0 until the first frame is sent.
+  std::atomic<int64_t> last_audio_emit_us_{0};
   std::atomic<int64_t> av_offset_sum_us_{0};
   std::atomic<int64_t> av_offset_count_{0};
+  // Offset from the previous reporting window, used to log drift. A constant
+  // offset is pipeline age asymmetry (audio renders slightly ahead of now,
+  // video presents slightly behind it); only a *changing* offset desyncs.
+  std::atomic<int64_t> av_offset_prev_us_{0};
+  std::atomic<bool> av_offset_have_prev_{false};
   // Playout delay latched once per adaptation tick and used by both streams.
   std::atomic<int> playout_delay_ms_{0};
   std::atomic<bool> fail_requested_{false};

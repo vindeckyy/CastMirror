@@ -101,6 +101,12 @@ class DisplayCaptureWgc : public IDisplayCapture {
   double age_sum_ms_ = 0.0;
   int age_count_ = 0;
   std::chrono::steady_clock::time_point last_age_log_{};
+  // Content instant of the last frame that carried a real present time. A
+  // cursor-only update has none, and the desktop image genuinely did not
+  // change then, so the previous present time is the honest content instant;
+  // wall clock would be ~20 ms ahead of the source timeline.
+  std::chrono::steady_clock::time_point last_present_ts_{};
+  bool have_last_present_ts_ = false;
 
   // Overlay reuse cache. Compositing the cursor needs a private copy of the
   // frame, because the pacer owns the pixels it re-sends. On a static desktop

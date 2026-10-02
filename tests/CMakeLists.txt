@@ -36,10 +36,14 @@ set(TEST_SOURCES
     test_audio_sessions.cc
     test_window_capture.cc
     test_audio_capture.cc
+    test_wgc_window_source.cc
 )
 
 if(WIN32)
     list(REMOVE_ITEM TEST_SOURCES test_portal_source.cc)
+else()
+    # WGC and its content-instant rule are Windows-only.
+    list(REMOVE_ITEM TEST_SOURCES test_wgc_window_source.cc)
 endif()
 
 add_executable(castmirror_tests ${TEST_SOURCES})

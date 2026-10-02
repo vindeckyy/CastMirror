@@ -626,6 +626,53 @@ TEST(AdaptiveTest, DelayGradientRttTrendTriggersPreemptiveDownshiftWithoutLoss) 
   EXPECT_LT(adaptive.GetCurrentBitrateKbps(), 8000u);
 }
 
+// A slow RTT drift must not accumulate into a phantom congestion trend. The
+// streak counter used to reset only when RTT actually fell, so a tick that
+// rose by less than the old 2 ms margin counted as neither a rise nor a
+// break. A steady climb of a few hundred microseconds per tick -- ordinary
+// scheduling noise on a healthy link -- therefore ratcheted the counter up
+// until it demanded a downshift with zero loss and zero NACKs. That is the
+// visible "bitrate jumps around" complaint.
+//
+// The rise here is deliberately larger than the old 2 ms threshold but
+// smaller than kRttTrendMinRiseMs (3 ms): each tick fails to clear the real
+// margin, so each tick breaks the streak.
+TEST(AdaptiveTest, SlowRttDriftDoesNotAccumulateIntoAPhantomTrend) {
+  AdaptiveController ctrl;
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 60;
+  initial.bitrate_kbps = 8000;
+  initial.target_delay_ms = 200;
+  ctrl.Initialize(initial, QualityPreset::kAuto);
+  ctrl.SetEvaluationIntervalMsForTest(10);
+
+  const int initial_rung = ctrl.GetCurrentLadderIndex();
+  const uint32_t initial_bitrate = ctrl.GetCurrentBitrateKbps();
+
+  RtcpFeedback fb;
+  fb.fraction_lost = 0.0;
+  fb.has_report_block = true;
+  fb.has_rtt = true;
+  fb.jitter = 2;
+  // +5 ms of raw RTT per tick. The detector compares the smoothed RTT, which
+  // climbs ~2.4-3.4 ms per tick here: above the old 2 ms increment threshold
+  // on every tick, but only some ticks clear the 3 ms real margin.
+  const double rtt_samples[] = {20.0, 25.0, 30.0, 35.0, 40.0, 45.0};
+  StreamStats updated;
+  for (double rtt : rtt_samples) {
+    fb.rtt_ms = rtt;
+    ctrl.OnFeedback(fb);
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    ctrl.CheckAdaptation(updated);
+  }
+
+  EXPECT_EQ(ctrl.GetCurrentLadderIndex(), initial_rung)
+      << "a sub-margin RTT drift must not be read as a filling queue";
+  EXPECT_EQ(ctrl.GetCurrentBitrateKbps(), initial_bitrate)
+      << "bitrate must not move on a healthy link with zero loss and zero NACKs";
+}
+
 TEST(AdaptiveTest, RecoveryHysteresisHoldsForEightSeconds) {
   AdaptiveController adaptive;
 
@@ -700,4 +747,55 @@ TEST(AdaptiveTest, FeedbackWithoutReportBlockLeavesRttUntouched) {
   for (int i = 0; i < 10; ++i)
     ctrl.OnFeedback(nack_only);
   EXPECT_DOUBLE_EQ(ctrl.GetEwmaRttMs(), before);
+}
+
+// A congestion-imposed ceiling must lift once the link is clean again. It used
+// to share its "10 clean intervals" counter with the 8-interval bitrate ramp,
+// and the ramp reset that counter every time it fired, so the ceiling was
+// never cleared: the bitrate ramped up and apply_caps() clamped it straight
+// back. That is the "bitrate jumps around and never recovers" symptom.
+TEST(AdaptiveTest, CongestionCeilingLiftsAndBitrateReturnsToFullTarget) {
+  AdaptiveController ctrl;
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 60;
+  initial.bitrate_kbps = 12000;
+  initial.target_delay_ms = 200;
+  ctrl.Initialize(initial, QualityPreset::kAuto);
+  ctrl.SetEvaluationIntervalMsForTest(10);
+
+  const uint32_t full_target = ctrl.GetCurrentBitrateKbps();
+
+  // Two rounds of sustained loss: the second reaches the >= 2 loss-event
+  // downshift path that installs the 8000 kbps stability ceiling.
+  RtcpFeedback lossy;
+  lossy.fraction_lost = 0.08;
+  lossy.has_report_block = true;
+  lossy.rtt_ms = 15.0;
+  lossy.has_rtt = true;
+  StreamStats updated;
+  for (int i = 0; i < 4; ++i) {
+    ctrl.OnFeedback(lossy);
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    ctrl.CheckAdaptation(updated);
+  }
+  const uint32_t after_congestion = ctrl.GetCurrentBitrateKbps();
+  ASSERT_LT(after_congestion, full_target) << "lossy feedback must reduce the bitrate";
+
+  // Now the link is clean for good. Long enough to clear both the ramp
+  // hysteresis (8) and the ceiling (10) and drive several ramp steps.
+  RtcpFeedback clean;
+  clean.fraction_lost = 0.0;
+  clean.has_report_block = true;
+  clean.rtt_ms = 15.0;
+  clean.has_rtt = true;
+  clean.jitter = 2;
+  for (int i = 0; i < 200; ++i) {
+    ctrl.OnFeedback(clean);
+    std::this_thread::sleep_for(std::chrono::milliseconds(12));
+    ctrl.CheckAdaptation(updated);
+  }
+
+  EXPECT_EQ(ctrl.GetCurrentBitrateKbps(), full_target)
+      << "bitrate must recover all the way to its target once the link is clean";
 }

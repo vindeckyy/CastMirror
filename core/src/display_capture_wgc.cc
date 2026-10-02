@@ -137,6 +137,8 @@ bool DisplayCaptureWgc::Start(const CaptureSource& source, int target_fps) {
   age_sum_ms_ = 0.0;
   age_count_ = 0;
   last_age_log_ = std::chrono::steady_clock::now();
+  // A new stream shares nothing with the last one's source timeline.
+  have_last_present_ts_ = false;
   // A new stream must not serve an overlay composite from the previous one:
   // the pixels, crop and dimensions are unrelated to what is cached.
   overlay_cache_ = CapturedVideoFrame{};
@@ -830,12 +832,19 @@ void DisplayCaptureWgc::CaptureLoop() {
     // Content timestamp: DXGI reports the QPC time of the desktop present in
     // LastPresentTime. Mapping it (rather than stamping "now") puts video on
     // the same source timeline as WASAPI's QPC-based audio timestamps, which
-    // is what keeps A/V in sync. Cursor-only updates have no present time and
-    // fall back to now.
-    auto frame_ts = frame_start;
+    // is what keeps A/V in sync.
+    //
+    // A cursor-only update has no present time. Its pixels differ from the last
+    // frame only in the cursor, so the desktop content instant is unchanged and
+    // the previous present time is the honest value. Stamping wall clock here
+    // would inject the present lag (~20 ms ahead of the source timeline) back
+    // into the video clock on every mouse move.
     if (frame_info.AccumulatedFrames > 0 && frame_info.LastPresentTime.QuadPart != 0) {
-      frame_ts = QpcTicksToSteadyClock(static_cast<uint64_t>(frame_info.LastPresentTime.QuadPart));
+      last_present_ts_ =
+          QpcTicksToSteadyClock(static_cast<uint64_t>(frame_info.LastPresentTime.QuadPart));
+      have_last_present_ts_ = true;
     }
+    const auto frame_ts = have_last_present_ts_ ? last_present_ts_ : frame_start;
 
     // Periodic diagnostic: how old is the desktop image when we acquire it?
     // Video and audio (WASAPI QPC position) timestamps both reference the

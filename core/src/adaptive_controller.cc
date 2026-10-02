@@ -313,19 +313,24 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
     }
   }
 
-  // Delay-gradient / RTT-trend detector:
-  // Track consecutive rising RTT ticks (EWMA slope > 0). If RTT rises consistently for
-  // 3 ticks (with >= 2ms increase per tick), treat as preemptive congestion
-  // before actual packet loss occurs.
+  // Delay-gradient / RTT-trend detector: a queue filling shows up as a
+  // sustained climb in the smoothed RTT before any packet is dropped.
+  //
+  // Every tick must clear kRttTrendMinRiseMs, and a tick that fails to clear
+  // it breaks the streak. The old form only reset the counter when RTT fell,
+  // so a tick that rose by less than the 2 ms margin counted as neither a
+  // rise nor a break: ordinary EWMA wobble accumulated across unrelated
+  // evaluations until it reached 3, and that phantom trend kept demanding a
+  // downshift on a healthy link — the visible bitrate jumping around.
   double current_rtt_sample = recent_rtt > 0.0 ? recent_rtt : ewma_rtt_ms_;
-  if (last_eval_rtt_ > 0.0 && current_rtt_sample > last_eval_rtt_ + 2.0) {
+  if (last_eval_rtt_ > 0.0 && current_rtt_sample > last_eval_rtt_ + kRttTrendMinRiseMs) {
     rtt_rising_ticks_++;
-  } else if (current_rtt_sample <= last_eval_rtt_) {
+  } else {
     rtt_rising_ticks_ = 0;
   }
   last_eval_rtt_ = current_rtt_sample;
 
-  const bool rtt_trend_pressure = (rtt_rising_ticks_ >= 3);
+  const bool rtt_trend_pressure = (rtt_rising_ticks_ >= kRttTrendTicks);
 
   if (recent_loss > 0.03 || recent_rtt > 120.0 || nack_pressure || recent_pli ||
       rtt_trend_pressure) {
@@ -382,14 +387,24 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
     consecutive_loss_events_ = 0;
     consecutive_clean_seconds_++;
 
-    if (consecutive_clean_seconds_ >= 10) {
-      stability_cap_kbps_ = 0;
+    // Lift a congestion-imposed ceiling on its own counter.
+    // It used to share its counter with consecutive_clean_seconds_, which the
+    // bitrate ramp resets every time it fires, so the 10-interval threshold
+    // was never reached and the ceiling stayed pinned for the rest of the
+    // session: the bitrate ramped up and was immediately clamped back, forever.
+    if (stability_cap_kbps_ > 0) {
+      if (++stability_cap_clean_ticks_ >= kStabilityCapCleanTicks) {
+        stability_cap_kbps_ = 0;
+      }
+    } else {
+      stability_cap_clean_ticks_ = 0;
     }
 
-    // Recovery hysteresis: require 8 s of stable RTT (slope <= 0) + 0 loss before stepping up.
-    // This prevents oscillation on borderline links.
-    if (custom_target_kbps_ > 0 && consecutive_clean_seconds_ >= 8 && rtt_rising_ticks_ == 0 &&
-        current_bitrate_kbps_ < custom_target_kbps_) {
+    // Recovery hysteresis: require a sustained clean spell and a non-rising
+    // RTT slope before stepping up. This prevents oscillation on borderline
+    // links.
+    if (custom_target_kbps_ > 0 && consecutive_clean_seconds_ >= kRampUpCleanTicks &&
+        rtt_rising_ticks_ == 0 && current_bitrate_kbps_ < custom_target_kbps_) {
       uint32_t gap = custom_target_kbps_ - current_bitrate_kbps_;
       uint32_t step = std::max<uint32_t>(500, gap / 2);
       uint32_t before = current_bitrate_kbps_;

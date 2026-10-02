@@ -45,9 +45,10 @@ class FramePacer {
 
   void Reset(Clock::time_point now) {
     next_emit_ = now;
+    last_emit_now_ = now;
+    last_emit_ts_ = Clock::time_point{};
     have_pending_ = false;
     have_last_ = false;
-    have_last_emit_ts_ = false;
     pending_ = CapturedVideoFrame{};
     last_ = CapturedVideoFrame{};
     // A reset invalidates every resolution the spare was sized for; keeping it
@@ -121,22 +122,27 @@ class FramePacer {
     }
 
     if (have_last_) {
-      if (decision.fresh) {
-        // A present-time that did not advance (or moved backwards) would break
-        // the receiver's A/V sync, so force it forward by the smallest step.
-        if (have_last_emit_ts_ && last_.timestamp <= last_emit_ts_) {
-          last_.timestamp = last_emit_ts_ + std::chrono::milliseconds(1);
-        }
-      } else {
-        // Re-send: stamp the tick, but never behind the previous emit. A fresh
-        // frame's present-time can sit past this deadline when the loop fell
-        // behind, and a backwards RTP timestamp would stall the receiver.
-        const auto floor =
-            have_last_emit_ts_ ? last_emit_ts_ + std::chrono::milliseconds(1) : next_emit_;
-        last_.timestamp = std::max(next_emit_, floor);
+      // The stamp is taken from the source's own present time when it leads the
+      // timeline, and otherwise stepped by the time that actually elapsed since
+      // the last emit. Both branches step by elapsed time, never by a fixed
+      // amount, so the video clock keeps real-time rate on every path.
+      //
+      // Fresh frames carry the present time DXGI reports, which is behind wall
+      // clock by the present lag; a re-send carries no new present time at all.
+      // Stamping either from the tick deadline (wall clock) mixed the two
+      // timelines and stepped video ahead of audio by that lag, which the
+      // receiver — playing by RTP timestamp — showed late for the whole session.
+      const bool ahead_of_source = last_.timestamp > last_emit_ts_;
+      if (!decision.fresh || !ahead_of_source) {
+        const auto elapsed =
+            std::chrono::duration_cast<std::chrono::microseconds>(now - last_emit_now_);
+        // Floor at 1 ms (strictly increasing), not at the nominal interval:
+        // ticks land late then early, and flooring at the interval counts every
+        // early tick at full length, so the timeline ratchets ahead of wall clock.
+        last_.timestamp = last_emit_ts_ + std::max(elapsed, std::chrono::microseconds(1000));
       }
       last_emit_ts_ = last_.timestamp;
-      have_last_emit_ts_ = true;
+      last_emit_now_ = now;
       decision.emit = true;
       decision.frame = &last_;
       decision.crop_x = last_crop_x_;
@@ -156,8 +162,13 @@ class FramePacer {
 
   int target_fps_ = 60;
   Clock::time_point next_emit_;
+  // Default-constructed, and Reset() restores it: a fresh capture timestamp is
+  // always past the epoch, so the first frame takes the source branch with no
+  // separate "have we emitted yet" flag to fall out of sync with this member.
   Clock::time_point last_emit_ts_{};
-  bool have_last_emit_ts_ = false;
+  // Wall clock of the last emit, so a re-send can step the source timeline by
+  // the time that actually elapsed rather than by a nominal interval.
+  Clock::time_point last_emit_now_{};
 
   CapturedVideoFrame pending_;
   int pending_crop_x_ = 0;

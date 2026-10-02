@@ -4,6 +4,7 @@
 
 #include "castcore/logger.h"
 #include "castcore/pixel_convert.h"
+#include "castcore/win_time.h"
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -84,6 +85,13 @@ struct WgcWindowSource::Impl {
   UINT staging_w = 0;
   UINT staging_h = 0;
   ABI::Windows::Graphics::SizeInt32 pool_size{};
+  // Content instant of the window, from the capture frame's own SystemRelativeTime
+  // (the WGC analogue of DXGI's LastPresentTime). Held so a frame that reports
+  // none carries the previous content instant forward instead of the wall clock,
+  // which sits ~20 ms ahead of the source timeline and would put that lead into
+  // every video timestamp for the whole session.
+  std::chrono::steady_clock::time_point present_ts{};
+  bool have_present_ts = false;
 
   ~Impl() {
     // Closing releases the capture (and the yellow border) promptly instead of
@@ -104,6 +112,18 @@ struct WgcWindowSource::Impl {
 
 WgcWindowSource::WgcWindowSource(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 WgcWindowSource::~WgcWindowSource() = default;
+
+std::chrono::steady_clock::time_point ResolveContentInstant(
+    int64_t system_relative_ticks, std::chrono::steady_clock::time_point* prev, bool* have_prev) {
+  if (system_relative_ticks > 0) {
+    *prev = QpcTicksToSteadyClock(static_cast<uint64_t>(system_relative_ticks));
+    *have_prev = true;
+    return *prev;
+  }
+  // No instant on this frame: the window shows the same content as last time, so
+  // the previous instant still describes it.
+  return *have_prev ? *prev : std::chrono::steady_clock::now();
+}
 
 std::unique_ptr<WgcWindowSource> WgcWindowSource::Create(HWND hwnd) {
   if (!hwnd || !IsWindow(hwnd)) return nullptr;
@@ -200,6 +220,13 @@ bool WgcWindowSource::TryGetFrame(CapturedVideoFrame* out) {
     frame = std::move(newer);
   }
 
+  // The frame's own content instant, so window capture shares one timeline with
+  // desktop capture and with the QPC-stamped audio.
+  ABI::Windows::Foundation::TimeSpan system_relative{};
+  const int64_t ticks =
+      SUCCEEDED(frame->get_SystemRelativeTime(&system_relative)) ? system_relative.Duration : 0;
+  const auto content_ts = ResolveContentInstant(ticks, &s.present_ts, &s.have_present_ts);
+
   ABI::Windows::Graphics::SizeInt32 content{};
   if (FAILED(frame->get_ContentSize(&content)) || content.Width < 2 || content.Height < 2)
     return false;
@@ -239,7 +266,7 @@ bool WgcWindowSource::TryGetFrame(CapturedVideoFrame* out) {
     out->height = height;
     out->stride = width * 4;
     out->data.resize(static_cast<size_t>(out->stride) * height);
-    out->timestamp = std::chrono::steady_clock::now();
+    out->timestamp = content_ts;
     out->source_lost = false;
     ok = ConvertToBgra8(static_cast<const uint8_t*>(mapped.pData),
                         mapped.RowPitch,

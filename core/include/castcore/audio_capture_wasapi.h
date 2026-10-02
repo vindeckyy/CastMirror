@@ -6,6 +6,7 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
+#include <cmath>
 #include <vector>
 
 #if defined(_WIN32)
@@ -16,6 +17,84 @@
 #endif
 
 namespace castcore {
+// Walks one packet of source audio through a linear-interpolation resampler,
+// carrying the fractional read position across packets. SampleAt reads the
+// source frame at index i and writes L/R into the out parameters.
+//
+// Returns how many output frames were appended to out (one L/R pair each).
+// phase is the fractional read position in source frames, in (-1, step): a
+// negative value means the current output sample started in the previous
+// packet and is finished here from the sample it retained. Discarding that
+// negative carry instead of finishing the sample loses a fraction of a source
+// sample per packet, which shows up as the audio clock drifting away from the
+// video clock.
+//
+// Keeping this a free function rather than inline in the capture thread is
+// what makes the rate arithmetic testable without a live audio endpoint.
+struct ResamplerCarry {
+  // Fractional read position, carried between packets.
+  double pos = 0.0;
+  // Last sample of the previous packet, and whether it is valid.
+  bool have_tail = false;
+  float tail_l = 0.0f;
+  float tail_r = 0.0f;
+};
+
+template <typename SampleAt>
+int ResamplePacket(int src_rate, int out_rate, int frames, ResamplerCarry& carry,
+                   SampleAt&& sample_at, std::vector<int16_t>& out) {
+  const double step = static_cast<double>(src_rate) / out_rate;
+  double pos = carry.pos;
+  // -1.0 is a valid carry: it means a whole output sample still needs the
+  // previous packet's last value. Clamping it away loses one sample per packet
+  // whenever the ratio is a whole number (a 48 kHz 24-bit or 32-bit endpoint),
+  // which is 0.21% of the audio and drifts the audio clock against video.
+  if (pos < -1.0 || !(pos < step)) {
+    pos = 0.0;
+  }
+  const double frame_count = static_cast<double>(frames);
+  int produced = 0;
+  while (pos + 1.0 < frame_count) {
+    float l0, r0, l1, r1;
+    double frac;
+    if (pos < 0.0) {
+      if (!carry.have_tail) {
+        pos += step;
+        continue;
+      }
+      l0 = carry.tail_l;
+      r0 = carry.tail_r;
+      sample_at(0, l1, r1);
+      frac = pos + 1.0;
+    } else {
+      const int i0 = static_cast<int>(pos);
+      frac = pos - static_cast<double>(i0);
+      sample_at(i0, l0, r0);
+      sample_at(i0 + 1, l1, r1);
+    }
+    float l = static_cast<float>(l0 * (1.0 - frac) + l1 * frac);
+    float r = static_cast<float>(r0 * (1.0 - frac) + r1 * frac);
+    l = std::max(-1.0f, std::min(1.0f, l));
+    r = std::max(-1.0f, std::min(1.0f, r));
+    out.push_back(static_cast<int16_t>(l * 32767.0f));
+    out.push_back(static_cast<int16_t>(r * 32767.0f));
+    ++produced;
+    pos += step;
+  }
+  carry.pos = pos - frame_count;
+  if (carry.pos < -1.0) {
+    carry.pos = 0.0;
+  } else if (carry.pos >= step) {
+    carry.pos = std::fmod(carry.pos, step);
+  }
+  // Retain this packet's final sample so a carry that lands before the next
+  // packet's first sample can be interpolated rather than discarded.
+  if (frames > 0) {
+    sample_at(frames - 1, carry.tail_l, carry.tail_r);
+    carry.have_tail = true;
+  }
+  return produced;
+}
 
 // WASAPI shared-mode loopback capture. Captures the default render device's
 // output mix in its native format (usually 32-bit float) and converts to the
@@ -109,8 +188,9 @@ class WasapiAudioCapture : public IAudioCapture {
   int src_rate_ = 48000;
   int src_channels_ = 2;
 
-  // Resampler state: fractional read position in source frames.
-  double resample_pos_ = 0.0;
+  // Resampler phase carried between packets, including the retained tail
+  // sample that finishes an output sample spanning a packet boundary.
+  ResamplerCarry carry_;
   // Accumulated converted S16 stereo samples awaiting a full 10 ms frame.
   std::vector<int16_t> pending_;
   // Capture time of the first sample currently in pending_.

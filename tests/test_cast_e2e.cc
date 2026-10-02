@@ -106,6 +106,15 @@ class TestReceiverServer {
   std::string GetBoundIp() const { return bound_ip_; }
   uint32_t GetUdpPacketsReceived() const { return packets_received_.load(); }
   uint32_t GetVideoPacketsReceived() const { return video_packets_received_.load(); }
+  // RTP timestamps (bytes 4-7) of the first and last audio frame seen, and the
+  // largest backwards step between consecutive ones. A sender that stamps a
+  // frame off the wall clock instead of the capture clock walks these out of
+  // order, which is what desyncs audio from video on the receiver.
+  uint32_t GetAudioRtpFirst() const { return audio_rtp_first_.load(); }
+  uint32_t GetAudioRtpLast() const { return audio_rtp_last_.load(); }
+  uint32_t GetAudioRtpBackwardsSteps() const { return audio_rtp_backwards_.load(); }
+  uint32_t GetAudioFrames() const { return audio_frames_.load(); }
+  uint32_t GetAudioPacketsReceived() const { return audio_packets_received_.load(); }
   uint32_t GetPacketsDropped() const { return packets_dropped_.load(); }
   uint32_t GetNonLoopbackPackets() const { return non_loopback_packets_.load(); }
   bool GetAllPacketsLoopback() const { return non_loopback_packets_.load() == 0; }
@@ -533,7 +542,10 @@ class TestReceiverServer {
         }
 
         double loss_rate = simulated_loss_rate_.load();
+        // Video is PT 96, audio is PT 127. The marker bit marks the last packet
+        // of a frame, so for audio it identifies the start of the next frame.
         bool is_rtp = (r >= 12 && (buf[1] & 0x7F) == 96);
+        bool is_audio = (r >= 12 && (buf[1] & 0x7F) == 127);
         if (loss_rate > 0.0 && dist(rng) < loss_rate) {
           packets_dropped_++;
           if (is_rtp && r >= 19) {
@@ -547,6 +559,25 @@ class TestReceiverServer {
         packets_received_++;
         if (is_rtp) {
           video_packets_received_++;
+        } else if (is_audio && r >= 12) {
+          audio_packets_received_++;
+          // Only judge the timestamp once per frame, on the marker packet that
+          // starts the next one, so a multi-packet frame is not counted twice.
+          if ((buf[1] & 0x80) != 0) {
+            audio_frames_++;
+            const uint32_t rtp = (static_cast<uint32_t>(buf[4]) << 24) |
+                                 (static_cast<uint32_t>(buf[5]) << 16) |
+                                 (static_cast<uint32_t>(buf[6]) << 8) | buf[7];
+            if (!audio_rtp_seen_.load()) {
+              audio_rtp_first_.store(rtp);
+              audio_rtp_last_.store(rtp);
+              audio_rtp_seen_.store(true);
+            } else {
+              const uint32_t prev = audio_rtp_last_.load();
+              if (rtp < prev) audio_rtp_backwards_++;
+              audio_rtp_last_.store(rtp);
+            }
+          }
         }
 
         loop_count++;
@@ -565,6 +596,13 @@ class TestReceiverServer {
   std::atomic<bool> is_ready_{false};
   std::atomic<uint32_t> packets_received_{0};
   std::atomic<uint32_t> video_packets_received_{0};
+  std::atomic<uint32_t> audio_packets_received_{0};
+  std::atomic<uint32_t> audio_frames_{0};
+  std::atomic<uint32_t> audio_rtp_first_{0};
+  std::atomic<uint32_t> audio_rtp_last_{0};
+  std::atomic<uint32_t> audio_rtp_backwards_{0};
+  std::atomic<bool> audio_rtp_seen_{false};
+
   std::atomic<uint32_t> packets_dropped_{0};
   std::atomic<uint32_t> non_loopback_packets_{0};
   std::atomic<int> current_client_fd_{-1};
@@ -966,6 +1004,51 @@ TEST(CastE2ETest, MutedSessionKeepsSendingSilenceWithoutStackOverflow) {
   engine.StopCasting();
   EXPECT_EQ(engine.GetState(), SessionState::kIdle);
 
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+
+TEST(CastE2ETest, SilenceKeepalivesKeepTheAudioTimelineMovingForward) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-audio-timeline-device";
+  dev.name = "Audio Timeline TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  ASSERT_EQ(engine.GetState(), SessionState::kStreaming);
+
+  // Mute makes every audio frame a synthetic one, the strongest exercise of the
+  // path: InjectSilenceAudioFrame has to continue the capture timeline rather
+  // than read the wall clock. Real capture runs ~10-20 ms ahead of "now"
+  // (WASAPI renders ahead of the capture instant), so a keepalive stamped with
+  // "now" steps the audio clock backwards against the last real frame, and the
+  // receiver's audio falls behind video for good.
+  engine.SetLiveAudioMuted(true);
+  ASSERT_TRUE(engine.IsLiveAudioMuted());
+  std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+  engine.SetLiveAudioMuted(false);
+  std::this_thread::sleep_for(std::chrono::milliseconds(700));
+
+  ASSERT_GT(server.GetAudioFrames(), 10u) << "not enough audio frames to judge the timeline";
+  EXPECT_EQ(server.GetAudioRtpBackwardsSteps(), 0u)
+      << "audio RTP timestamps must advance monotonically: a backwards step is what "
+         "desyncs audio from video on the receiver";
+  engine.StopCasting();
   engine.Shutdown();
   ConfigStore::Instance().Mutable() = saved_cfg;
   ConfigStore::Instance().Save();

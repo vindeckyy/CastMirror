@@ -290,6 +290,94 @@ TEST(EncoderTest, VideoEncoderSurvivesLiveBitrateChange) {
   EXPECT_GT(produced, 0);
 }
 
+// Encodes a fixed, moving-noise sequence so every frame costs roughly the same
+// bits, then returns the total payload size.
+static size_t MeasureEncodedBytes(IVideoEncoder* encoder, int frames) {
+  CapturedVideoFrame frame;
+  frame.width = 320;
+  frame.height = 240;
+  frame.stride = 320 * 4;
+  frame.data.resize(static_cast<size_t>(frame.stride) * frame.height);
+  auto t0 = std::chrono::steady_clock::now();
+
+  size_t total = 0;
+  for (int i = 0; i < frames; ++i) {
+    // Deterministic high-frequency content: flat colour costs almost nothing
+    // and would make a rate change invisible in the byte count.
+    for (size_t p = 0; p + 3 < frame.data.size(); p += 4) {
+      const uint8_t v = static_cast<uint8_t>((p / 4 + i * 37) % 256);
+      frame.data[p] = v;
+      frame.data[p + 1] = static_cast<uint8_t>(255 - v);
+      frame.data[p + 2] = static_cast<uint8_t>((v * 3) % 256);
+      frame.data[p + 3] = 0xFF;
+    }
+    frame.timestamp = t0 + std::chrono::milliseconds(33 * i);
+    EncodedFrame ef;
+    if (encoder->Encode(frame, ef) && !ef.data.empty()) total += ef.data.size();
+  }
+  return total;
+}
+
+// SetBitrate is now the only adaptation path on a live session: a rate step
+// that silently did nothing would leave the encoder frozen at its startup rate
+// while the controller kept logging new targets. So the in-place setter must
+// actually move the encoded rate, not merely record the new config value.
+TEST(EncoderTest, SetBitrateChangesTheEncodedRateInPlace) {
+  setenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE", "1", 1);
+
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 4000;
+  cfg.codec = VideoCodec::kH264;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  // Warm up first: x264's rate-control state and the VBV queue need frames
+  // before the output size reflects the requested rate.
+  MeasureEncodedBytes(encoder.get(), 10);
+  const size_t at_4000 = MeasureEncodedBytes(encoder.get(), 30);
+
+  encoder->SetBitrate(400);
+  encoder->ForceKeyFrame();
+  MeasureEncodedBytes(encoder.get(), 10);
+  const size_t at_400 = MeasureEncodedBytes(encoder.get(), 30);
+
+  EXPECT_EQ(encoder->GetConfig().bitrate_kbps, 400u);
+  EXPECT_LT(at_400, at_4000)
+      << "SetBitrate must change the encoded rate in place: 30 frames were "
+      << at_4000 << " bytes at 4000 kbps but " << at_400 << " bytes at 400 kbps";
+}
+
+// Same check with geometry unchanged across a Reconfigure, which is the path
+// used when the adaptive ladder changes resolution or framerate.
+TEST(EncoderTest, ReconfiguredEncoderHonoursTheNewBitrate) {
+  setenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE", "1", 1);
+
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 4000;
+  cfg.codec = VideoCodec::kH264;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+  MeasureEncodedBytes(encoder.get(), 10);
+  const size_t at_4000 = MeasureEncodedBytes(encoder.get(), 30);
+
+  cfg.bitrate_kbps = 400;
+  ASSERT_TRUE(encoder->Reconfigure(cfg));
+  MeasureEncodedBytes(encoder.get(), 10);
+  const size_t at_400 = MeasureEncodedBytes(encoder.get(), 30);
+
+  EXPECT_LT(at_400, at_4000)
+      << "Reconfigure must reopen at the new rate: " << at_4000 << " bytes at "
+      << "4000 kbps but " << at_400 << " bytes at 400 kbps";
+}
+
 TEST(EncoderTest, VideoRtpTimestampsFollowCaptureClock) {
   VideoEncoderConfig cfg;
   cfg.width = 320;

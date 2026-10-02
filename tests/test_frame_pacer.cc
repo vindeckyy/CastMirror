@@ -59,9 +59,16 @@ TEST(FramePacerTest, IdleTicksReSendTheLastFrameAtExactCadence) {
 
   EXPECT_EQ(fresh, 1) << "only the staged frame was new content";
   EXPECT_EQ(stamps.size(), 61u) << "2 s at 30 fps (tick 0 plus 60 intervals)";
+  // Re-sends step by the time that actually elapsed between ticks, so the video
+  // clock runs at real-time rate rather than a fixed step that would drift away
+  // from audio. The harness ticks on a 1 ms grid, so a 33.333 ms interval is
+  // observed as 33.333..34 ms; that bound is what pins the property.
   for (size_t i = 1; i < stamps.size(); ++i) {
-    EXPECT_EQ(stamps[i] - stamps[i - 1], us(33333))
-        << "re-sent frames must advance by exactly one cadence interval";
+    const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
+    EXPECT_GE(step, us(33000)) << "emit " << i << " did not advance by a cadence interval";
+    EXPECT_LE(step, us(33333) + ms(1))
+        << "emit " << i << " advanced " << step.count()
+        << " us; re-sends must track elapsed time, not a fixed step";
   }
 }
 
@@ -86,20 +93,24 @@ TEST(FramePacerTest, OnlyTheNewestCapturedFrameIsEmitted) {
   // Before the next interval elapses nothing goes out.
   EXPECT_FALSE(pacer.Tick(t0 + ms(1)).emit);
 
-  // A present-time that did not advance is forced forward so the receiver never
-  // sees the video timeline move backwards.
+  // A present-time that did not advance cannot be used as-is: the timeline moves
+  // on by the wall-clock time that has elapsed, so the video clock never stalls
+  // behind audio waiting for the source to catch up.
   pacer.Submit(MakeFrame(t0 + ms(5)), 0, 0);
   auto second = pacer.Tick(t0 + ms(34));
   ASSERT_TRUE(second.emit);
   EXPECT_TRUE(second.fresh);
-  EXPECT_EQ(second.frame->timestamp, t0 + ms(6));
+  EXPECT_EQ(second.frame->timestamp, t0 + ms(5) + ms(34));
 
   // Nothing staged for the following tick: the last frame is re-sent instead of
   // leaving a gap.
   auto third = pacer.Tick(t0 + ms(67));
   ASSERT_TRUE(third.emit);
   EXPECT_FALSE(third.fresh);
-  EXPECT_EQ(third.frame->timestamp, t0 + us(66666));
+  // The re-send continues the timeline by the time that actually elapsed, not
+  // from the wall-clock tick deadline, which is a different clock from the
+  // source's present time.
+  EXPECT_EQ(third.frame->timestamp, t0 + ms(5) + ms(34) + ms(33));
   EXPECT_EQ(third.frame->data.size(), 32u);
 }
 
@@ -145,6 +156,10 @@ TEST(FramePacerTest, ResumesImmediatelyAfterAStall) {
   const auto t1 = t0 + ms(500);
   auto resumed = pacer.Tick(t1);
   ASSERT_TRUE(resumed.emit);
+  // Resume at the current time: the frame emitted at t0 hit the display at t0
+  // and does not cover the 500 ms that followed, during which the audio clock
+  // kept running. The video timeline must advance by the elapsed time or it
+  // trails audio by the whole stall.
   EXPECT_EQ(resumed.frame->timestamp, t1);
   EXPECT_EQ(pacer.NextTick() - t1, us(16666)) << "one interval, not a catch-up burst";
 }
@@ -160,9 +175,16 @@ TEST(FramePacerTest, RaisedTargetFpsAppliesAfterThePendingTick) {
   pacer.SetTargetFps(60);
   auto stamps = EmittedTimestamps(&pacer, t0 + ms(1), 1000);
   ASSERT_GE(stamps.size(), 30u);
-  EXPECT_EQ(stamps[0] - t0, us(33333)) << "the already-scheduled tick is not pulled in";
+  // The tick already scheduled at 30 fps is not pulled in: the first stamp still
+  // lands a whole old interval on, then the new cadence takes over.
+  const us old = std::chrono::duration_cast<us>(stamps[0] - t0);
+  EXPECT_GE(old, us(33000)) << "the already-scheduled tick was pulled in";
+  EXPECT_LE(old, us(33333) + ms(1)) << "expected one old-cadence interval, got " << old.count();
   for (size_t i = 1; i < stamps.size(); ++i) {
-    EXPECT_EQ(stamps[i] - stamps[i - 1], us(16666)) << "the new cadence takes over";
+    const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
+    EXPECT_GE(step, us(16000)) << "emit " << i << " is faster than the new cadence";
+    EXPECT_LE(step, us(16666) + ms(1))
+        << "emit " << i << " stepped " << step.count() << " us, not the 60 fps cadence";
   }
 }
 
@@ -276,4 +298,137 @@ TEST(FramePacerTest, ResendsDoNotRetireTheFrameTheyReuse) {
     EXPECT_TRUE(pacer.TakeSupersededBuffer().empty())
         << "the frame being re-sent is not available for recycling";
   }
+}
+
+// Fresh frames carry the source's present time, which DXGI reports behind wall
+// clock by the present lag. A re-send stamped from the tick deadline (wall
+// clock) therefore stepped the video timeline forward by that lag, and the
+// receiver Ã¢â‚¬â€ which plays by RTP timestamp Ã¢â‚¬â€ showed every subsequent frame late
+// against audio. The whole stream must stay on the present-time timeline.
+TEST(FramePacerTest, ReSendsStayOnThePresentTimeTimeline) {
+  constexpr int kPresentLagMs = 20;  // how far behind now DXGI reports a present
+  FramePacer pacer;
+  pacer.SetTargetFps(30);
+  const auto t0 = T0();
+  pacer.Reset(t0);
+
+  // The desktop only changes every other tick, so the stream alternates fresh
+  // captures with re-sends Ã¢â‚¬â€ the case that mixed the two timelines.
+  const us interval = us(33333);
+  auto now = t0;
+  for (int i = 0; i < 12; ++i) {
+    if (i % 2 == 0) {
+      pacer.Submit(MakeFrame(now - ms(kPresentLagMs)), 0, 0);
+    }
+    auto decision = pacer.Tick(now);
+    ASSERT_TRUE(decision.emit) << "tick " << i;
+    // With a capture every other tick both paths land on the same line: the
+    // fresh frame carries now - lag, and the re-send adds exactly the one
+    // interval that elapsed since the last emit. So the stamp is exactly the
+    // present-time timeline on every tick, with no tolerance to tune. A
+    // wall-clock stamp diverges at tick 1, where it stamps the tick deadline
+    // instead of the source's present time.
+    EXPECT_EQ(decision.frame->timestamp, now - ms(kPresentLagMs))
+        << "tick " << i << " stamped off the source timeline";
+    now += interval;
+  }
+}
+
+// A re-send steps the timeline by the time that actually elapsed, so the video
+// clock keeps real-time rate across a stall instead of crawling a nominal
+// interval per tick while audio runs on. Stamps must still advance by at least
+// one interval; the ceiling allows the 1 ms granularity of the tick harness.
+TEST(FramePacerTest, ReSendsAdvanceByTheElapsedTime) {
+  FramePacer pacer;
+  pacer.SetTargetFps(30);
+  const auto t0 = T0();
+  pacer.Reset(t0);
+  pacer.Submit(MakeFrame(t0 - ms(20)), 0, 0);
+
+  std::vector<Clock::time_point> stamps;
+  auto now = t0;
+  for (int i = 0; i < 10; ++i) {
+    if (i == 5) pacer.Submit(MakeFrame(now - ms(20)), 0, 0);
+    auto decision = pacer.Tick(now);
+    ASSERT_TRUE(decision.emit);
+    stamps.push_back(decision.frame->timestamp);
+    now += us(33333);
+  }
+
+  for (size_t i = 1; i < stamps.size(); ++i) {
+    const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
+    EXPECT_GE(step, us(33000)) << "emit " << i << " did not advance by one interval";
+    EXPECT_LE(step, us(33333) + ms(1))
+        << "emit " << i << " advanced " << step.count()
+        << " us, more than one interval plus the tick granularity";
+  }
+}
+
+// A fresh frame whose present time does not advance takes the clamp branch, which
+// only ever raises last_emit_ts_. If that raise is not bounded by the source,
+// every subsequent frame takes the same branch and the video timeline ratchets
+// forward by 1 ms per frame while audio stays put.
+TEST(FramePacerTest, PresentingLagJitterDoesNotRatchetTheTimelineForward) {
+  constexpr int kPresentLagMs = 20;
+  FramePacer pacer;
+  pacer.SetTargetFps(30);
+  const auto t0 = T0();
+  pacer.Reset(t0);
+
+  const us interval = us(33333);
+  auto now = t0;
+  Clock::time_point last_stamp = t0;
+  for (int i = 0; i < 120; ++i) {
+    // The present lag jitters by a full vsync, which is enough to push the
+    // present time behind the free-running re-send timeline.
+    const int lag = kPresentLagMs + ((i / 4) % 2 ? 16 : 0);
+    pacer.Submit(MakeFrame(now - ms(lag)), 0, 0);
+    auto decision = pacer.Tick(now);
+    ASSERT_TRUE(decision.emit) << "tick " << i;
+    last_stamp = decision.frame->timestamp;
+
+    // The stamp may not run ahead of where the source would present content
+    // now. One interval of slack covers the re-send gap the design fills.
+    const us ahead = std::chrono::duration_cast<us>(last_stamp - (now - ms(kPresentLagMs)));
+    EXPECT_LE(ahead, interval)
+        << "tick " << i << ": stamp ran " << ahead.count()
+        << " us ahead of the source timeline; the clamp is ratcheting forward";
+    now += interval;
+  }
+}
+
+// When the source stops presenting (a frozen present time) the timeline has to
+// run on by wall clock, or the receiver stalls waiting for content that never
+// comes. The rate is the contract: it must advance by the elapsed time, not by a
+// nominal interval. A 1 ms-per-frame step would cover 120 ms of a 4 s stream.
+TEST(FramePacerTest, FrozenPresentTimeAdvancesAtWallClockRate) {
+  FramePacer pacer;
+  pacer.SetTargetFps(30);
+  const auto t0 = T0();
+  pacer.Reset(t0);
+
+  const us interval = us(33333);
+  const auto frozen_present = t0 - ms(40);
+  auto now = t0;
+  std::vector<Clock::time_point> stamps;
+  for (int i = 0; i < 120; ++i) {
+    pacer.Submit(MakeFrame(frozen_present), 0, 0);
+    auto decision = pacer.Tick(now);
+    ASSERT_TRUE(decision.emit) << "tick " << i;
+    stamps.push_back(decision.frame->timestamp);
+    now += interval;
+  }
+
+  for (size_t i = 1; i < stamps.size(); ++i) {
+    const us step = std::chrono::duration_cast<us>(stamps[i] - stamps[i - 1]);
+    EXPECT_GE(step, interval)
+        << "emit " << i << " stepped " << step.count()
+        << " us; a frozen source must still advance at wall-clock rate";
+  }
+  // 119 intervals of wall clock have passed, so the stamp must cover nearly all
+  // of it. A fixed 1 ms step would leave it ~3.9 s short.
+  const us covered = std::chrono::duration_cast<us>(stamps.back() - stamps.front());
+  EXPECT_GE(covered, 119 * us(33333) - us(1000))
+      << "the timeline only covered " << covered.count()
+      << " us of the 3966327 us that actually elapsed";
 }
