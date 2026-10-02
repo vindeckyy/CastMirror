@@ -226,5 +226,7 @@
     "The TV must be on and on the same Wi-Fi as this PC. Some routers block mDNS; the subnet scan in Settings connects to port 8009 on each address instead, and you can always add a device by IP.":  "El televisor debe estar encendido y en la misma red Wi-Fi que este PC. Algunos routers bloquean mDNS; el escaneo de subred en Ajustes se conecta al puerto 8009 de cada dirección, y siempre puedes añadir un dispositivo por IP.",
     "Up to 4K":  "Hasta 4K",
     "Where things live, and what to try when a cast misbehaves":  "Dónde está cada cosa y qué probar si una transmisión falla",
-    "Your screen, anywhere":  "Tu pantalla, donde sea"
+    "Your screen, anywhere":  "Tu pantalla, donde sea",
+    "Choose a window":  "Elegir una ventana",
+    "Window to cast":  "Ventana para transmitir"
 }
