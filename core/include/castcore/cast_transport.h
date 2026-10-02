@@ -69,10 +69,11 @@ class CastTransport {
 
   void ReceiveLoop();
   void RetransmitPacket(uint32_t ssrc, uint32_t frame_id, uint16_t packet_id);
-  // ntp_time is the wall-clock instant corresponding to rtp_timestamp (the
-  // frame's capture instant), not the instant the report is emitted.
+  // rtp_timestamp and capture_time describe the frame just sent; the report
+  // itself carries the send instant and that frame's RTP timestamp advanced to
+  // it at rtp_timebase Hz.
   void MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
-                             std::chrono::system_clock::time_point ntp_time,
+                             std::chrono::steady_clock::time_point capture_time, int rtp_timebase,
                              uint32_t packets_just_sent, uint32_t octets_just_sent);
   bool SendDatagram(const uint8_t* data, size_t length);
   void UpdateEwmaRtt(double sample_ms);

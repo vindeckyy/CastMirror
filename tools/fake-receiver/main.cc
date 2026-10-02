@@ -531,11 +531,11 @@ class FakeCastReceiver {
   }
 
   // RTCP Sender Report (PT 200, RFC 3550 layout) riding the media 5-tuple.
-  // The sender stamps the NTP field with the capture instant of the frame whose
-  // RTP timestamp it advertises (cast_transport.cc SendPackets), so
-  // (SR NTP - local arrival) is negative by that frame's capture->send latency:
-  // ~1-5 ms audio, ~20-40 ms video (encode + pacing). A silent fallback to the
-  // send instant would pin both offsets to ~0.
+  // The sender stamps the NTP field with the send instant and advances the RTP
+  // field to match (cast_transport.cc MaybeSendSenderReport). A real receiver
+  // takes (arrival - SR NTP) as its clock offset for that stream, so both
+  // offsets should sit near 0 here and the delta near 0. A delta of tens of ms
+  // means one stream's capture-to-send latency is leaking into its playout.
   // Arrival is sampled on system_clock because the SR's NTP field is Unix-epoch
   // wall time; the audio-minus-video delta cancels this host's residual clock
   // offset, the same way the RTP epoch probe below cancels the boot epoch.

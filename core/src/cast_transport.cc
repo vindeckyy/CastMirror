@@ -300,24 +300,12 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
   }
 
   if (packets_sent_ok > 0) {
-    // An RTCP Sender Report asserts "at NTP instant T my RTP clock read R".
-    // Both streams' RTP timelines are stamped at the capture instant (video:
-    // DXGI LastPresentTime; audio: WASAPI QPC position), so T must be the
-    // frame's capture time, not the send instant. Pairing a capture-time RTP
-    // value with a send-time NTP value would bake each stream's
-    // capture->send latency (audio ~1-5 ms, video ~20-40 ms, wobbling with
-    // encoder load) into the receiver's SR-based A/V alignment as a
-    // constant-plus-wobbling skew.
-    const auto steady_now = std::chrono::steady_clock::now();
-    const auto sys_now = std::chrono::system_clock::now();
-    auto ntp_time = sys_now;
-    if (packets[0].capture_time.time_since_epoch().count() != 0) {
-      ntp_time = sys_now - std::chrono::duration_cast<std::chrono::system_clock::duration>(
-                               steady_now - packets[0].capture_time);
-    }
+    // Audio is negotiated at 1/48000 and video at 1/90000 (mirroring_negotiator).
+    const int rtp_timebase = is_video_frame ? 90000 : 48000;
     std::lock_guard<std::mutex> lock(send_mutex_);
     if (running_.load() && socket_fd_ >= 0) {
-      MaybeSendSenderReport(ssrc, rtp_ts, ntp_time, packets_sent_ok, octets_this_frame);
+      MaybeSendSenderReport(
+          ssrc, rtp_ts, packets[0].capture_time, rtp_timebase, packets_sent_ok, octets_this_frame);
     }
   }
 
@@ -355,8 +343,9 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
 }
 
 void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
-                                          std::chrono::system_clock::time_point ntp_time,
-                                          uint32_t packets_just_sent, uint32_t octets_just_sent) {
+                                          std::chrono::steady_clock::time_point capture_time,
+                                          int rtp_timebase, uint32_t packets_just_sent,
+                                          uint32_t octets_just_sent) {
   if (ssrc == 0 || socket_fd_ < 0) return;
 
   auto& st = sr_state_[ssrc];
@@ -371,8 +360,25 @@ void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
   }
   st.last_sr = now;
 
-  // NTP instant carried by the SR: the capture instant of the frame whose RTP
-  // timestamp is advertised (see SendPackets), not the emission instant.
+  // The receiver estimates our clock offset as (SR arrival - SR NTP instant),
+  // separately for each stream, so the NTP field must be the instant the report
+  // leaves. The RTP field is then the last frame's timestamp advanced to that
+  // instant, which is how Chrome's and Open Screen's senders build it.
+  //
+  // Stamping NTP with the frame's capture instant instead made each receiver
+  // overestimate the offset by that stream's capture-to-send latency and play
+  // the stream that much late. Video waits for DXGI, the pacer and the encoder
+  // (tens of ms) while WASAPI stamps sit at or ahead of now, so the picture
+  // trailed the sound for the whole session.
+  const auto ntp_time = std::chrono::system_clock::now();
+  uint32_t rtp_now = rtp_timestamp;
+  if (capture_time.time_since_epoch().count() != 0) {
+    // Negative for audio stamped ahead of now; the uint32 wrap subtracts.
+    const int64_t age_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(now - capture_time).count();
+    rtp_now += static_cast<uint32_t>(age_us * rtp_timebase / 1000000);
+  }
+
   auto unix_time = ntp_time.time_since_epoch();
   uint64_t unix_us = static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::microseconds>(unix_time).count());
@@ -396,10 +402,10 @@ void CastTransport::MaybeSendSenderReport(uint32_t ssrc, uint32_t rtp_timestamp,
   sr[13] = static_cast<uint8_t>((ntp_frac >> 16) & 0xFF);
   sr[14] = static_cast<uint8_t>((ntp_frac >> 8) & 0xFF);
   sr[15] = static_cast<uint8_t>(ntp_frac & 0xFF);
-  sr[16] = static_cast<uint8_t>((rtp_timestamp >> 24) & 0xFF);
-  sr[17] = static_cast<uint8_t>((rtp_timestamp >> 16) & 0xFF);
-  sr[18] = static_cast<uint8_t>((rtp_timestamp >> 8) & 0xFF);
-  sr[19] = static_cast<uint8_t>(rtp_timestamp & 0xFF);
+  sr[16] = static_cast<uint8_t>((rtp_now >> 24) & 0xFF);
+  sr[17] = static_cast<uint8_t>((rtp_now >> 16) & 0xFF);
+  sr[18] = static_cast<uint8_t>((rtp_now >> 8) & 0xFF);
+  sr[19] = static_cast<uint8_t>(rtp_now & 0xFF);
   sr[20] = static_cast<uint8_t>((st.packets >> 24) & 0xFF);
   sr[21] = static_cast<uint8_t>((st.packets >> 16) & 0xFF);
   sr[22] = static_cast<uint8_t>((st.packets >> 8) & 0xFF);

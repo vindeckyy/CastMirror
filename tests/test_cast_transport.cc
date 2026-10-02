@@ -666,7 +666,7 @@ uint16_t SocketPort(int fd) {
 // returns the NTP instant it carries as microseconds since the Unix epoch, or 0
 // if none arrives within the timeout. Asserting on the datagram bytes keeps the
 // test independent of CastTransport internals.
-int64_t ReceiveSenderReportUnixUs(int fd) {
+int64_t ReceiveSenderReportUnixUs(int fd, uint32_t* rtp_timestamp = nullptr) {
 #if defined(_WIN32)
   DWORD timeout_ms = 500;
   setsockopt(
@@ -686,6 +686,7 @@ int64_t ReceiveSenderReportUnixUs(int fd) {
     if (buf[1] != 200) continue;  // RTCP PT 200 = Sender Report
     const uint64_t ntp_sec = ReadBe32(buf + 8);
     const uint64_t ntp_frac = ReadBe32(buf + 12);
+    if (rtp_timestamp) *rtp_timestamp = ReadBe32(buf + 16);
     return static_cast<int64_t>((ntp_sec - kNtpUnixEpochOffset) * 1000000ULL +
                                 ((ntp_frac * 1000000ULL) >> 32));
   }
@@ -723,37 +724,68 @@ std::vector<uint8_t> BuildCastCheckpointPacket(uint32_t receiver_ssrc, uint32_t 
 
 }  // namespace
 
-TEST(CastTransportTest, SenderReportNtpReflectsFrameCaptureTime) {
-  int recv_fd = BindLoopbackReceiver();
-  ASSERT_GE(recv_fd, 0);
+// A Cast receiver measures our clock offset as (SR arrival - SR NTP), per
+// stream. The SR must therefore carry the send instant, with the frame's RTP
+// timestamp advanced to it; a capture-time NTP would make the receiver play
+// each stream late by its own capture-to-send latency and split A/V apart.
+TEST(CastTransportTest, SenderReportCarriesSendInstantAndAdvancedRtp) {
+  struct Stream {
+    uint8_t payload_type;
+    uint8_t ssrc_low;
+    int timebase;
+  };
+  for (const Stream s : {Stream{96, 78, 90000}, Stream{127, 79, 48000}}) {
+    int recv_fd = BindLoopbackReceiver();
+    ASSERT_GE(recv_fd, 0);
 
-  CastTransport transport;
-  ASSERT_TRUE(transport.Start("127.0.0.1", SocketPort(recv_fd)));
+    CastTransport transport;
+    ASSERT_TRUE(transport.Start("127.0.0.1", SocketPort(recv_fd)));
 
-  // RTP timestamp belongs to a frame captured 250 ms ago; the SR must map it
-  // to the capture instant, not to the send instant.
-  RtpPacket pkt;
-  pkt.frame_id = 7;
-  pkt.capture_time = std::chrono::steady_clock::now() - std::chrono::milliseconds(250);
-  pkt.data = {0x80, 96, 0, 1, 0, 0, 0x00, 0x2A, 12, 34, 56, 78, 0x40, 7, 0, 0, 0, 0, 0};
+    // RTP timestamp 42 belongs to a frame captured 250 ms ago.
+    RtpPacket pkt;
+    pkt.frame_id = 7;
+    pkt.capture_time = std::chrono::steady_clock::now() - std::chrono::milliseconds(250);
+    pkt.data = {0x80,
+                s.payload_type,
+                0,
+                1,
+                0,
+                0,
+                0x00,
+                0x2A,
+                12,
+                34,
+                56,
+                s.ssrc_low,
+                0x40,
+                7,
+                0,
+                0,
+                0,
+                0,
+                0};
 
-  auto send_start = std::chrono::system_clock::now();
-  ASSERT_TRUE(transport.SendPackets({pkt}));
-  auto send_end = std::chrono::system_clock::now();
+    auto send_start = std::chrono::system_clock::now();
+    ASSERT_TRUE(transport.SendPackets({pkt}));
+    auto send_end = std::chrono::system_clock::now();
 
-  const int64_t sr_unix_us = ReceiveSenderReportUnixUs(recv_fd);
-  ASSERT_NE(sr_unix_us, 0) << "No RTCP Sender Report received";
-  const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                             (send_start.time_since_epoch() + send_end.time_since_epoch()) / 2)
-                             .count();
-  const int64_t sr_age_us = now_us - sr_unix_us;
-  EXPECT_GE(sr_age_us, 190000) << "SR NTP instant is not 250 ms in the past (age " << sr_age_us
-                               << " us)";
-  EXPECT_LE(sr_age_us, 310000) << "SR NTP instant is not 250 ms in the past (age " << sr_age_us
-                               << " us)";
+    uint32_t sr_rtp = 0;
+    const int64_t sr_unix_us = ReceiveSenderReportUnixUs(recv_fd, &sr_rtp);
+    ASSERT_NE(sr_unix_us, 0) << "No RTCP Sender Report received";
+    const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                               (send_start.time_since_epoch() + send_end.time_since_epoch()) / 2)
+                               .count();
+    EXPECT_NEAR(static_cast<double>(now_us - sr_unix_us), 0.0, 60000.0)
+        << "SR NTP is not the send instant (PT " << int{s.payload_type} << ")";
 
-  transport.Stop();
-  close(recv_fd);
+    // 250 ms of RTP clock past the frame, within the same 60 ms slack.
+    const double advanced = static_cast<double>(static_cast<int32_t>(sr_rtp - 42u));
+    EXPECT_NEAR(advanced, 0.25 * s.timebase, 0.06 * s.timebase)
+        << "SR RTP not advanced to the send instant (PT " << int{s.payload_type} << ")";
+
+    transport.Stop();
+    close(recv_fd);
+  }
 }
 
 TEST(CastTransportTest, SenderReportNtpDefaultsToNowWithoutCaptureTime) {

@@ -494,6 +494,15 @@ bool MediaFoundationVideoEncoder::CopyOutputSample(IMFSample* sample,
   // output sample from being packed behind this frame's RTP timestamp.
   out_encoded_frame.data.assign(data, data + len);
   buffer->Unlock();
+  // MFTs carry the input sample time through to the output. An MFT that holds
+  // a frame back hands out an earlier picture than the one just submitted, and
+  // only this time says which; zero means the MFT did not set it (no real frame
+  // lands on the origin, which is latched before capture starts).
+  LONGLONG sample_time = 0;
+  if (SUCCEEDED(sample->GetSampleTime(&sample_time)) && sample_time > 0) {
+    out_encoded_frame.capture_time =
+        rtp_clock_origin_ + std::chrono::microseconds(sample_time / 10);
+  }
   UINT32 clean = 0;
   if (SUCCEEDED(sample->GetUINT32(MFSampleExtension_CleanPoint, &clean)) && clean) {
     out_encoded_frame.dependency = FrameDependency::kKeyFrame;
@@ -526,7 +535,6 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
   }
   auto elapsed =
       std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_);
-  uint32_t rtp_ts = static_cast<uint32_t>(elapsed.count() * 90 / 1000);
 
   // The MFT copies the input sample during ProcessInput, so one buffer and one
   // sample serve every frame: the conversion writes straight into the locked
@@ -600,6 +608,7 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
 
   out_encoded_frame.dependency = FrameDependency::kDependent;
   out_encoded_frame.data.clear();
+  out_encoded_frame.capture_time = frame.timestamp;  // CopyOutputSample refines it
   if (async_mft_) {
     PumpEvents(50);
     if (have_output_ <= 0) {
@@ -625,8 +634,11 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
 
   out_encoded_frame.frame_id = current_fid;
   out_encoded_frame.referenced_frame_id = is_key ? current_fid : (current_fid - 1);
-  out_encoded_frame.rtp_timestamp = rtp_ts;
-  out_encoded_frame.capture_time = frame.timestamp;
+  out_encoded_frame.rtp_timestamp =
+      static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                out_encoded_frame.capture_time - rtp_clock_origin_)
+                                .count() *
+                            90 / 1000);
   int delay_ms = config_.playout_delay_ms > 0 ? config_.playout_delay_ms : 200;
   out_encoded_frame.playout_delay = std::chrono::milliseconds(delay_ms);
   return true;
