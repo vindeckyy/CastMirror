@@ -274,4 +274,6 @@ jobs:
             dist/*.rpm
             dist/SHA256SUMS
           fail_on_unmatched_files: true
-          make_latest: false
+          # Linux releases must become the latest release, otherwise the
+          # previous Windows release stays marked latest.
+          make_latest: true
