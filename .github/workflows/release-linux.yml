@@ -146,11 +146,13 @@ jobs:
                 libxcomposite-dev libxdamage-dev \
                 libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
                 nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb \
-                dpkg-dev ca-certificates
-              # xvfb-run needs xauth, and CPack's SHLIBDEPS needs the `file`
-              # utility; neither comes with the stock debian:13 image or with
-              # xvfb, though the Ubuntu runner has both preinstalled.
-              apt-get install -y --no-install-recommends xauth file
+                dpkg-dev ca-certificates xauth file
+              # xvfb-run needs xauth and CPack's SHLIBDEPS needs the `file`
+              # utility. Both have to be named here: with
+              # --no-install-recommends they are only recommended, not
+              # installed, by xvfb and dpkg-dev. Keep this as one apt-get
+              # install: a second install in this container fails to open
+              # the dpkg lock after the first one finishes.
               if [ -d /usr/src/googletest ]; then
                 cmake -S /usr/src/googletest -B /tmp/gtest-build
                 cmake --build /tmp/gtest-build -j"$(nproc)"
