@@ -23,7 +23,7 @@
     <!-- Product identity for Explorer's Details tab and for anything that reads
          the file version. Keep <Version> in step with project() in the root
          CMakeLists.txt (the single version source). -->
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Product>CastMirror</Product>
