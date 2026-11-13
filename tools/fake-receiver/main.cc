@@ -304,7 +304,7 @@ class FakeCastReceiver {
     X509_gmtime_adj(X509_get_notAfter(x509), 31536000L);
     X509_set_pubkey(x509, pkey);
 
-    X509_NAME* name = X509_get_subject_name(x509);
+    X509_NAME* name = const_cast<X509_NAME*>(X509_get_subject_name(x509));
     X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, (unsigned char*)"US", -1, -1, 0);
     X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, (unsigned char*)"Google Inc", -1, -1, 0);
     X509_NAME_add_entry_by_txt(
