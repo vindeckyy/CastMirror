@@ -8,7 +8,7 @@
   Mirror your Windows PC to a Chromecast or Google TV.<br>
   Your whole screen or one window, with sound, and no Chrome.<br>
   <a href="https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.0">Download for Windows</a> ·
-  <a href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.0">Download for Linux</a> ·
+  <a href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.1">Download for Linux</a> ·
   <a href="https://vindeckyy.github.io/CastMirror/">Docs</a>
 </p>
 
@@ -99,17 +99,17 @@ Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the Cast
 
 ## Linux
 
-The same `castcore` engine builds on Linux with a GTK 4 app and a CLI. It has its own release, `linux-v1.0.0`, with a `.deb` and an `.rpm`:
+The same `castcore` engine builds on Linux with a GTK 4 app and a CLI. It has its own release, `linux-v1.0.1`, with a `.deb` and an `.rpm`:
 
 ```bash
-sudo apt install ./castmirror_1.0.0_x86_64.deb        # Ubuntu 24.04 and derivatives
-sudo apt install ./castmirror_1.0.0_debian13_x86_64.deb  # Debian 13 (trixie)
+sudo apt install ./castmirror_1.0.1_x86_64.deb        # Ubuntu 24.04 and derivatives
+sudo apt install ./castmirror_1.0.1_debian13_x86_64.deb  # Debian 13 (trixie)
 castmirror-gui
 ```
 
 The two `.deb` files are not interchangeable: each is built on its own distro, because the binaries link that distro's FFmpeg sonames (FFmpeg 6 on Ubuntu 24.04, FFmpeg 7 on Debian 13). Installing the Ubuntu package on Debian 13 fails on `libavcodec60` / `libavutil58` / `libswscale7`, which do not exist there.
 
-Capture works on X11 and, through the desktop portal, on Wayland. Video is VAAPI H.264 with an x264 fallback, and sound comes from the PulseAudio or PipeWire default sink. The Windows app is the primary product and Linux gets fixes rather than features; the Linux GUI and Wayland path were built and unit-tested for 1.0.0 but not exercised on a live desktop. Build steps are in [docs/building.md](docs/building.md).
+Capture works on X11 and, through the desktop portal, on Wayland. Video is VAAPI H.264 with an x264 fallback, and sound comes from the PulseAudio or PipeWire default sink. The Windows app is the primary product and Linux gets fixes rather than features; the Linux GUI and Wayland path were built and unit-tested for 1.0.1 but not exercised on a live desktop. Build steps are in [docs/building.md](docs/building.md).
 
 ## Licence
 
