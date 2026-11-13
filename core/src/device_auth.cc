@@ -143,7 +143,7 @@ const unsigned char kEurekaRootCaDer[] = {
     0x99, 0x2c, 0x51, 0x01, 0x14, 0xfe, 0xa2, 0x48, 0xf0, 0x7e, 0xbe, 0x84, 0x0d, 0xb4, 0xd3, 0xe2,
     0xf3, 0x0e, 0x7d, 0xde, 0x8b, 0xf5, 0x33};
 
-std::string X509NameToStr(X509_NAME* name) {
+std::string X509NameToStr(const X509_NAME* name) {
   if (!name) return "";
   char buf[256] = {0};
   X509_NAME_oneline(name, buf, sizeof(buf) - 1);
@@ -152,7 +152,7 @@ std::string X509NameToStr(X509_NAME* name) {
 
 std::string ExtractCommonName(X509* cert) {
   if (!cert) return "";
-  X509_NAME* subject = X509_get_subject_name(cert);
+  const X509_NAME* subject = X509_get_subject_name(cert);
   if (!subject) return "";
   char cn_buf[256] = {0};
   int idx = X509_NAME_get_text_by_NID(subject, NID_commonName, cn_buf, sizeof(cn_buf) - 1);

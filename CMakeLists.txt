@@ -40,11 +40,28 @@ option(CASTMIRROR_REQUIRE_TRAY "Fail configuration if tray support was requested
 # distro bumping libavcodec60 -> libavcodec61 (or libswscale7 -> libswscale10,
 # which publish/ already carries for the Windows build) can no longer silently
 # produce a package with a stale, uninstallable dependency line.
+#
+# That only works if the .deb is built ON the distro it targets: the shipped
+# binaries link the build host's FFmpeg sonames (libavcodec.so.60 on
+# Ubuntu 24.04 / FFmpeg 6, libavcodec.so.61 on Debian 13 / FFmpeg 7), and a
+# Depends line naming the other distro's sonames is uninstallable there
+# (issue #1: the 1.0.0 .deb, built on Ubuntu 24.04, depends on
+# libavcodec60/libavutil58/libswscale7, none of which exist on Debian 13).
+# One file name cannot serve both distros, so a per-distro build passes
+# CASTMIRROR_PACKAGE_DISTRO_SUFFIX (e.g. "debian13") and gets its own file:
+# castmirror_1.0.0_debian13_x86_64.deb. The default (empty) keeps the
+# historical Ubuntu file name.
 # ---------------------------------------------------------------------------
+set(CASTMIRROR_PACKAGE_DISTRO_SUFFIX "" CACHE STRING
+    "Distro suffix inserted into the package file name, e.g. debian13")
 set(CPACK_GENERATOR "DEB;RPM")
 set(CPACK_PACKAGE_NAME "castmirror")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}_${CMAKE_SYSTEM_PROCESSOR}")
+if(CASTMIRROR_PACKAGE_DISTRO_SUFFIX)
+  set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}_${CASTMIRROR_PACKAGE_DISTRO_SUFFIX}_${CMAKE_SYSTEM_PROCESSOR}")
+else()
+  set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}_${CMAKE_SYSTEM_PROCESSOR}")
+endif()
 set(CPACK_PACKAGE_CONTACT "CastMirror Maintainers <maintainers@castmirror.local>")
 set(CPACK_PACKAGE_VENDOR "CastMirror")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://github.com/vindeckyy/CastMirror")
