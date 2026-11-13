@@ -147,12 +147,13 @@ jobs:
                 libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
                 nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb \
                 dpkg-dev ca-certificates xauth file
-              # xvfb-run needs xauth and CPack's SHLIBDEPS needs the `file`
+              # xvfb-run needs xauth and CPack SHLIBDEPS needs the file
               # utility. Both have to be named here: with
               # --no-install-recommends they are only recommended, not
-              # installed, by xvfb and dpkg-dev. Keep this as one apt-get
-              # install: a second install in this container fails to open
-              # the dpkg lock after the first one finishes.
+              # installed, by xvfb and dpkg-dev. Never put an apostrophe
+              # anywhere in this quoted script: one ends the string early
+              # and the rest of the commands run on the host instead of
+              # in the container.
               if [ -d /usr/src/googletest ]; then
                 cmake -S /usr/src/googletest -B /tmp/gtest-build
                 cmake --build /tmp/gtest-build -j"$(nproc)"
