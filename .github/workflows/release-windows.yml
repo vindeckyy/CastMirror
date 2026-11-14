@@ -69,11 +69,18 @@ jobs:
       # package.ps1 only builds the castcore.dll target, so without this the
       # rest of the Windows tree (CLI, tests, tools) could be broken in a
       # release. Build everything and run the suite before packaging.
+      #
+      # Run the suite through ctest, exactly like the Windows CI job does.
+      # tests/CMakeLists.txt registers one ctest case per test, so each case
+      # runs in its own process. Running the test binary directly runs every
+      # case in one process, and the e2e cases share one loopback IP across
+      # distinct fake devices: since the device-discovery fix keys device
+      # identity by IP, the second case no longer finds its own device id.
       - name: Build and test native tree
         shell: msys2 {0}
         run: |
           cmake --build build -j"$(nproc)"
-          ./build/tests/castmirror_tests.exe
+          ctest --test-dir build --output-on-failure --timeout 120
 
       - name: Install .NET SDK
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
