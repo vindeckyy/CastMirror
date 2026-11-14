@@ -60,10 +60,10 @@ It builds, runs the whole native suite, publishes a self-contained x64 build to 
 Build the installer from that folder:
 
 ```bat
-iscc installer\CastMirror.iss /DAppVersion=1.0.0
+iscc installer\CastMirror.iss /DAppVersion=1.0.2
 ```
 
-The result is `dist\CastMirror-Setup-1.0.0-x64.exe`. Release builds run the same steps in `.github/workflows/release-windows.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
+The result is `dist\CastMirror-Setup-1.0.2-x64.exe`. Release builds run the same steps in `.github/workflows/release-windows.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
 
 ### Cutting a release
 

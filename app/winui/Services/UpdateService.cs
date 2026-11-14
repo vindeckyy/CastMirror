@@ -18,7 +18,7 @@ namespace CastMirror.Services
             "https://api.github.com/repos/vindeckyy/CastMirror/releases/latest";
 
         public static Version Current =>
-            typeof(UpdateService).Assembly.GetName().Version ?? new Version(1, 0, 0);
+            typeof(UpdateService).Assembly.GetName().Version ?? new Version(1, 0, 2);
 
         /// <summary>Parses "v1.2.3" or "1.2.3"; null for anything else.</summary>
         public static Version? ParseTag(string? tag)

@@ -2,12 +2,13 @@
 
 All notable changes to CastMirror. Versions follow [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 1.0.2 - 2026-11-14
 
 ### Added
 - The Windows shell is redesigned: a custom title bar with a search field (Ctrl+K), a left navigation rail, a hero banner, a device card grid, a right-hand casting rail and a status bar, replacing the previous stacked settings panel. The design tokens behind it live in `App.xaml` and carry real values for the dark, light and high-contrast schemes, so the shell stays legible when the light theme is forced.
 
 ### Fixed
+- The device list stopped refreshing every 3 seconds. Discovery now settles after about 30 seconds while still listening for new devices, devices keep a stable identity so they stop jumping around and disappearing, and the selected TV stays selected.
 - The Debug build started with no devices and no sources. `castcore.dll` is linked against FFmpeg, OpenSSL, protobuf and the MinGW runtime, and those are hard imports that the loader resolves before the app's managed entry point runs, but only `castcore.dll` itself was copied next to the exe. The app therefore came up reporting "castcore.dll was not found next to CastMirror.exe" unless something else happened to put the MSYS2 toolchain on PATH — which is what `run-gui.bat` did. Debug and test runs now get the same dependency closure `package.ps1` already shipped.
 - Audio drifted out of sync with video on the TV, further the longer a film ran. Two clocks were driving the audio timeline independently and disagreeing: real capture is stamped from the WASAPI render position and only advances when the endpoint delivers a buffer, while the silence frames sent when the endpoint is quiet (or while muted) were stamped with the wall clock. Each one could therefore be stamped behind the other, punching a hole in the audio RTP timeline or stepping it backwards, and the receiver never caught up. The emitted audio timeline now advances by exactly one frame per frame sent.
 - Video sat permanently late against audio by the source's present lag. Two clocks drove the video timeline: a freshly captured frame carries the present time DXGI reports (about 20 ms behind wall clock), while a re-send — emitted whenever the desktop produced no new frame — was stamped from the pacer's tick deadline, which is wall clock. Each re-send stepped the video timeline forward by that lag, and every frame after it was pinned behind, so the receiver, which plays by RTP timestamp, showed the picture late for the whole session. The timeline now takes the source's present time when it leads, and otherwise steps by the time that actually elapsed since the last emit, so video stays on the source clock on every path and keeps real-time rate through a stall.

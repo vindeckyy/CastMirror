@@ -81,6 +81,11 @@
     <!-- version mirrors `project(CastMirror VERSION ...)` in the root
          CMakeLists.txt; the date is the HEAD commit date of the tagged
          release, not an invented value. -->
+    <release version="1.0.2" date="2026-11-14">
+      <description>
+        <p>Fixes the device list refreshing every few seconds: discovery now settles after about 30 seconds, devices keep a stable identity so they stop jumping around and disappearing, and the selected TV stays selected.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-09-23">
       <description>
         <p>First release: native Cast Streaming sender with X11 and Wayland capture, VAAPI/libx264 encoding, Opus audio, adaptive bitrate ladder, GTK 4 + libadwaita desktop app and an interactive CLI.</p>

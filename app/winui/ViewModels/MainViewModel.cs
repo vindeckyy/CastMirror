@@ -486,7 +486,7 @@ namespace CastMirror.ViewModels
         {
             get
             {
-                string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+                string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.2";
                 return "v" + version;
             }
         }
