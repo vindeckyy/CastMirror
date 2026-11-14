@@ -88,6 +88,22 @@ std::vector<uint8_t> MdnsHeader(uint16_t qd, uint16_t an, uint16_t ns, uint16_t 
 
 const char* kInstance = "Living Room TV._googlecast._tcp.local";
 
+// Stable identity, sorted snapshot, callback dedup, settle (issue #3).
+CastDevice MakeTestDevice(const std::string& id, const std::string& name, const std::string& ip) {
+  CastDevice d;
+  d.id = id;
+  d.name = name;
+  d.model_name = "Chromecast";
+  d.ip_address = ip;
+  d.port = 8009;
+  d.status = DeviceStatus::kReady;
+  d.capabilities = kDefaultCaps;
+  return d;
+}
+
+const char* kTxtUuid = "123e4567-e89b-12d3-a456-426614174000";
+const char* kCloudUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -342,24 +358,10 @@ TEST(DeviceDiscoveryTest, ExpireStaleDevicesDropsSilentMdnsDevicesButKeepsManual
   ASSERT_EQ(left.size(), 1u);
   EXPECT_EQ(left.front().id, "192.168.7.60");
 }
+
 // ---------------------------------------------------------------------------
 // Stable identity, sorted snapshot, callback dedup, settle (issue #3)
 // ---------------------------------------------------------------------------
-
-CastDevice MakeTestDevice(const std::string& id, const std::string& name, const std::string& ip) {
-  CastDevice d;
-  d.id = id;
-  d.name = name;
-  d.model_name = "Chromecast";
-  d.ip_address = ip;
-  d.port = 8009;
-  d.status = DeviceStatus::kReady;
-  d.capabilities = kDefaultCaps;
-  return d;
-}
-
-const char* kTxtUuid = "123e4567-e89b-12d3-a456-426614174000";
-const char* kCloudUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 TEST(DeviceDiscoveryTest, AddOrUpdateKeepsUuidIdAcrossIpAndCloudAnnouncements) {
   DeviceDiscovery discovery;
