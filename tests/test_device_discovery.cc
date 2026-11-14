@@ -88,6 +88,22 @@ std::vector<uint8_t> MdnsHeader(uint16_t qd, uint16_t an, uint16_t ns, uint16_t 
 
 const char* kInstance = "Living Room TV._googlecast._tcp.local";
 
+// Stable identity, sorted snapshot, callback dedup, settle (issue #3).
+CastDevice MakeTestDevice(const std::string& id, const std::string& name, const std::string& ip) {
+  CastDevice d;
+  d.id = id;
+  d.name = name;
+  d.model_name = "Chromecast";
+  d.ip_address = ip;
+  d.port = 8009;
+  d.status = DeviceStatus::kReady;
+  d.capabilities = kDefaultCaps;
+  return d;
+}
+
+const char* kTxtUuid = "123e4567-e89b-12d3-a456-426614174000";
+const char* kCloudUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -341,4 +357,122 @@ TEST(DeviceDiscoveryTest, ExpireStaleDevicesDropsSilentMdnsDevicesButKeepsManual
   auto left = discovery.GetDevices();
   ASSERT_EQ(left.size(), 1u);
   EXPECT_EQ(left.front().id, "192.168.7.60");
+}
+
+// ---------------------------------------------------------------------------
+// Stable identity, sorted snapshot, callback dedup, settle (issue #3)
+// ---------------------------------------------------------------------------
+
+TEST(DeviceDiscoveryTest, AddOrUpdateKeepsUuidIdAcrossIpAndCloudAnnouncements) {
+  DeviceDiscovery discovery;
+  discovery.AddOrUpdateDevice(MakeTestDevice(kTxtUuid, "Living Room", "192.168.1.10"));
+  // I announce the same TV with its IP as the id (the old mDNS fallback).
+  discovery.AddOrUpdateDevice(MakeTestDevice("192.168.1.10", "Living Room", "192.168.1.10"));
+  // I announce the same TV again with a subnet probe cloud id.
+  discovery.AddOrUpdateDevice(MakeTestDevice("cloud-9f8e7d6c5b4a", "Living Room", "192.168.1.10"));
+
+  auto devices = discovery.GetDevices();
+  ASSERT_EQ(devices.size(), 1u);
+  EXPECT_EQ(devices.front().id, kTxtUuid);
+  EXPECT_EQ(devices.front().ip_address, "192.168.1.10");
+  EXPECT_EQ(devices.front().name, "Living Room");
+}
+
+TEST(DeviceDiscoveryTest, AddOrUpdateUpgradesIpIdToUuidAndTxtWinsOverCloudUuid) {
+  DeviceDiscovery discovery;
+  // I start with the subnet probe finding it first, with only its IP as the id.
+  discovery.AddOrUpdateDevice(MakeTestDevice("192.168.1.20", "Bedroom", "192.168.1.20"));
+  // Probe later fetched a cloud id: that is a real id, so I take it.
+  discovery.AddOrUpdateDevice(MakeTestDevice(kCloudUuid, "Bedroom", "192.168.1.20"));
+  ASSERT_EQ(discovery.GetDevices().front().id, kCloudUuid);
+  // mDNS TXT id arrives: I prefer it over the cloud id.
+  discovery.AddOrUpdateDevice(MakeTestDevice(kTxtUuid, "Bedroom", "192.168.1.20"), true);
+  EXPECT_EQ(discovery.GetDevices().front().id, kTxtUuid);
+  // I check a later cloud id does not flip it back.
+  discovery.AddOrUpdateDevice(MakeTestDevice(kCloudUuid, "Bedroom", "192.168.1.20"));
+  auto devices = discovery.GetDevices();
+  ASSERT_EQ(devices.size(), 1u);
+  EXPECT_EQ(devices.front().id, kTxtUuid);
+}
+
+TEST(DeviceDiscoveryTest, GetDevicesReturnsSortedSnapshotByNumericIp) {
+  DeviceDiscovery discovery;
+  discovery.AddOrUpdateDevice(MakeTestDevice("id-10", "Ten", "192.168.1.10"));
+  discovery.AddOrUpdateDevice(MakeTestDevice("id-2", "Two", "192.168.1.2"));
+  discovery.AddOrUpdateDevice(MakeTestDevice("id-9", "Nine", "192.168.1.9"));
+
+  auto devices = discovery.GetDevices();
+  ASSERT_EQ(devices.size(), 3u);
+  // I expect numeric order, not discovery order and not lexical (.10 before .2).
+  EXPECT_EQ(devices[0].ip_address, "192.168.1.2");
+  EXPECT_EQ(devices[1].ip_address, "192.168.1.9");
+  EXPECT_EQ(devices[2].ip_address, "192.168.1.10");
+  // I add the same devices again in another order and check they do not reshuffle.
+  discovery.AddOrUpdateDevice(MakeTestDevice("id-9", "Nine", "192.168.1.9"));
+  devices = discovery.GetDevices();
+  ASSERT_EQ(devices.size(), 3u);
+  EXPECT_EQ(devices[0].ip_address, "192.168.1.2");
+  EXPECT_EQ(devices[1].ip_address, "192.168.1.9");
+  EXPECT_EQ(devices[2].ip_address, "192.168.1.10");
+}
+
+TEST(DeviceDiscoveryTest, CallbackFiresOnlyWhenListChanges) {
+  DeviceDiscovery discovery;
+  int calls = 0;
+  std::vector<CastDevice> last_snapshot;
+  discovery.SetCallback([&](const std::vector<CastDevice>& devices) {
+    ++calls;
+    last_snapshot = devices;
+  });
+
+  discovery.AddOrUpdateDevice(MakeTestDevice(kTxtUuid, "Living Room", "192.168.1.10"));
+  EXPECT_EQ(calls, 1);
+  ASSERT_EQ(last_snapshot.size(), 1u);
+  EXPECT_EQ(last_snapshot.front().id, kTxtUuid);
+
+  // I re-announce it identically and expect no callback, even though last_seen moved.
+  discovery.AddOrUpdateDevice(MakeTestDevice(kTxtUuid, "Living Room", "192.168.1.10"));
+  EXPECT_EQ(calls, 1);
+  // I announce the same TV as its IP and expect no callback because the id stays put.
+  discovery.AddOrUpdateDevice(MakeTestDevice("192.168.1.10", "Living Room", "192.168.1.10"));
+  EXPECT_EQ(calls, 1);
+  // I make a real change and expect the callback to fire again.
+  discovery.AddOrUpdateDevice(MakeTestDevice(kTxtUuid, "Living Room Renamed", "192.168.1.10"));
+  EXPECT_EQ(calls, 2);
+  // I add a new TV and expect the callback to fire with the sorted snapshot.
+  discovery.AddOrUpdateDevice(MakeTestDevice("id-2", "Two", "192.168.1.2"));
+  EXPECT_EQ(calls, 3);
+  ASSERT_EQ(last_snapshot.size(), 2u);
+  EXPECT_EQ(last_snapshot[0].ip_address, "192.168.1.2");
+  EXPECT_EQ(last_snapshot[1].ip_address, "192.168.1.10");
+}
+
+TEST(DeviceDiscoveryTest, IsIpAddressAndIsUuidStyleIdClassifyIds) {
+  EXPECT_TRUE(DeviceDiscovery::IsIpAddress("192.168.1.10"));
+  EXPECT_TRUE(DeviceDiscovery::IsIpAddress("10.0.0.1"));
+  EXPECT_FALSE(DeviceDiscovery::IsIpAddress("999.1.1.1"));
+  EXPECT_FALSE(DeviceDiscovery::IsIpAddress(kTxtUuid));
+  EXPECT_FALSE(DeviceDiscovery::IsIpAddress(""));
+  EXPECT_FALSE(DeviceDiscovery::IsIpAddress("cloud-9f8e7d6c5b4a"));
+
+  EXPECT_TRUE(DeviceDiscovery::IsUuidStyleId(kTxtUuid));
+  EXPECT_TRUE(DeviceDiscovery::IsUuidStyleId("123e4567e89b12d3a456426614174000"));
+  EXPECT_FALSE(DeviceDiscovery::IsUuidStyleId("192.168.1.10"));
+  EXPECT_FALSE(DeviceDiscovery::IsUuidStyleId("cloud-9f8e7d6c5b4a"));
+  EXPECT_FALSE(DeviceDiscovery::IsUuidStyleId("uuid-1"));
+  EXPECT_FALSE(DeviceDiscovery::IsUuidStyleId(""));
+}
+
+// I test the settle decision itself here, not the live loop: the loop needs a
+// real socket and network, so its settle is verified by that decision plus
+// log inspection (DiscoveryLoop logs "Discovery settled" when it stops the
+// periodic re-query). The bound is 10 unchanged rounds at 3 seconds a round,
+// about 30 seconds, with at least one device found.
+TEST(DeviceDiscoveryTest, ShouldSettleDiscoveryNeedsStabilityAndDevices) {
+  EXPECT_FALSE(DeviceDiscovery::ShouldSettleDiscovery(100, 0u));
+  EXPECT_FALSE(DeviceDiscovery::ShouldSettleDiscovery(0, 1u));
+  EXPECT_FALSE(DeviceDiscovery::ShouldSettleDiscovery(9, 1u));
+  EXPECT_TRUE(DeviceDiscovery::ShouldSettleDiscovery(10, 1u));
+  EXPECT_TRUE(DeviceDiscovery::ShouldSettleDiscovery(11, 2u));
+  EXPECT_EQ(DeviceDiscovery::kSettleUnchangedRounds, 10);
 }

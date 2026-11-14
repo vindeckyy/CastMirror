@@ -159,6 +159,9 @@ namespace CastMirror.ViewModels
 
         // The TV and source used last time, applied once when they show up.
         private string _pendingLastDeviceId = string.Empty;
+        // I keep the IP of the device I picked so I can find it again if it
+        // drops off the list and comes back with a new id.
+        private string _lastSelectedIp = string.Empty;
         private string _pendingLastSourceKind = string.Empty;
         private int _pendingLastSourceId;
 
@@ -178,6 +181,13 @@ namespace CastMirror.ViewModels
                 if (_selectedDevice != null) _selectedDevice.IsSelected = false;
                 _selectedDevice = value;
                 if (value != null) value.IsSelected = true;
+                // I remember the IP of the device I picked. A null pick does
+                // not clear it: that is how I find the same TV again after
+                // it drops out and comes back.
+                if (value != null && value.IpAddress.Length > 0)
+                {
+                    _lastSelectedIp = value.IpAddress;
+                }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(CanToggleCast));
                 OnPropertyChanged(nameof(TargetDeviceName));
@@ -1105,7 +1115,6 @@ namespace CastMirror.ViewModels
             // over; drop the manual entry once the engine reports that address.
             // Match on the address as well as the id: a manual entry's id is the
             // typed IP, while mDNS reports the device's UUID for the same TV.
-            string? selectedAddress = SelectedDevice?.IpAddress;
             _manualDevices.RemoveAll(manual =>
                 incoming.Any(d => d.Id == manual.Id || d.IpAddress == manual.IpAddress));
             incoming.AddRange(_manualDevices);
@@ -1137,11 +1146,30 @@ namespace CastMirror.ViewModels
                 }
             }
 
+            // I track the IP of the device I picked, so a TV that drops off
+            // the list and comes back with a new id still gets picked again.
+            // The address is refreshed from the live row while it is still
+            // there, so a new IP on the same TV does not leave me holding
+            // a stale one.
+            if (SelectedDevice != null && Devices.Contains(SelectedDevice)
+                && SelectedDevice.IpAddress.Length > 0)
+            {
+                _lastSelectedIp = SelectedDevice.IpAddress;
+            }
+
             // Only touch the selection when the user's device disappeared.
+            // I never grab the first device in the list: if my TV is gone,
+            // I leave the pick empty instead of casting to the wrong TV.
             if (SelectedDevice != null && !Devices.Contains(SelectedDevice))
             {
-                SelectedDevice = Devices.FirstOrDefault(d => d.IpAddress == selectedAddress)
-                                 ?? Devices.FirstOrDefault();
+                DeviceItem? sameTv = _lastSelectedIp.Length > 0
+                    ? Devices.FirstOrDefault(d => d.IpAddress == _lastSelectedIp)
+                    : null;
+                SelectedDevice = sameTv;
+            }
+            else if (SelectedDevice == null && _lastSelectedIp.Length > 0)
+            {
+                SelectedDevice = Devices.FirstOrDefault(d => d.IpAddress == _lastSelectedIp);
             }
             else if (SelectedDevice == null && Devices.Count > 0)
             {
