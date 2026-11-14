@@ -2,6 +2,7 @@
 #define CASTCORE_DEVICE_DISCOVERY_H_
 
 #include "castcore/types.h"
+#include <cstddef>
 #include <set>
 #include <chrono>
 #include <vector>
@@ -34,8 +35,23 @@ class DeviceDiscovery {
   void SetCallback(DevicesCallback callback);
 
   // Manual / Mock device registration (useful for tests and static LAN configs)
-  void AddOrUpdateDevice(const CastDevice& device);
+  // from_mdns is true when the device came from an mDNS TXT record: I trust
+  // that id over a cloud id from the subnet probe, so it can replace one.
+  void AddOrUpdateDevice(const CastDevice& device, bool from_mdns = false);
   void RemoveDevice(const std::string& device_id);
+
+  // I call an id UUID style when it looks like a real Cast id: hex digits and
+  // dashes only, at least 8 hex digits, and not an IPv4 address. A bare cloud
+  // id or a short label does not count, so I never mistake one for a UUID.
+  static bool IsIpAddress(const std::string& value);
+  static bool IsUuidStyleId(const std::string& value);
+
+  // I stop the periodic mDNS re-query once the list has been unchanged for
+  // kSettleUnchangedRounds query rounds with at least one device found.
+  // Rounds are 3 seconds apart, so that is about 30 seconds of stability.
+  // I still listen passively after that, and TriggerScan starts me up again.
+  static constexpr int kSettleUnchangedRounds = 10;
+  static bool ShouldSettleDiscovery(int unchanged_rounds, std::size_t device_count);
 
   // Utility to parse TXT record key-value pairs
   static std::map<std::string, std::string> ParseTxtRecord(

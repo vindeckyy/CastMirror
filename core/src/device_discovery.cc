@@ -317,7 +317,88 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
   return false;
 }
 
+// I compare only the fields the UI shows. last_seen always moves when a
+// device re-announces, so it must not count as a change or I would fire the
+// callback on every packet again.
+bool SameVisibleDevice(const CastDevice& a, const CastDevice& b) {
+  return a.id == b.id && a.name == b.name && a.model_name == b.model_name &&
+         a.ip_address == b.ip_address && a.port == b.port && a.status == b.status &&
+         a.capabilities == b.capabilities;
+}
+
+bool SameVisibleList(const std::vector<CastDevice>& a, const std::vector<CastDevice>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (!SameVisibleDevice(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+// I sort by numeric IP so 192.168.1.9 stays before 192.168.1.10. A plain
+// string sort would put .10 first and shuffle the list for no reason.
+bool ParseIpOctets(const std::string& ip, int octets[4]) {
+  size_t start = 0;
+  for (int i = 0; i < 4; ++i) {
+    size_t dot = ip.find('.', start);
+    if (i < 3 && dot == std::string::npos) return false;
+    if (i == 3 && dot != std::string::npos) return false;
+    const std::string part = ip.substr(start, i < 3 ? dot - start : std::string::npos);
+    if (part.empty() || part.size() > 3) return false;
+    int value = 0;
+    for (char c : part) {
+      if (c < '0' || c > '9') return false;
+      value = value * 10 + (c - '0');
+    }
+    if (value > 255) return false;
+    octets[i] = value;
+    start = dot + 1;
+  }
+  return true;
+}
+
+bool DeviceOrderLess(const CastDevice& a, const CastDevice& b) {
+  int a_octets[4] = {0, 0, 0, 0};
+  int b_octets[4] = {0, 0, 0, 0};
+  const bool a_ip = ParseIpOctets(a.ip_address, a_octets);
+  const bool b_ip = ParseIpOctets(b.ip_address, b_octets);
+  if (a_ip && b_ip) {
+    for (int i = 0; i < 4; ++i) {
+      if (a_octets[i] != b_octets[i]) return a_octets[i] < b_octets[i];
+    }
+  } else if (a_ip != b_ip) {
+    return a_ip;
+  } else if (a.ip_address != b.ip_address) {
+    return a.ip_address < b.ip_address;
+  }
+  if (a.name != b.name) return a.name < b.name;
+  return a.id < b.id;
+}
+
+bool IsHexDigit(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 }  // namespace
+
+bool DeviceDiscovery::IsIpAddress(const std::string& value) {
+  int octets[4] = {0, 0, 0, 0};
+  return ParseIpOctets(value, octets);
+}
+
+bool DeviceDiscovery::IsUuidStyleId(const std::string& value) {
+  if (value.empty() || IsIpAddress(value)) return false;
+  int hex_digits = 0;
+  for (char c : value) {
+    if (c == '-') continue;
+    if (!IsHexDigit(c)) return false;
+    ++hex_digits;
+  }
+  return hex_digits >= 8;
+}
+
+bool DeviceDiscovery::ShouldSettleDiscovery(int unchanged_rounds, std::size_t device_count) {
+  return device_count > 0 && unchanged_rounds >= kSettleUnchangedRounds;
+}
 
 DeviceDiscovery::DeviceDiscovery() = default;
 
@@ -394,7 +475,7 @@ void DeviceDiscovery::SetCallback(DevicesCallback callback) {
   callback_ = std::move(callback);
 }
 
-void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
+void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device, bool from_mdns) {
   CastDevice normalized = device;
   const bool custom_endpoint =
       normalized.model_name == "Custom Chromecast" || normalized.ip_address.rfind("127.", 0) == 0;
@@ -409,6 +490,7 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    const std::vector<CastDevice> before = devices_;
     auto it = std::find_if(devices_.begin(), devices_.end(), [&](const CastDevice& d) {
       return (!normalized.id.empty() && d.id == normalized.id) ||
              (normalized.id.empty() && d.ip_address == normalized.ip_address) ||
@@ -416,7 +498,22 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
     });
 
     if (it != devices_.end()) {
-      it->id = normalized.id.empty() ? it->id : normalized.id;
+      // I keep the id I already have unless I have a good reason to change
+      // it. The same TV announces under different ids: the mDNS TXT id, its
+      // IP, and the subnet probe cloud id. Swapping between them made the
+      // UI drop one row and add another, so the IP is my dedup key and the
+      // id only moves up: an IP gives way to a real id, and a TXT id gives
+      // way to another TXT id. Anything else keeps what I have.
+      std::string new_id = it->id;
+      if (it->id.empty()) {
+        new_id = normalized.id;
+      } else if (IsIpAddress(it->id) && !normalized.id.empty() && !IsIpAddress(normalized.id)) {
+        new_id = normalized.id;
+      } else if (!IsIpAddress(it->id) && !normalized.id.empty() && normalized.id != it->id &&
+                 from_mdns && IsUuidStyleId(normalized.id) && IsUuidStyleId(it->id)) {
+        new_id = normalized.id;
+      }
+      it->id = new_id;
       it->name = normalized.name.empty() ? it->name : normalized.name;
       it->model_name = normalized.model_name.empty() ? it->model_name : normalized.model_name;
       it->ip_address = normalized.ip_address;
@@ -424,15 +521,26 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device) {
       it->status = normalized.status;
       it->capabilities = normalized.capabilities;
       it->last_seen = std::chrono::steady_clock::now();
+      if (from_mdns) mdns_ids_.insert(it->id);
     } else {
       devices_.push_back(normalized);
       devices_.back().last_seen = std::chrono::steady_clock::now();
+      if (from_mdns) mdns_ids_.insert(devices_.back().id);
       LOG_INFO << "Discovered Cast Device: " << normalized.name << " (" << normalized.model_name
                << ") at " << normalized.ip_address << ":" << normalized.port;
     }
 
-    current = devices_;
-    cb = callback_;
+    // I sort by IP so the list order does not depend on which device
+    // happened to answer first. That keeps the UI rows in one place.
+    std::sort(devices_.begin(), devices_.end(), DeviceOrderLess);
+
+    // I only tell the UI when something it shows actually changed. An
+    // identical re-announcement still refreshes last_seen above, but it
+    // must not fire the callback or the list rebuilds every few seconds.
+    if (!SameVisibleList(before, devices_)) {
+      current = devices_;
+      cb = callback_;
+    }
   }
 
   if (cb) {
@@ -787,11 +895,9 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length,
     if (!keys.count("id") && !keys.count("fn")) return;
     CastDevice dev = ParseFromMdnsData(
         parsed_name, parsed_ip.empty() ? sender_ip : parsed_ip, parsed_port, txt_entries);
-    AddOrUpdateDevice(dev);
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      mdns_ids_.insert(dev.id);
-    }
+    // I pass from_mdns so the TXT id wins over a cloud id from the probe.
+    // AddOrUpdateDevice records the stored id for expiry tracking.
+    AddOrUpdateDevice(dev, true);
   }
 }
 
@@ -866,15 +972,49 @@ void DeviceDiscovery::DiscoveryLoop() {
   auto last_mdns_query = std::chrono::steady_clock::now() - std::chrono::seconds(10);
   auto last_expiry = std::chrono::steady_clock::now();
 
+  // I stop the periodic re-query after 10 unchanged query rounds with at
+  // least one device found, about 30 seconds of stability at 3 seconds a
+  // round. The socket stays open below, so a TV that powers on later still
+  // shows up from its own unsolicited announcement, and TriggerScan wakes
+  // the loop up again. I do not settle on an empty list: with nothing found
+  // I keep asking, so a TV that missed the first rounds still gets found.
+  int stable_rounds = 0;
+  bool settled = false;
+  std::vector<CastDevice> last_round_devices;
+  bool have_round_snapshot = false;
+
   while (running_.load()) {
     auto now = std::chrono::steady_clock::now();
 
-    // Send mDNS query every 3 seconds or immediately on TriggerScan
+    // Send mDNS query every 3 seconds or immediately on TriggerScan. Once
+    // settled I only send on TriggerScan, which also clears the settle.
+    const bool forced = force_mdns_query_.exchange(false);
+    if (forced) {
+      settled = false;
+      stable_rounds = 0;
+      have_round_snapshot = false;
+    }
     if (fd >= 0 &&
-        (force_mdns_query_.exchange(false) ||
-         std::chrono::duration_cast<std::chrono::seconds>(now - last_mdns_query).count() >= 3)) {
+        (forced ||
+         (!settled &&
+          std::chrono::duration_cast<std::chrono::seconds>(now - last_mdns_query).count() >= 3))) {
       SendMdnsQuery(fd);
       last_mdns_query = now;
+
+      const std::vector<CastDevice> current_devices = GetDevices();
+      if (have_round_snapshot && SameVisibleList(last_round_devices, current_devices)) {
+        ++stable_rounds;
+      } else {
+        stable_rounds = 0;
+        have_round_snapshot = true;
+      }
+      last_round_devices = current_devices;
+      if (!settled && ShouldSettleDiscovery(stable_rounds, current_devices.size())) {
+        settled = true;
+        LOG_INFO << "Discovery settled: no list changes for " << stable_rounds
+                 << " query rounds, stopping periodic mDNS re-query; still listening for "
+                    "announcements";
+      }
     }
 
     // Devices answer every 3 s query while they are on. Ten minutes of silence
