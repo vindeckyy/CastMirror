@@ -576,8 +576,7 @@ class PipeWirePortalCapture : public IDisplayCapture {
         if (sbuf->n_metas > 0) {
           struct spa_meta* timing = spa_buffer_find_meta(sbuf, SPA_META_Header);
           if (timing && timing->size >= sizeof(struct spa_meta_header)) {
-            const int64_t candidate =
-                static_cast<const struct spa_meta_header*>(timing->data)->pts;
+            const int64_t candidate = static_cast<const struct spa_meta_header*>(timing->data)->pts;
             if (candidate != 0 && candidate >= now_ns - 5000000000LL &&
                 candidate <= now_ns + 5000000000LL) {
               pts_ns = candidate;

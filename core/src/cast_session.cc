@@ -296,13 +296,17 @@ bool CastSession::NegotiateControlPlane() {
   video_keys_ = MirroringNegotiator::GenerateRandomKeys();
   audio_keys_ = enable_audio_ ? MirroringNegotiator::GenerateRandomKeys() : StreamEncryptionKeys{};
 
-  cast_channel_ = std::make_unique<CastChannel>();
-  cast_channel_->SetMessageCallback(
+  auto channel = std::make_shared<CastChannel>();
+  {
+    std::lock_guard<std::mutex> lock(channel_mutex_);
+    cast_channel_ = channel;
+  }
+  channel->SetMessageCallback(
       [this](const std::string& ns,
              const std::string& payload,
              const std::string& src,
              const std::string& dest) { OnChannelMessage(ns, payload, src, dest); });
-  cast_channel_->SetStatusCallback(
+  channel->SetStatusCallback(
       [this](bool connected, const std::string& err) { OnChannelStatus(connected, err); });
 
   const bool reconnecting = state_machine_.GetState() == SessionState::kReconnecting;
@@ -311,8 +315,8 @@ bool CastSession::NegotiateControlPlane() {
       "Opening a secure Cast channel to " + target_device_.name + " (" + target_device_.ip_address +
           ":" + std::to_string(target_device_.port) + ")");
 
-  cast_channel_->SetVerifyDeviceCert(options_.verify_device_cert);
-  if (!cast_channel_->Connect(target_device_.ip_address, target_device_.port)) {
+  channel->SetVerifyDeviceCert(options_.verify_device_cert);
+  if (!channel->Connect(target_device_.ip_address, target_device_.port)) {
     return false;
   }
 
@@ -324,7 +328,7 @@ bool CastSession::NegotiateControlPlane() {
     int auth_s = ConfigStore::Instance().Get().answer_timeout_s > 0
                      ? ConfigStore::Instance().Get().answer_timeout_s
                      : 5;
-    if (!cast_channel_->AuthenticateDevice(auth_s * 1000)) {
+    if (!channel->AuthenticateDevice(auth_s * 1000)) {
       LOG_ERROR << "Device authentication failed for " << target_device_.name;
       return false;
     }
@@ -347,7 +351,7 @@ bool CastSession::NegotiateControlPlane() {
   // Statuses that arrive before our LAUNCH describe whatever was already
   // running on the TV; only ones after this point can confirm our launch.
   launch_sent_ = true;
-  launch_request_id_ = cast_channel_->LaunchApp(app_id);
+  launch_request_id_ = channel->LaunchApp(app_id);
 
   {
     int launch_s = ConfigStore::Instance().Get().launch_timeout_s > 0
@@ -370,8 +374,8 @@ bool CastSession::NegotiateControlPlane() {
       reconnecting ? SessionState::kReconnecting : SessionState::kNegotiating,
       "Agreeing picture size, codec, and encryption with the TV");
 
-  cast_channel_->SetAppTransportId(app_transport_id_);
-  cast_channel_->ConnectVirtual(app_transport_id_, "streaming_sender");
+  channel->SetAppTransportId(app_transport_id_);
+  channel->ConnectVirtual(app_transport_id_, "streaming_sender");
 
   offer_seq_num_ = 1001;
   int audio_bps =
@@ -386,8 +390,7 @@ bool CastSession::NegotiateControlPlane() {
                                                                 audio_bps);
 
   LOG_INFO << "Sending OFFER to Mirroring App (transportId: " << app_transport_id_ << ")...";
-  cast_channel_->SendCastMessage(
-      kNamespaceWebrtc, offer_json, app_transport_id_, "streaming_sender");
+  channel->SendCastMessage(kNamespaceWebrtc, offer_json, app_transport_id_, "streaming_sender");
 
   {
     int answer_s = ConfigStore::Instance().Get().answer_timeout_s > 0
@@ -442,8 +445,7 @@ bool CastSession::StartStreamingMedia() {
   });
   transport_->SetFeedbackCallback([this](const RtcpFeedback& fb) {
     const uint32_t video_ssrc = negotiated_params_.video_stream.sender_ssrc;
-    const bool from_video_or_platform =
-        fb.sender_ssrc == 0 || fb.sender_ssrc == video_ssrc;
+    const bool from_video_or_platform = fb.sender_ssrc == 0 || fb.sender_ssrc == video_ssrc;
     if (from_video_or_platform) {
       adaptive_controller_.OnFeedback(fb);
     }
@@ -899,12 +901,12 @@ void CastSession::AdaptationLoop() {
     if (recovery_.IsRecovering() || state_machine_.GetState() == SessionState::kReconnecting) {
       if (!media_stopped_for_reconnect_.exchange(true)) {
         StopMediaPipeline();
-        if (cast_channel_) {
-          if (cast_channel_->IsConnected() && !app_session_id_.empty()) {
-            cast_channel_->StopApp(app_session_id_);
+        if (auto channel = Channel()) {
+          if (channel->IsConnected() && !app_session_id_.empty()) {
+            channel->StopApp(app_session_id_);
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
           }
-          cast_channel_->Disconnect();
+          channel->Disconnect();
         }
       }
 
@@ -958,8 +960,8 @@ void CastSession::AdaptationLoop() {
         }
       } else {
         StopMediaPipeline();
-        if (cast_channel_) {
-          cast_channel_->Disconnect();
+        if (auto channel = Channel()) {
+          channel->Disconnect();
         }
       }
 
@@ -984,7 +986,8 @@ void CastSession::AdaptationLoop() {
       RequestReconnect(fail_reason_.empty() ? "Connection lost" : fail_reason_);
       continue;
     }
-    if (cast_channel_ && (!cast_channel_->IsConnected() || cast_channel_->HeartbeatTimedOut())) {
+    if (auto channel = Channel();
+        channel && (!channel->IsConnected() || channel->HeartbeatTimedOut())) {
       RequestReconnect("Cast channel lost — reconnecting");
       continue;
     }
@@ -1345,12 +1348,12 @@ void CastSession::Stop() {
 
   JoinOrDetach(adapt_thread_, 500, "adaptation");
 
-  if (cast_channel_ && cast_channel_->IsConnected() && !app_session_id_.empty()) {
-    cast_channel_->StopApp(app_session_id_);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    cast_channel_->Disconnect();
-  } else if (cast_channel_) {
-    cast_channel_->Disconnect();
+  if (auto channel = Channel()) {
+    if (channel->IsConnected() && !app_session_id_.empty()) {
+      channel->StopApp(app_session_id_);
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    channel->Disconnect();
   }
 
   recovery_.Reset();
@@ -1501,12 +1504,17 @@ void CastSession::HandleWebrtcMessage(const std::string& payload) {
     } else if (type == "GET_STATUS") {
       int seq = j.value("seqNum", 0);
       std::string status_json = MirroringNegotiator::CreateStatusJson(seq, GetStats());
-      if (cast_channel_ && !app_transport_id_.empty()) {
-        cast_channel_->SendCastMessage(
+      if (auto channel = Channel(); channel && !app_transport_id_.empty()) {
+        channel->SendCastMessage(
             kNamespaceWebrtc, status_json, app_transport_id_, "streaming_sender");
       }
     }
   } catch (...) {}
+}
+
+std::shared_ptr<CastChannel> CastSession::Channel() const {
+  std::lock_guard<std::mutex> lock(channel_mutex_);
+  return cast_channel_;
 }
 
 std::shared_ptr<CastTransport> CastSession::Transport() const {

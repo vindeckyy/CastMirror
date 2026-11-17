@@ -51,7 +51,8 @@ std::vector<int64_t> AudioTimestampsAtCheckpoints(Clock::time_point base) {
     now += us(jitter);
 
     const int64_t emit = timeline.FramesToEmit(now, 5);
-    for (int64_t k = 0; k < emit; ++k) last = Us(timeline.Next());
+    for (int64_t k = 0; k < emit; ++k)
+      last = Us(timeline.Next());
 
     if (timeline.NeedsReanchor(now, 50)) {
       timeline.Reset(now - ms(10), us(10000));

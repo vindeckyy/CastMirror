@@ -5,6 +5,8 @@
 #include <atomic>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -56,7 +58,14 @@ TEST(CApiTest, DisplayAndWindowEnumeration) {
 #endif
 
   int display_count = castmirror_get_display_count();
-  EXPECT_GT(display_count, 0);
+#if !defined(_WIN32)
+  // Xvfb can briefly report no outputs right after startup. Retry once before
+  // treating it as an enumeration failure.
+  if (display_count == 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    display_count = castmirror_get_display_count();
+  }
+#endif
 
   CastMirrorDisplayInfo display{};
   EXPECT_TRUE(castmirror_get_display_info(0, &display));

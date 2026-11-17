@@ -98,7 +98,8 @@ class CastSession {
   VideoCodec video_codec_ = VideoCodec::kH264;
   uint32_t bitrate_override_kbps_ = 0;
 
-  std::unique_ptr<CastChannel> cast_channel_;
+  std::shared_ptr<CastChannel> cast_channel_;
+  mutable std::mutex channel_mutex_;
   // The send-path objects are shared_ptr so the encode/capture/adaptation
   // threads can take a snapshot under pipeline_ptr_mutex_ and keep using it
   // even if StopMediaPipeline() resets the members meanwhile.
@@ -116,6 +117,7 @@ class CastSession {
   // adaptation thread (silence keepalive) both feed them, and the UI retunes
   // the bitrate.
   std::mutex audio_mutex_;
+  std::shared_ptr<CastChannel> Channel() const;
   std::shared_ptr<CastTransport> Transport() const;
   AdaptiveController adaptive_controller_;
   SessionRecovery recovery_;

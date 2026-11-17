@@ -1,7 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include <chrono>
+#include <atomic>
 #include <cstdint>
 
 #include "castcore/types.h"
@@ -38,10 +38,10 @@ class FramePacer {
   FramePacer() : next_emit_(Clock::now()) {}
 
   void SetTargetFps(int fps) {
-    if (fps > 0) target_fps_ = fps;
+    if (fps > 0) target_fps_.store(fps);
   }
 
-  int TargetFps() const { return target_fps_; }
+  int TargetFps() const { return target_fps_.load(); }
 
   void Reset(Clock::time_point now) {
     next_emit_ = now;
@@ -157,10 +157,11 @@ class FramePacer {
   static constexpr int kMaxWaitMs = 100;
 
   std::chrono::microseconds Interval() const {
-    return std::chrono::microseconds(1000000 / (target_fps_ > 0 ? target_fps_ : 60));
+    const int fps = target_fps_.load();
+    return std::chrono::microseconds(1000000 / (fps > 0 ? fps : 60));
   }
 
-  int target_fps_ = 60;
+  std::atomic<int> target_fps_{60};
   Clock::time_point next_emit_;
   // Default-constructed, and Reset() restores it: a fresh capture timestamp is
   // always past the epoch, so the first frame takes the source branch with no

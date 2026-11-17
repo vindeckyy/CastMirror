@@ -1055,9 +1055,7 @@ class X11DisplayCapture : public IDisplayCapture {
     };
 
     while (running_.load()) {
-      const int fps = std::max(target_fps_.load(), 1);
       const auto frame_start = std::chrono::steady_clock::now();
-      pacer_.SetTargetFps(fps);
 
       // Cadence emit: the pacer returns the newest submitted frame or re-sends
       // the previous one with an advanced timestamp. Re-sends keep the video

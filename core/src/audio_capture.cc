@@ -485,9 +485,8 @@ class PulseAudioCapture : public IAudioCapture {
   }
 
   void WarnRateLimited(std::chrono::steady_clock::time_point now, const char* message) {
-    const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                               now.time_since_epoch())
-                               .count();
+    const int64_t now_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
     const int64_t interval_us =
         std::chrono::duration_cast<std::chrono::microseconds>(kAnchorLogInterval).count();
     if (now_us - last_anchor_log_us_ < interval_us) return;
@@ -595,7 +594,8 @@ class PulseAudioCapture : public IAudioCapture {
       for (int64_t i = 0; i < emit; ++i) {
         if (pending.size() >= frame_bytes) {
           EmitPcm(pending.data(), frame_bytes, samples_per_frame, timeline_.Next());
-          pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(frame_bytes));
+          pending.erase(pending.begin(),
+                        pending.begin() + static_cast<std::ptrdiff_t>(frame_bytes));
         } else {
           EmitPcm(silence.data(), silence.size(), samples_per_frame, timeline_.Next());
         }
