@@ -81,6 +81,12 @@
     <!-- version mirrors `project(CastMirror VERSION ...)` in the root
          CMakeLists.txt; the date is the HEAD commit date of the tagged
          release, not an invented value. -->
+
+    <release version="1.0.3" date="2026-11-17">
+      <description>
+        <p>Fixes Linux A/V sync drift: audio and video RTP timestamps now share one steady clock, and X11 re-sends no longer step the video timeline forward.</p>
+      </description>
+    </release>
     <release version="1.0.2" date="2026-11-14">
       <description>
         <p>Fixes the device list refreshing every few seconds: discovery now settles after about 30 seconds, devices keep a stable identity so they stop jumping around and disappearing, and the selected TV stays selected.</p>

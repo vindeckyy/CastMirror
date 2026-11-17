@@ -2,6 +2,17 @@
 
 All notable changes to CastMirror. Versions follow [Semantic Versioning](https://semver.org/).
 
+
+## 1.0.3 - 2026-11-17
+
+### Fixed
+- Linux A/V sync no longer drifts over long sessions. PulseAudio frames are stamped from one fixed-step timeline anchored on the first real PCM frame, so latency-estimate jitter, silence, corks and scheduling gaps cannot move the audio RTP clock.
+- Linux video capture now keeps the same timeline on every path. X11 uses frame pacing with a content timestamp from the middle of the X read, and re-sends keep the clock running when the desktop is idle. Wayland uses PipeWire presentation timestamps when available and carries the previous timestamp on cursor-only updates.
+- The Linux sender now honours a receiver's playout-delay request from the audio stream as well as the video stream, so both streams stay on the same buffer depth.
+
+### Added
+- Deterministic two-hour A/V clock tests with jitter and a suspend, plus an exact 48 kHz tick-rate test and an end-to-end A/V skew assertion against the simulated receiver.
+
 ## 1.0.2 - 2026-11-14
 
 ### Added

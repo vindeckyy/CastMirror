@@ -1,13 +1,13 @@
 ; CastMirror Windows installer (Inno Setup 6).
 ;
-; Build:  iscc installer\CastMirror.iss /DAppVersion=1.0.2
+; Build:  iscc installer\CastMirror.iss /DAppVersion=1.0.3
 ; Input:  publish\ (produced by package.ps1) - the app, castcore.dll and its runtime DLLs.
 ;
 ; Installs per machine, so the firewall rules and the Start menu entry cover every
 ; user on the PC. Nothing here phones home.
 
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 
 #define AppName "CastMirror"
