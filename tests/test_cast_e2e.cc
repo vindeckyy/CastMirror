@@ -118,6 +118,23 @@ class TestReceiverServer {
   uint32_t GetPacketsDropped() const { return packets_dropped_.load(); }
   uint32_t GetNonLoopbackPackets() const { return non_loopback_packets_.load(); }
   bool GetAllPacketsLoopback() const { return non_loopback_packets_.load() == 0; }
+  uint32_t GetVideoFrames() const { return video_frames_.load(); }
+  uint32_t GetVideoRtpBackwardsSteps() const { return video_rtp_backwards_.load(); }
+  int64_t GetAudioEpochAvgUs() const {
+    const int64_t count = audio_epoch_count_.load();
+    return count > 0 ? audio_epoch_sum_us_.load() / count : 0;
+  }
+  int64_t GetVideoEpochAvgUs() const {
+    const int64_t count = video_epoch_count_.load();
+    return count > 0 ? video_epoch_sum_us_.load() / count : 0;
+  }
+  int64_t GetAudioRtpMaxStepDeviation() const { return audio_rtp_step_max_dev_.load(); }
+  void ResetEpoch() {
+    audio_epoch_sum_us_.store(0);
+    video_epoch_sum_us_.store(0);
+    audio_epoch_count_.store(0);
+    video_epoch_count_.store(0);
+  }
 
   void DisconnectClient() {
     int fd = current_client_fd_.load();
@@ -498,6 +515,23 @@ class TestReceiverServer {
     SSL_CTX_free(ctx);
   }
 
+  void RecordFrameEpoch(bool audio, uint32_t rtp_timestamp) {
+    const auto arrival = std::chrono::steady_clock::now();
+    const double arrival_us =
+        std::chrono::duration_cast<std::chrono::duration<double, std::micro>>(
+            arrival.time_since_epoch())
+            .count();
+    const double rate = audio ? 48000.0 : 90000.0;
+    const int64_t epoch_us = static_cast<int64_t>(arrival_us - rtp_timestamp * 1e6 / rate);
+    if (audio) {
+      audio_epoch_sum_us_.fetch_add(epoch_us);
+      audio_epoch_count_.fetch_add(1);
+    } else {
+      video_epoch_sum_us_.fetch_add(epoch_us);
+      video_epoch_count_.fetch_add(1);
+    }
+  }
+
   void UdpLoop() {
     udp_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
     struct sockaddr_in addr{};
@@ -557,17 +591,33 @@ class TestReceiverServer {
         }
 
         packets_received_++;
+        const auto rtp_of_packet = [&]() {
+          return (static_cast<uint32_t>(buf[4]) << 24) |
+                 (static_cast<uint32_t>(buf[5]) << 16) |
+                 (static_cast<uint32_t>(buf[6]) << 8) | buf[7];
+        };
         if (is_rtp) {
           video_packets_received_++;
+          if ((buf[1] & 0x80) != 0) {
+            const uint32_t rtp = rtp_of_packet();
+            video_frames_++;
+            if (!video_rtp_seen_.load()) {
+              video_rtp_last_.store(rtp);
+              video_rtp_seen_.store(true);
+            } else {
+              const int32_t step = static_cast<int32_t>(rtp - video_rtp_last_.load());
+              if (step < 0) video_rtp_backwards_++;
+              video_rtp_last_.store(rtp);
+            }
+            RecordFrameEpoch(false, rtp);
+          }
         } else if (is_audio && r >= 12) {
           audio_packets_received_++;
           // Only judge the timestamp once per frame, on the marker packet that
           // starts the next one, so a multi-packet frame is not counted twice.
           if ((buf[1] & 0x80) != 0) {
             audio_frames_++;
-            const uint32_t rtp = (static_cast<uint32_t>(buf[4]) << 24) |
-                                 (static_cast<uint32_t>(buf[5]) << 16) |
-                                 (static_cast<uint32_t>(buf[6]) << 8) | buf[7];
+            const uint32_t rtp = rtp_of_packet();
             if (!audio_rtp_seen_.load()) {
               audio_rtp_first_.store(rtp);
               audio_rtp_last_.store(rtp);
@@ -575,8 +625,14 @@ class TestReceiverServer {
             } else {
               const uint32_t prev = audio_rtp_last_.load();
               if (rtp < prev) audio_rtp_backwards_++;
+              const int32_t step = static_cast<int32_t>(rtp - prev);
+              const int64_t deviation = std::abs(static_cast<int64_t>(step) - 480);
+              if (deviation > audio_rtp_step_max_dev_.load()) {
+                audio_rtp_step_max_dev_.store(deviation);
+              }
               audio_rtp_last_.store(rtp);
             }
+            RecordFrameEpoch(true, rtp);
           }
         }
 
@@ -602,6 +658,15 @@ class TestReceiverServer {
   std::atomic<uint32_t> audio_rtp_last_{0};
   std::atomic<uint32_t> audio_rtp_backwards_{0};
   std::atomic<bool> audio_rtp_seen_{false};
+  std::atomic<uint32_t> video_frames_{0};
+  std::atomic<uint32_t> video_rtp_last_{0};
+  std::atomic<uint32_t> video_rtp_backwards_{0};
+  std::atomic<bool> video_rtp_seen_{false};
+  std::atomic<int64_t> audio_epoch_sum_us_{0};
+  std::atomic<int64_t> video_epoch_sum_us_{0};
+  std::atomic<int64_t> audio_epoch_count_{0};
+  std::atomic<int64_t> video_epoch_count_{0};
+  std::atomic<int64_t> audio_rtp_step_max_dev_{0};
 
   std::atomic<uint32_t> packets_dropped_{0};
   std::atomic<uint32_t> non_loopback_packets_{0};
@@ -1054,6 +1119,63 @@ TEST(CastE2ETest, SilenceKeepalivesKeepTheAudioTimelineMovingForward) {
   ConfigStore::Instance().Save();
   server.Stop();
 }
+
+#if !defined(_WIN32)
+// The receiver plays audio and video at capture_time + targetDelay. If the
+// sender's two capture timelines are not the same kind of time, the RTP epochs
+// separate and no amount of receiver buffering can bring them back together.
+TEST(CastE2ETest, AvSkewStaysBoundedOnLinux) {
+  TestReceiverServer server;
+  server.Start();
+
+  auto& engine = CastEngine::Instance();
+  engine.Initialize();
+  AppConfig saved_cfg = ConfigStore::Instance().Get();
+  ConfigStore::Instance().Mutable().verify_device_cert = false;
+
+  CastDevice dev;
+  dev.id = "test-e2e-av-skew-device";
+  dev.name = "A/V Skew TV";
+  dev.model_name = "Chromecast Ultra";
+  dev.ip_address = "127.0.0.1";
+  dev.port = server.GetTlsPort();
+  dev.capabilities = kCapVideoOut | kCapAudioOut;
+  engine.GetDiscovery().AddOrUpdateDevice(dev);
+
+  ASSERT_TRUE(engine.StartCasting(dev.id, 0, QualityPreset::kBalanced, true));
+  ASSERT_EQ(engine.GetState(), SessionState::kStreaming);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  server.ResetEpoch();
+  std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
+  // Mute uses the silence path, which used to stamp frames from the wall clock.
+  engine.SetLiveAudioMuted(true);
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  engine.SetLiveAudioMuted(false);
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  ASSERT_GT(server.GetAudioFrames(), 100u);
+  ASSERT_GT(server.GetVideoFrames(), 30u);
+  EXPECT_EQ(server.GetAudioRtpBackwardsSteps(), 0u);
+  EXPECT_EQ(server.GetVideoRtpBackwardsSteps(), 0u);
+  EXPECT_LE(server.GetAudioRtpMaxStepDeviation(), 10)
+      << "audio RTP must advance 480 ticks per 10 ms frame";
+
+  const int64_t audio_epoch_us = server.GetAudioEpochAvgUs();
+  const int64_t video_epoch_us = server.GetVideoEpochAvgUs();
+  const int64_t skew_us = std::abs(audio_epoch_us - video_epoch_us);
+  EXPECT_LE(skew_us, 25000)
+      << "A/V RTP epochs drifted apart: audio " << audio_epoch_us << " us, video "
+      << video_epoch_us << " us";
+
+  engine.StopCasting();
+  engine.Shutdown();
+  ConfigStore::Instance().Mutable() = saved_cfg;
+  ConfigStore::Instance().Save();
+  server.Stop();
+}
+#endif
 
 TEST(CastE2ETest, FrozenStreamSurvivesStallDetectorWindow) {
   TestReceiverServer server;

@@ -442,16 +442,27 @@ bool CastSession::StartStreamingMedia() {
   });
   transport_->SetFeedbackCallback([this](const RtcpFeedback& fb) {
     const uint32_t video_ssrc = negotiated_params_.video_stream.sender_ssrc;
-    if (fb.sender_ssrc == 0 || fb.sender_ssrc == video_ssrc) {
+    const bool from_video_or_platform =
+        fb.sender_ssrc == 0 || fb.sender_ssrc == video_ssrc;
+    if (from_video_or_platform) {
       adaptive_controller_.OnFeedback(fb);
-      // Cast adaptive-latency extension: the receiver can request a playout
-      // delay. Honour it — the controller value is latched into
-      // playout_delay_ms_ once per adaptation tick and stamped onto every
-      // encoded frame's latency extension, so this is what actually changes the
-      // delay the encoders use.
-      if (fb.has_playout_delay && fb.current_playout_delay_ms > 0) {
-        adaptive_controller_.SetPlayoutDelayMs(fb.current_playout_delay_ms);
-      }
+    }
+#if !defined(_WIN32)
+    // Both streams use one latched delay. A receiver that asks for a change on
+    // the audio stream must not be ignored, or it plays the two streams at
+    // different buffer depths.
+    const uint32_t audio_ssrc = negotiated_params_.audio_stream.sender_ssrc;
+    const bool accepts_delay = from_video_or_platform || fb.sender_ssrc == audio_ssrc;
+#else
+    const bool accepts_delay = from_video_or_platform;
+#endif
+    // Cast adaptive-latency extension: the receiver can request a playout
+    // delay. Honour it — the controller value is latched into
+    // playout_delay_ms_ once per adaptation tick and stamped onto every
+    // encoded frame's latency extension, so this is what actually changes the
+    // delay the encoders use.
+    if (accepts_delay && fb.has_playout_delay && fb.current_playout_delay_ms > 0) {
+      adaptive_controller_.SetPlayoutDelayMs(fb.current_playout_delay_ms);
     }
   });
 

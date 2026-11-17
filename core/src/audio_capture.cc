@@ -1,6 +1,7 @@
 #include "castcore/audio_capture.h"
 #include "castcore/logger.h"
 #include "castcore/thread_util.h"
+#include "castcore/media_timeline.h"
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -14,7 +15,8 @@
 #include <chrono>
 #include <cstring>
 #include <string>
-#include <vector>
+#include <algorithm>
+#include <optional>
 #include <cstddef>
 
 #if !defined(_WIN32)
@@ -115,6 +117,13 @@ class SyntheticAudioCapture : public IAudioCapture {
 #if !defined(_WIN32)
 
 namespace {
+
+constexpr int64_t kFrameDurationUs = 10000;
+constexpr int64_t kMaxCatchUpFrames = 5;
+constexpr int64_t kMaxPendingFrames = 12;
+constexpr int64_t kReanchorThresholdFrames = 50;
+constexpr int64_t kMaxAnchorAgeMs = 250;
+constexpr auto kAnchorLogInterval = std::chrono::seconds(2);
 
 struct PulseSession {
   pa_mainloop* ml = nullptr;
@@ -287,6 +296,8 @@ class PulseAudioCapture : public IAudioCapture {
     Stop();
     sample_rate_ = sample_rate > 0 ? sample_rate : 48000;
     channels_ = channels > 0 ? channels : 2;
+    timeline_.Invalidate();
+    last_anchor_log_us_ = 0;
 
     ml_ = pa_mainloop_new();
     if (!ml_) {
@@ -473,6 +484,41 @@ class PulseAudioCapture : public IAudioCapture {
     }
   }
 
+  void WarnRateLimited(std::chrono::steady_clock::time_point now, const char* message) {
+    const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                               now.time_since_epoch())
+                               .count();
+    const int64_t interval_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(kAnchorLogInterval).count();
+    if (now_us - last_anchor_log_us_ < interval_us) return;
+    last_anchor_log_us_ = now_us;
+    LOG_WARN << message;
+  }
+
+  // Projects the content instant of the oldest buffered 10 ms frame from the
+  // PulseAudio record latency. Used only to anchor the fixed-step timeline.
+  std::optional<std::chrono::steady_clock::time_point> MeasuredFrameTime(
+      std::chrono::steady_clock::time_point now, size_t pending_frames, int samples_per_frame) {
+    int64_t latency_us = 0;
+    if (stream_) {
+      pa_usec_t pa_latency = 0;
+      int negative = 0;
+      if (pa_stream_get_latency(stream_, &pa_latency, &negative) >= 0 && !negative) {
+        latency_us = static_cast<int64_t>(pa_latency);
+      }
+    }
+    const size_t remaining_frames = std::max<size_t>(pending_frames, 1);
+    const int64_t frame_duration_us =
+        static_cast<int64_t>(samples_per_frame) * 1000000 / sample_rate_;
+    const int64_t age_us = static_cast<int64_t>(remaining_frames - 1) * frame_duration_us;
+    const auto measured = now - std::chrono::microseconds(latency_us + age_us);
+    if (measured < now - std::chrono::milliseconds(kMaxAnchorAgeMs) || measured > now) {
+      WarnRateLimited(now, "PulseAudio latency projection out of range; using local clock anchor");
+      return std::nullopt;
+    }
+    return measured;
+  }
+
   void EmitPcm(const uint8_t* data, size_t bytes, int samples_per_frame,
                std::chrono::steady_clock::time_point ts) {
     CapturedAudioFrame af;
@@ -492,11 +538,10 @@ class PulseAudioCapture : public IAudioCapture {
   }
 
   void CaptureLoop() {
-    int samples_per_frame = sample_rate_ / 100;
-    size_t frame_bytes = static_cast<size_t>(samples_per_frame * channels_ * sizeof(int16_t));
+    const int samples_per_frame = sample_rate_ / 100;
+    const size_t frame_bytes = static_cast<size_t>(samples_per_frame * channels_ * sizeof(int16_t));
     std::vector<uint8_t> pending;
     std::vector<uint8_t> silence(frame_bytes, 0);
-    auto last_emit = std::chrono::steady_clock::now();
     auto last_cork_warn = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 
     while (running_.load()) {
@@ -529,38 +574,45 @@ class PulseAudioCapture : public IAudioCapture {
         }
       }
 
-      while (pending.size() >= frame_bytes) {
-        // Compute the capture timestamp for this frame. The latency from
-        // pa_stream_get_latency tells us how far in the past the most recent
-        // sample in the buffer was captured. Frames earlier in the buffer
-        // were captured proportionally earlier (one frame_duration per frame).
-        auto now = std::chrono::steady_clock::now();
-        int64_t latency_us = 0;
-        if (stream_) {
-          pa_usec_t pa_latency = 0;
-          int negative = 0;
-          if (pa_stream_get_latency(stream_, &pa_latency, &negative) >= 0 && !negative) {
-            latency_us = static_cast<int64_t>(pa_latency);
-          }
-        }
-        // The remaining buffer holds (pending.size() / frame_bytes) frames.
-        // The current (oldest) frame is (remaining - 1) frame_durations older
-        // than the newest frame.
-        size_t remaining_frames = pending.size() / frame_bytes;
-        int64_t frame_duration_us =
-            (static_cast<int64_t>(samples_per_frame) * 1000000) / sample_rate_;
-        int64_t age_us = static_cast<int64_t>(remaining_frames - 1) * frame_duration_us;
-        auto ts = now - std::chrono::microseconds(latency_us + age_us);
-        EmitPcm(pending.data(), frame_bytes, samples_per_frame, ts);
-        pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(frame_bytes));
-        last_emit = std::chrono::steady_clock::now();
+      const auto now = std::chrono::steady_clock::now();
+      const auto anchor_bounds = std::chrono::milliseconds(kMaxAnchorAgeMs);
+      const auto anchor_from = [&] {
+        const auto measured =
+            MeasuredFrameTime(now, pending.size() / frame_bytes, samples_per_frame);
+        return measured.value_or(now - std::chrono::microseconds(kFrameDurationUs));
+      };
+
+      // Anchor on the first real PCM frame, not on the loop's first tick. A
+      // monitor stream has capture latency that is only visible once data
+      // arrives; anchoring earlier stamps that data late by the whole latency.
+      if (!timeline_.valid()) {
+        if (pending.size() < frame_bytes) continue;
+        timeline_.Reset(std::clamp(anchor_from(), now - anchor_bounds, now),
+                        std::chrono::microseconds(kFrameDurationUs));
       }
 
-      auto now = std::chrono::steady_clock::now();
-      if (now - last_emit >= std::chrono::milliseconds(20)) {
-        // Silence keepalive — no latency correction needed for synthetic silence
-        EmitPcm(silence.data(), silence.size(), samples_per_frame, now);
-        last_emit = now;
+      const int64_t emit = timeline_.FramesToEmit(now, kMaxCatchUpFrames);
+      for (int64_t i = 0; i < emit; ++i) {
+        if (pending.size() >= frame_bytes) {
+          EmitPcm(pending.data(), frame_bytes, samples_per_frame, timeline_.Next());
+          pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(frame_bytes));
+        } else {
+          EmitPcm(silence.data(), silence.size(), samples_per_frame, timeline_.Next());
+        }
+      }
+
+      if (timeline_.NeedsReanchor(now, kReanchorThresholdFrames)) {
+        WarnRateLimited(now, "PulseAudio capture fell behind; re-anchoring audio timeline");
+        timeline_.Reset(std::clamp(anchor_from(), now - anchor_bounds, now),
+                        std::chrono::microseconds(kFrameDurationUs));
+      }
+
+      const size_t pending_frames = pending.size() / frame_bytes;
+      if (pending_frames > static_cast<size_t>(kMaxPendingFrames)) {
+        WarnRateLimited(now, "PulseAudio buffer backlog; dropping stale audio");
+        const size_t excess_bytes =
+            (pending_frames - static_cast<size_t>(kMaxPendingFrames)) * frame_bytes;
+        pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(excess_bytes));
       }
     }
   }
@@ -570,6 +622,8 @@ class PulseAudioCapture : public IAudioCapture {
   pa_stream* stream_ = nullptr;
   std::string record_device_;
   int sample_rate_ = 48000;
+  MediaTimeline timeline_;
+  int64_t last_anchor_log_us_ = 0;
   int channels_ = 2;
   std::atomic<bool> running_{false};
   std::atomic<bool> silence_host_{true};

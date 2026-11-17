@@ -21,6 +21,8 @@ set(TEST_SOURCES
     test_logger.cc
     test_display_capture.cc
     test_frame_pacer.cc
+    test_media_timeline.cc
+    test_av_clock_drift.cc
     test_session_recovery.cc
     test_cast_transport.cc
     test_capture_source.cc

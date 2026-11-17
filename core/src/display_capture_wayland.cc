@@ -33,7 +33,7 @@
 #endif
 #include <unistd.h>
 #include <sys/mman.h>
-
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -177,6 +177,10 @@ class PipeWirePortalCapture : public IDisplayCapture {
     Stop();
     requested_source_ = source;
     target_fps_.store(target_fps > 0 ? target_fps : 60);
+    last_pts_ns_ = 0;
+    last_source_ts_ = Clock::time_point{};
+    last_emit_ts_ = Clock::time_point{};
+    last_emit_now_ = Clock::time_point{};
 
     uint32_t node_id = 0;
     if (!RequestPortalSession(&node_id)) {
@@ -563,9 +567,53 @@ class PipeWirePortalCapture : public IDisplayCapture {
         }
 
         CapturedVideoFrame vf;
+
+        const auto now = Clock::now();
+        const int64_t now_ns =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+        int64_t pts_ns = 0;
+        bool have_pts = false;
+        if (sbuf->n_metas > 0) {
+          struct spa_meta* timing = spa_buffer_find_meta(sbuf, SPA_META_Header);
+          if (timing && timing->size >= sizeof(struct spa_meta_header)) {
+            const int64_t candidate =
+                static_cast<const struct spa_meta_header*>(timing->data)->pts;
+            if (candidate != 0 && candidate >= now_ns - 5000000000LL &&
+                candidate <= now_ns + 5000000000LL) {
+              pts_ns = candidate;
+              have_pts = true;
+            }
+          }
+        }
+
+        Clock::time_point source_ts = now;
+        if (have_pts) {
+          // A cursor-only update carries the previous presentation time. Using
+          // it as-is would step video ahead by the present lag, so carry the
+          // previous source instant instead, as the Windows capturer does.
+          source_ts = (pts_ns <= self->last_pts_ns_)
+                          ? self->last_source_ts_
+                          : Clock::time_point(std::chrono::nanoseconds(pts_ns));
+          self->last_pts_ns_ = pts_ns;
+          self->last_source_ts_ = source_ts;
+        } else {
+          self->last_pts_ns_ = 0;
+          self->last_source_ts_ = source_ts;
+        }
+
+        // Keep the source timeline monotonic. Portals without usable pts fall
+        // back to now(); when that does not advance, step by elapsed time.
+        if (source_ts <= self->last_emit_ts_) {
+          const auto elapsed = std::max(now - self->last_emit_now_, Clock::duration(1));
+          vf.timestamp = self->last_emit_ts_ + elapsed;
+        } else {
+          vf.timestamp = source_ts;
+        }
+        self->last_emit_ts_ = vf.timestamp;
+        self->last_emit_now_ = now;
+
         vf.width = self->width_;
         vf.height = self->height_;
-        vf.timestamp = std::chrono::steady_clock::now();
         vf.has_cursor = has_cursor;
         vf.cursor_x = cursor_x;
         vf.cursor_y = cursor_y;
@@ -814,6 +862,11 @@ class PipeWirePortalCapture : public IDisplayCapture {
   enum spa_video_format negotiated_format_ = SPA_VIDEO_FORMAT_UNKNOWN;
   bool is_dmabuf_negotiated_ = false;
   std::atomic<int> target_fps_{60};
+  using Clock = std::chrono::steady_clock;
+  int64_t last_pts_ns_ = 0;
+  Clock::time_point last_source_ts_{};
+  Clock::time_point last_emit_ts_{};
+  Clock::time_point last_emit_now_{};
 
   // Source tracking: requested_source_ is what the caller asked for;
   // resolved_source_ is what the portal actually gave us (filled from the

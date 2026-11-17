@@ -1,4 +1,5 @@
 #include "castcore/display_capture.h"
+#include "castcore/frame_pacer.h"
 #include "castcore/logger.h"
 #include "castcore/config.h"
 #include "castcore/latency_hud.h"
@@ -570,6 +571,8 @@ class X11DisplayCapture : public IDisplayCapture {
     }
     XSetErrorHandler(X11QuietErrorHandler);
     target_fps_.store(target_fps > 0 ? target_fps : 60);
+    pacer_.Reset(std::chrono::steady_clock::now());
+    pacer_.SetTargetFps(target_fps_.load());
     root_window_ = DefaultRootWindow(display_);
     target_window_ = 0;  // monitor mode: capture from root
     active_source_ = CaptureSource{CaptureSourceKind::kMonitor, display_id, ""};
@@ -648,6 +651,7 @@ class X11DisplayCapture : public IDisplayCapture {
   void SetTargetFps(int fps) override {
     if (fps > 0) {
       target_fps_.store(fps);
+      pacer_.SetTargetFps(fps);
     }
   }
 
@@ -730,6 +734,8 @@ class X11DisplayCapture : public IDisplayCapture {
     XSetErrorHandler(X11QuietErrorHandler);
     g_x11_last_error_code = 0;
     target_fps_.store(target_fps > 0 ? target_fps : 60);
+    pacer_.Reset(std::chrono::steady_clock::now());
+    pacer_.SetTargetFps(target_fps_.load());
     root_window_ = DefaultRootWindow(display_);
     target_window_ = static_cast<Window>(source.id);
     active_source_ = source;
@@ -1039,10 +1045,36 @@ class X11DisplayCapture : public IDisplayCapture {
 
   void CaptureLoop() {
     constexpr int kDamageSkipThreshold = 3;  // N vsyncs without damage => skip capture
+    const auto deliver = [this](const CapturedVideoFrame* frame) {
+      FrameCallback cb;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cb = callback_;
+      }
+      if (cb) cb(*frame);
+    };
+
     while (running_.load()) {
-      int fps = std::max(target_fps_.load(), 1);
-      auto frame_interval = std::chrono::microseconds(1000000 / fps);
-      auto start_time = std::chrono::steady_clock::now();
+      const int fps = std::max(target_fps_.load(), 1);
+      const auto frame_start = std::chrono::steady_clock::now();
+      pacer_.SetTargetFps(fps);
+
+      // Cadence emit: the pacer returns the newest submitted frame or re-sends
+      // the previous one with an advanced timestamp. Re-sends keep the video
+      // RTP timeline moving while the desktop is idle.
+      const auto emit = pacer_.Tick(frame_start);
+      if (emit.emit && emit.frame != nullptr) {
+        const bool want_cursor = show_cursor_;
+        const bool want_hud = ConfigStore::Instance().Get().latency_hud_enabled;
+        if ((want_cursor || want_hud) && !emit.frame->data.empty()) {
+          CapturedVideoFrame overlay = *emit.frame;
+          if (want_cursor) CompositeCursor(overlay);
+          if (want_hud) LatencyHud::Render(overlay);
+          deliver(&overlay);
+        } else {
+          deliver(emit.frame);
+        }
+      }
 
       // Window mode: check lifecycle before capturing. If the window was
       // destroyed/unmapped, emit one final source_lost frame and stop.
@@ -1052,40 +1084,27 @@ class X11DisplayCapture : public IDisplayCapture {
           vf.width = crop_w_;
           vf.height = crop_h_;
           vf.stride = crop_w_ * 4;
-          vf.timestamp = start_time;
+          vf.timestamp = frame_start;
           vf.source_lost = true;
-          FrameCallback cb;
-          {
-            std::lock_guard<std::mutex> lock(mutex_);
-            cb = callback_;
-          }
-          if (cb) cb(vf);
+          deliver(&vf);
           running_ = false;
           break;
         }
       }
 
+      bool skip_capture = false;
 #if defined(CASTCORE_HAVE_XDAMAGE)
       // Damage-based frame skipping is only used in monitor mode (root window).
       // In window mode, the selected window may be static (not actively redrawn),
       // so damage may never fire. We must always capture to ensure frames are
       // delivered — the user explicitly chose this window to share.
       if (xdamage_ok_ && target_window_ == 0) {
-        bool damaged = PollDamage();
-        if (!damaged) {
+        if (!PollDamage()) {
           undamaged_frames_++;
           if (undamaged_frames_ >= kDamageSkipThreshold) {
             capture_skipped_.fetch_add(1, std::memory_order_relaxed);
-            // Still sleep to maintain vsync cadence, but skip XShmGetImage
-            auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - start_time);
-            if (elapsed < frame_interval) {
-              std::this_thread::sleep_for(frame_interval - elapsed);
-            }
-            continue;
+            skip_capture = true;
           }
-        } else {
-          // damage consumed in PollDamage()
         }
       } else if (xdamage_ok_ && target_window_ != 0) {
         // Window mode: drain damage events but always capture.
@@ -1093,57 +1112,59 @@ class X11DisplayCapture : public IDisplayCapture {
       }
 #endif
 
-      // In window mode, capture from target_window_ at origin (0,0).
-      // In monitor mode, capture from root_window_ at (crop_x_, crop_y_).
-      Drawable capture_drawable = (target_window_ != 0) ? target_window_ : root_window_;
-      int capture_x = (target_window_ != 0) ? 0 : crop_x_;
-      int capture_y = (target_window_ != 0) ? 0 : crop_y_;
+      if (!skip_capture) {
+        // In window mode, capture from target_window_ at origin (0,0).
+        // In monitor mode, capture from root_window_ at (crop_x_, crop_y_).
+        const Drawable capture_drawable = (target_window_ != 0) ? target_window_ : root_window_;
+        const int capture_x = (target_window_ != 0) ? 0 : crop_x_;
+        const int capture_y = (target_window_ != 0) ? 0 : crop_y_;
 
-      XImage* image = nullptr;
-      bool image_owned = false;
-      if (shm_ok_) {
-        if (XShmGetImage(display_, capture_drawable, shm_image_, capture_x, capture_y, AllPlanes)) {
-          image = shm_image_;
+        const auto read_start = std::chrono::steady_clock::now();
+        XImage* image = nullptr;
+        bool image_owned = false;
+        if (shm_ok_) {
+          if (XShmGetImage(
+                  display_, capture_drawable, shm_image_, capture_x, capture_y, AllPlanes)) {
+            image = shm_image_;
+          }
+        }
+        if (!image) {
+          // Fallback to XGetImage – must not break existing X11 capture path
+          image = XGetImage(display_,
+                            capture_drawable,
+                            capture_x,
+                            capture_y,
+                            crop_w_,
+                            crop_h_,
+                            AllPlanes,
+                            ZPixmap);
+          image_owned = (image != nullptr);
+        }
+        const auto read_end = std::chrono::steady_clock::now();
+
+        if (image) {
+          CapturedVideoFrame vf;
+          vf.width = crop_w_;
+          vf.height = crop_h_;
+          vf.stride = image->bytes_per_line;
+          // The content instant is the middle of the X read, not the loop wake
+          // or the end of the copy. Audio carries the sink's render instant;
+          // both must be the same kind of time for the receiver to align them.
+          vf.timestamp = read_start + (read_end - read_start) / 2;
+          vf.data.resize(static_cast<size_t>(image->bytes_per_line) * crop_h_);
+          std::memcpy(vf.data.data(), image->data, vf.data.size());
+          if (image_owned) {
+            XDestroyImage(image);
+          }
+          pacer_.Submit(std::move(vf), crop_x_, crop_y_);
         }
       }
-      if (!image) {
-        // Fallback to XGetImage – must not break existing X11 capture path
-        image = XGetImage(
-            display_, capture_drawable, capture_x, capture_y, crop_w_, crop_h_, AllPlanes, ZPixmap);
-        image_owned = (image != nullptr);
-      }
 
-      if (image) {
-        CapturedVideoFrame vf;
-        vf.width = crop_w_;
-        vf.height = crop_h_;
-        vf.stride = image->bytes_per_line;
-        vf.timestamp = start_time;
-        vf.data.resize(static_cast<size_t>(image->bytes_per_line) * crop_h_);
-        std::memcpy(vf.data.data(), image->data, vf.data.size());
-        if (image_owned) {
-          XDestroyImage(image);
-        }
-
-        if (show_cursor_) CompositeCursor(vf);
-        if (ConfigStore::Instance().Get().latency_hud_enabled && !vf.data.empty()) {
-          LatencyHud::Render(vf);
-        }
-
-        FrameCallback cb;
-        {
-          std::lock_guard<std::mutex> lock(mutex_);
-          cb = callback_;
-        }
-        if (cb) {
-          cb(vf);
-        }
-      }
-
-      auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::steady_clock::now() - start_time);
-      if (elapsed < frame_interval) {
-        std::this_thread::sleep_for(frame_interval - elapsed);
+      const int wait_ms = pacer_.WaitSliceMs(std::chrono::steady_clock::now());
+      if (wait_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
+      } else {
+        std::this_thread::yield();
       }
     }
   }
@@ -1185,6 +1206,7 @@ class X11DisplayCapture : public IDisplayCapture {
   std::thread capture_thread_;
   std::mutex mutex_;
   FrameCallback callback_;
+  FramePacer pacer_;
 };
 #endif
 
