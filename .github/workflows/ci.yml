@@ -258,8 +258,8 @@ jobs:
         env:
           CASTMIRROR_MIN_COVERAGE: '55'
         run: |
-          gcovr -r . --filter 'core/' --xml -o build-cov/coverage.xml --html --html-details -o build-cov/coverage.html
-          gcovr -r . --filter 'core/' --txt --fail-under-line "${CASTMIRROR_MIN_COVERAGE}"
+          gcovr -r . --filter 'core/' --gcov-ignore-parse-errors negative_hits.warn --gcov-ignore-errors no_working_dir_found --xml -o build-cov/coverage.xml --html --html-details -o build-cov/coverage.html
+          gcovr -r . --filter 'core/' --gcov-ignore-parse-errors negative_hits.warn --gcov-ignore-errors no_working_dir_found --txt --fail-under-line "${CASTMIRROR_MIN_COVERAGE}"
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
