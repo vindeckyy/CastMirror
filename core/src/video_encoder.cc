@@ -642,8 +642,8 @@ class FFmpegVideoEncoder : public IVideoEncoder {
              << config_.height << " @ " << config_.framerate << "fps, " << config_.bitrate_kbps
              << " kbps)";
     return true;
-#endif
   }
+#endif
 
   bool InitSoftware() {
     const AVCodec* codec = nullptr;

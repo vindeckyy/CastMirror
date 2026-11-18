@@ -152,8 +152,8 @@ TEST(EncoderTest, VideoEncoderNameIsNonEmpty) {
   auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
   ASSERT_TRUE(encoder->Initialize(cfg));
   std::string name = encoder->EncoderName();
-  EXPECT_TRUE(name == "libx264" || name == "h264_vaapi" || name == "mf_h264_hw" ||
-              name == "mf_h264_sw");
+  EXPECT_TRUE(name == "libx264" || name == "libopenh264" || name == "h264_vaapi" ||
+              name == "mf_h264_hw" || name == "mf_h264_sw");
 }
 
 // The Media Foundation backend reuses one input media buffer and one input
