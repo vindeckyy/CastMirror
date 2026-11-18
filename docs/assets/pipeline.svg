@@ -1,40 +1,87 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 280" role="img" aria-label="CastMirror media pipeline">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 340" role="img" aria-label="CastMirror cross-platform media and network pipeline">
   <style>
-    .box { fill: #1a1d24; stroke: #2a2e39; stroke-width: 1.25; }
-    .t { font-family: ui-sans-serif, system-ui, sans-serif; fill: #e1e3e6; font-size: 13px; }
-    .s { font-family: ui-sans-serif, system-ui, sans-serif; fill: #8c93a0; font-size: 11px; }
+    .box { fill: #141a1f; stroke: #2a2e39; stroke-width: 1.35; }
+    .box-accent { fill: #141a1f; stroke: #00b4db; stroke-width: 1.35; }
+    .box-fb { fill: #10161c; stroke: #3a4659; stroke-width: 1.25; stroke-dasharray: 4 3; }
+    .t { font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; fill: #e1e3e6; font-size: 13px; font-weight: 600; }
+    .s { font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif; fill: #9aa3b2; font-size: 11px; }
+    .lbl { font-family: "IBM Plex Mono", ui-monospace, monospace; fill: #55d8f4; font-size: 10.5px; }
     .a { stroke: #00d2ff; stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+    .fb { stroke: #55d8f4; stroke-width: 1.35; stroke-dasharray: 5 4; fill: none; marker-end: url(#arr); opacity: 0.85; }
   </style>
   <defs>
     <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
       <path d="M0,0 L8,4 L0,8 z" fill="#00d2ff"/>
     </marker>
   </defs>
-  <rect class="box" x="16" y="36" width="150" height="64" rx="10"/>
-  <text class="t" x="91" y="62" text-anchor="middle">X11 capture</text>
-  <text class="s" x="91" y="80" text-anchor="middle">BGRA 1080p60</text>
-  <rect class="box" x="16" y="180" width="150" height="64" rx="10"/>
-  <text class="t" x="91" y="206" text-anchor="middle">Pulse monitor</text>
-  <text class="s" x="91" y="224" text-anchor="middle">48 kHz stereo</text>
-  <rect class="box" x="230" y="36" width="150" height="64" rx="10"/>
-  <text class="t" x="305" y="62" text-anchor="middle">libx264</text>
-  <text class="s" x="305" y="80" text-anchor="middle">superfast / High</text>
-  <rect class="box" x="230" y="180" width="150" height="64" rx="10"/>
-  <text class="t" x="305" y="206" text-anchor="middle">Opus</text>
-  <text class="s" x="305" y="224" text-anchor="middle">10 ms frames</text>
-  <rect class="box" x="444" y="108" width="150" height="64" rx="10"/>
-  <text class="t" x="519" y="134" text-anchor="middle">AES-128-CTR</text>
-  <text class="s" x="519" y="152" text-anchor="middle">per-frame IV</text>
-  <rect class="box" x="658" y="108" width="150" height="64" rx="10"/>
-  <text class="t" x="733" y="134" text-anchor="middle">Cast RTP</text>
-  <text class="s" x="733" y="152" text-anchor="middle">UDP + RTCP</text>
-  <rect class="box" x="872" y="108" width="216" height="64" rx="10"/>
-  <text class="t" x="980" y="134" text-anchor="middle">Cast device</text>
-  <text class="s" x="980" y="152" text-anchor="middle">TLS 8009 + media UDP</text>
-  <path class="a" d="M166 68 H230"/>
-  <path class="a" d="M166 212 H230"/>
-  <path class="a" d="M380 68 C410 68 420 140 444 140"/>
-  <path class="a" d="M380 212 C410 212 420 140 444 140"/>
-  <path class="a" d="M594 140 H658"/>
-  <path class="a" d="M808 140 H872"/>
+
+  <!-- Video Path (Top Row) -->
+  <rect class="box" x="16" y="28" width="168" height="68" rx="10"/>
+  <text class="t" x="100" y="54" text-anchor="middle">Display / Window</text>
+  <text class="s" x="100" y="72" text-anchor="middle">DXGI · WGC · X11 · PipeWire</text>
+  <text class="s" x="100" y="87" text-anchor="middle">FramePacer · HDR→SDR</text>
+
+  <rect class="box" x="210" y="28" width="156" height="68" rx="10"/>
+  <text class="t" x="288" y="54" text-anchor="middle">GpuProcessor</text>
+  <text class="s" x="288" y="72" text-anchor="middle">Letterbox · BT.709</text>
+  <text class="s" x="288" y="87" text-anchor="middle">BGRA / NV12 → YUV</text>
+
+  <rect class="box" x="392" y="28" width="164" height="68" rx="10"/>
+  <text class="t" x="474" y="54" text-anchor="middle">H.264 / VP8 Encode</text>
+  <text class="s" x="474" y="72" text-anchor="middle">MF · VAAPI · libx264</text>
+  <text class="s" x="474" y="87" text-anchor="middle">0 B-frames · Annex-B</text>
+
+  <!-- Audio Path (Bottom Row) -->
+  <rect class="box" x="16" y="168" width="230" height="68" rx="10"/>
+  <text class="t" x="131" y="194" text-anchor="middle">Audio Capture</text>
+  <text class="s" x="131" y="212" text-anchor="middle">WASAPI (system / per-app)</text>
+  <text class="s" x="131" y="227" text-anchor="middle">PulseAudio / PipeWire · 48 kHz</text>
+
+  <rect class="box" x="326" y="168" width="230" height="68" rx="10"/>
+  <text class="t" x="441" y="194" text-anchor="middle">OpusAudioEncoder</text>
+  <text class="s" x="441" y="212" text-anchor="middle">libopus · 48 kHz stereo</text>
+  <text class="s" x="441" y="227" text-anchor="middle">10 ms frames · 64–256 kbps</text>
+
+  <!-- Shared Crypto, RTP, Transport, Receiver -->
+  <rect class="box" x="596" y="98" width="136" height="68" rx="10"/>
+  <text class="t" x="664" y="124" text-anchor="middle">FrameCrypto</text>
+  <text class="s" x="664" y="142" text-anchor="middle">AES-128-CTR</text>
+  <text class="s" x="664" y="157" text-anchor="middle">per-frame IV</text>
+
+  <rect class="box" x="758" y="98" width="136" height="68" rx="10"/>
+  <text class="t" x="826" y="124" text-anchor="middle">RtpPacketizer</text>
+  <text class="s" x="826" y="142" text-anchor="middle">Cast RTP (7B hdr)</text>
+  <text class="s" x="826" y="157" text-anchor="middle">+ playout delay ext</text>
+
+  <rect class="box-accent" x="920" y="98" width="124" height="68" rx="10"/>
+  <text class="t" x="982" y="124" text-anchor="middle">CastTransport</text>
+  <text class="s" x="982" y="142" text-anchor="middle">Paced UDP</text>
+  <text class="s" x="982" y="157" text-anchor="middle">NACK cache · RTCP</text>
+
+  <rect class="box-accent" x="1068" y="98" width="96" height="68" rx="10"/>
+  <text class="t" x="1116" y="124" text-anchor="middle">Cast TV</text>
+  <text class="s" x="1116" y="142" text-anchor="middle">TLS 1.2 :8009</text>
+  <text class="s" x="1116" y="157" text-anchor="middle">+ media UDP</text>
+
+  <!-- Adaptive Feedback Box -->
+  <rect class="box-fb" x="596" y="264" width="386" height="54" rx="10"/>
+  <text class="t" x="789" y="287" text-anchor="middle">AdaptiveController &amp; SessionRecovery</text>
+  <text class="s" x="789" y="305" text-anchor="middle">8-rung ladder · 150–400 ms playout delay · PLI IDR · reconnect</text>
+
+  <!-- Forward Media Arrows -->
+  <path class="a" d="M184 62 H208"/>
+  <path class="a" d="M366 62 H390"/>
+  <path class="a" d="M246 202 H324"/>
+  <path class="a" d="M556 62 C578 62 574 122 594 122"/>
+  <path class="a" d="M556 202 C578 202 574 142 594 142"/>
+  <path class="a" d="M732 132 H756"/>
+  <path class="a" d="M894 132 H918"/>
+  <path class="a" d="M1044 132 H1066"/>
+
+  <!-- Feedback Arrows (RTCP -> CastTransport -> AdaptiveController -> Encoder) -->
+  <path class="fb" d="M1116 166 V218 C1116 232 1106 238 1092 238 H1006 C992 238 982 232 982 218 V168"/>
+  <text class="lbl" x="1050" y="254" text-anchor="middle">RTCP ACK/NACK/PLI</text>
+  <path class="fb" d="M946 166 V262"/>
+  <path class="fb" d="M596 291 H474 V98"/>
+  <text class="lbl" x="535" y="283" text-anchor="middle">reconfigure / IDR</text>
 </svg>

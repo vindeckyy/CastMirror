@@ -1,14 +1,14 @@
 .\" Manpage for castmirror-gui. Apache-2.0. See NOTICE for the GPL implications of
 .\" distributing a binary linked against libx264.
-.TH CASTMIRROR-GUI 1 "2026-09-23" "CastMirror 1.0.0" "User Commands"
+.TH CASTMIRROR-GUI 1 "2026-11-18" "CastMirror 1.0.4" "User Commands"
 .SH NAME
 castmirror-gui \- GTK 4 desktop front end for CastMirror
 .SH SYNOPSIS
 .B castmirror-gui
 .SH DESCRIPTION
 .B castmirror-gui
-is the GTK 4 + libadwaita desktop application for CastMirror. It has no command
-line options; all state is persisted in
+is the GTK 4 + libadwaita desktop application for CastMirror. It has no custom
+command line options; all state is persisted in
 .I ~/.config/castmirror/config.json
 and shared with
 .BR castmirror (1).
@@ -16,41 +16,85 @@ and shared with
 The window is organised into four views:
 .TP
 .B Cast
-LAN receiver list with model glyphs, a display or single-window selector, the
-six quality preset cards, an inline bitrate slider, and the primary Cast action.
+LAN receiver list with model glyphs, rescan, Add by IP, and remove-saved-device
+actions, a Screen or Window selector, the six quality preset cards (Auto, High,
+Balanced, Smooth, Game, Cinema), an inline target bitrate cap slider (1\-25 Mbps),
+and the primary Cast action in the bottom bar.
 .TP
-.B Live
-Real-time status banner, FPS / bitrate / RTT / packet-loss sparklines, the
-adaptive ladder rung indicator, and the Freeze display and Mute TV audio
-controls.
+.B Live session
+Real-time status hero banner with Freeze, Mute TV, Game Mode, and Cinema Mode
+quick controls; 5-stage session pipeline diagram; health banner; 9 live
+telemetry cards with FPS, video bitrate, RTT, and packet-loss sparklines; the
+8-rung adaptive quality ladder; and the session activity timeline.
 .TP
 .B Settings
-Video bitrate ceiling, capture frame rate, Opus audio quality, host speaker
-mute, target playout buffer delay, LAN subnet scan, appearance theme, and the
-hardware and network self-test wizard.
+Video bitrate cap, capture frame rate, computer sound toggle, host speaker
+mute, Opus audio quality (64\-256 kbps), target playout delay (100\-400 ms),
+camera latency HUD overlay toggle, LAN subnet scan, Force X11 capture, Force
+software encode, system tray icon and close-to-tray toggles, desktop
+notifications, color scheme (System default, Light, Dark), and the hardware and
+network self-test wizard.
 .TP
 .B Logs
-Searchable log console with severity filters, clipboard copy and quick access to
-the log folder.
+Minimum log-level selector (Debug, Info, Warn, Error), text filter, copy last
+100 lines (JSON sidecar when present, or current view), copy all, open log
+folder, and clear view.
+.SH SHORTCUTS
+.TP
+.B Ctrl+Return
+Start or stop casting.
+.TP
+.B Ctrl+R
+Rescan LAN for Cast devices.
+.TP
+.BR Ctrl+1 ", " Ctrl+2 ", " Ctrl+3 ", " Ctrl+4
+Switch between Cast, Live session, Settings, and Logs views.
+.TP
+.B Ctrl+Q
+Quit.
+.TP
+.B F1
+Show the About dialog.
 .SH ENVIRONMENT
 .TP
 .B CASTMIRROR_FORCE_SOFTWARE_ENCODE=1
 Force FFmpeg libx264 software encoding even where VAAPI hardware encoding is
 available.
 .TP
+.B CASTMIRROR_VAAPI_DEVICE=/dev/dri/renderD129
+Use a specific VAAPI render node instead of probing
+.IR /dev/dri/renderD* .
+.TP
 .B CASTMIRROR_FORCE_X11=1
 Force X11 capture instead of the Wayland xdg-desktop-portal ScreenCast path.
 .TP
 .B CASTMIRROR_CONFIG_DIR=/path/to/dir
-Redirect the configuration directory, as for
+Redirect the configuration and log directory, as for
 .BR castmirror (1).
+.TP
+.B CASTMIRROR_VERBOSE_JSON=1
+Enable structured NDJSON diagnostic breadcrumbs in
+.IR castmirror.ndjson .
+.TP
+.B CASTMIRROR_CSS=/path/to/style.css
+Load a custom GTK CSS stylesheet instead of the bundled theme CSS.
 .SH FILES
 .TP
 .I ~/.config/castmirror/config.json
 Persisted settings, shared with the CLI.
 .TP
 .I ~/.config/castmirror/castmirror.log
-Rotating debug log.
+Rotating engine debug log.
+.TP
+.I ~/.config/castmirror/castmirror-session.log
+Per-session debug log overwritten on each cast.
+.TP
+.I ~/.config/castmirror/castmirror.ndjson
+Structured NDJSON diagnostics when
+.B CASTMIRROR_VERBOSE_JSON=1
+or
+.B verbose_json_logging
+is enabled.
 .SH SEE ALSO
 .BR castmirror (1),
 .BR xdg-desktop-portal (1),

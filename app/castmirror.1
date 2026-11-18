@@ -1,6 +1,6 @@
 .\" Manpage for castmirror. Apache-2.0. See NOTICE for the GPL implications of
 .\" distributing a binary linked against libx264.
-.TH CASTMIRROR 1 "2026-09-23" "CastMirror 1.0.0" "User Commands"
+.TH CASTMIRROR 1 "2026-11-18" "CastMirror 1.0.4" "User Commands"
 .SH NAME
 castmirror \- send a display or window to a Google Cast receiver
 .SH SYNOPSIS
@@ -10,9 +10,10 @@ castmirror \- send a display or window to a Google Cast receiver
 .B castmirror
 is the interactive and flag-driven command line front end to the CastMirror
 core. It discovers Google Cast, Android TV and Nest receivers on the local
-network, captures a display or a single window, encodes H.264 video with VAAPI
-or FFmpeg libx264 and Opus audio, and streams the result over the Cast
-Streaming protocol (CAST/CST2 RTP over UDP with compound RTCP).
+network, captures a display or a single window, encodes H.264 (VAAPI, Media
+Foundation or FFmpeg libx264) or VP8 video and Opus audio, and streams the
+result over the Cast Streaming protocol (CAST/CST2 RTP over UDP with compound
+RTCP).
 .PP
 Run with no options to enter the interactive prompt.
 .SH OPTIONS
@@ -21,12 +22,17 @@ Run with no options to enter the interactive prompt.
 Target receiver by IP address or Cast device UUID. Implies non-interactive mode.
 .TP
 .BI \-\-display " <ID>"
-Display or monitor index to capture. Default is 0.
+Display or monitor index to capture. Default is saved config (0 initially).
+Cannot be combined with
+.BR \-\-window .
 .TP
 .BI \-\-window " <ID>"
-Share a single window, identified by its X11 XID. Use
+Share a single window, identified by its numeric window ID (X11 XID on Linux,
+HWND integer on Windows). Use
 .B \-\-list-windows
-to enumerate IDs.
+to enumerate IDs. Requires
+.B \-\-device
+when starting a stream.
 .TP
 .B \-\-list-windows
 List capturable windows and exit.
@@ -35,17 +41,18 @@ List capturable windows and exit.
 List available displays and exit.
 .TP
 .BI \-\-preset " <preset>"
-Quality preset: Auto, High, Balanced, Smooth, Game or Cinema. Default is Auto.
-Game requests a 150 ms target playout delay; Cinema requests 400 ms.
+Quality preset (case-insensitive): Auto, High, Balanced, Smooth, Game or Cinema.
+Default is saved config (Auto initially). Game requests a 150 ms target
+playout delay and locks resolution; Cinema requests 400 ms.
 .TP
 .B \-\-no-audio
-Disable audio mirroring.
+Disable audio mirroring for this session.
 .TP
 .BI \-\-bitrate " <kbps>"
-Custom video bitrate ceiling in kilobits per second.
+Custom video bitrate ceiling in kilobits per second (1\-100000).
 .TP
 .BI \-\-codec " <h264|vp8>"
-Select the video codec. Default is h264.
+Select the video codec (h264 or vp8). Default is saved config (h264 initially).
 .TP
 .B \-\-low-latency
 Force a 200 ms target playout delay.
@@ -55,36 +62,121 @@ Bypass Cast device certificate verification. Development escape hatch; do not
 use it on an untrusted network.
 .TP
 .BI \-\-auth-probe " <IP>"
-Connect to a device, run the device authentication challenge and exit.
+Connect to a device, run the device authentication challenge and exit. Honors
+.BR \-\-no-verify .
 .TP
-.B \-\-help
+.BR \-\-help ", " \-h
 Show the help message and exit.
+.SH INTERACTIVE COMMANDS
+When invoked without
+.BR \-\-device ,
+.BR \-\-window ,
+.BR \-\-auth-probe ,
+.BR \-\-list-windows ,
+or
+.BR \-\-list-displays ,
+.B castmirror
+scans for Cast devices and opens an interactive menu:
+.TP
+.BI 1 \- N
+Select discovered device
+.I N
+and start casting the configured display.
+.TP
+.B L
+Cast to the last used device.
+.TP
+.B P
+Cycle the quality preset (Auto, High, Balanced, Smooth, Game, Cinema) and save.
+.TP
+.B M
+Toggle audio mirroring and save.
+.TP
+.B A
+Add a Cast device manually by IPv4 address.
+.TP
+.B W
+Cast a single window by ID (shown when window capture is supported).
+.TP
+.B R
+Refresh / rescan for Cast devices.
+.TP
+.B Q
+Quit.
+.PP
+While streaming, press
+.B Enter
+or send
+.B SIGINT
+/
+.B SIGTERM
+(Ctrl+C) to stop cleanly.
+.SH EXIT STATUS
+.TP
+.B 0
+The requested work completed.
+.TP
+.B 1
+The cast could not be started, a connection failed, or
+.B \-\-auth-probe
+failed.
+.TP
+.B 2
+The command line was not understood (usage error).
+.TP
+.B 3
+The session started but ended in failure.
 .SH ENVIRONMENT
 .TP
 .B CASTMIRROR_FORCE_SOFTWARE_ENCODE=1
-Force FFmpeg libx264 software encoding even where VAAPI hardware encoding is
-available.
+Force FFmpeg libx264 software encoding even where VAAPI or Media Foundation
+hardware encoding is available.
+.TP
+.B CASTMIRROR_VAAPI_DEVICE=/dev/dri/renderD129
+Linux only: use a specific VAAPI render node instead of probing
+.IR /dev/dri/renderD* .
 .TP
 .B CASTMIRROR_FORCE_X11=1
-Force X11 capture instead of the Wayland xdg-desktop-portal ScreenCast path.
+Linux only: force X11 capture instead of the Wayland xdg-desktop-portal
+ScreenCast path.
 .TP
 .B CASTMIRROR_CONFIG_DIR=/path/to/dir
 Read and write
 .I config.json
-in this directory instead of the default per-user location.
+and log files in this directory instead of the default per-user location.
+.TP
+.B CASTMIRROR_VERBOSE_JSON=1
+Enable structured NDJSON diagnostic breadcrumbs in
+.IR castmirror.ndjson .
+.TP
+.B CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE=1
+Allow synthetic generated video/audio when real display capture is unavailable
+(intended for automated tests).
 .SH FILES
 .TP
 .I ~/.config/castmirror/config.json
-Persisted settings.
+Persisted settings (on Windows:
+.IR %APPDATA%\eCastMirror\econfig.json ).
 .TP
 .I ~/.config/castmirror/castmirror.log
-Rotating debug log.
+Rotating engine log.
+.TP
+.I ~/.config/castmirror/castmirror-session.log
+Per-session debug log overwritten on each cast.
+.TP
+.I ~/.config/castmirror/castmirror.ndjson
+Structured NDJSON diagnostics when
+.B CASTMIRROR_VERBOSE_JSON=1
+or
+.B verbose_json_logging
+is enabled.
 .SH EXAMPLES
 .PP
 .nf
 castmirror \-\-device 192.168.1.150 \-\-display 0 \-\-preset High
 castmirror \-\-device 192.168.1.150 \-\-no-audio
 castmirror \-\-list-windows
+castmirror \-\-auth-probe 192.168.1.150
 .fi
 .SH SEE ALSO
 .BR castmirror-gui (1),

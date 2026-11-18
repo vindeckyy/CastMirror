@@ -8,10 +8,6 @@
   --text-bright: #ffffff;
   --muted: #8c93a0;
   --cyan: #00d2ff;
-  --primary: #55d8f4;
-  --blue: #0078d4;
-  --live: #4caf50;
-  --warning: #f2c66d;
   --max: 1240px;
   --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", "ui-monospace", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -38,6 +34,7 @@ body {
 
 a { color: var(--cyan); text-decoration: none; transition: color 0.15s; }
 a:hover { text-decoration: underline; color: #6ee7ff; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
 .wrap { max-width: var(--max); margin: 0 auto; padding: 0 24px; }
 
@@ -144,13 +141,13 @@ nav .wrap {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #00b4db, #0083b0);
+  background: linear-gradient(135deg, #0072ab, #005785);
   color: #fff;
-  box-shadow: 0 4px 16px rgba(0, 180, 219, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 114, 171, 0.35);
 }
 .btn-primary:hover {
-  background: linear-gradient(135deg, #00c6ee, #0096c7);
-  box-shadow: 0 6px 20px rgba(0, 180, 219, 0.45);
+  background: linear-gradient(135deg, #0082c2, #00669c);
+  box-shadow: 0 6px 20px rgba(0, 130, 194, 0.45);
 }
 
 .btn-secondary {
@@ -241,7 +238,7 @@ nav .wrap {
 }
 
 /* Sections */
-section { padding: 56px 0; border-top: 1px solid var(--border-subtle); }
+section { padding: 56px 0; border-top: 1px solid var(--border-subtle); scroll-margin-top: 84px; }
 section h2 {
   font-size: 28px;
   letter-spacing: -0.02em;
@@ -389,6 +386,7 @@ section h2 {
 /* All docs rendered continuously */
 .doc-panel {
   display: block;
+  scroll-margin-top: 84px;
   margin-bottom: 56px;
   padding-bottom: 48px;
   border-bottom: 1px solid var(--border);
@@ -488,14 +486,23 @@ section h2 {
 
 .callout strong { color: var(--text-bright); }
 .callout-tip { background: rgba(76, 175, 80, 0.06); border-left-color: #4caf50; }
-.callout-warning { background: rgba(242, 198, 109, 0.06); border-left-color: #f2c66d; }
+
+/* Download card file list */
+.download-files {
+  margin: 14px 0 18px;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+.download-files li { margin-bottom: 4px; }
 
 /* Code and Pre Blocks */
 pre {
   background: #090c0f;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 14px 16px;
+  padding: 14px 76px 14px 16px;
   overflow-x: auto;
   font-family: var(--mono);
   font-size: 13px;
@@ -558,9 +565,10 @@ footer a:hover { color: var(--text-bright); }
 
 /* Responsive adjustments */
 @media (max-width: 900px) {
+  nav .wrap { height: auto; padding: 10px 24px; flex-wrap: wrap; gap: 10px; }
+  .nav-links { gap: 14px; flex-wrap: wrap; font-size: 13px; }
   .hero { grid-template-columns: 1fr; padding: 40px 0; }
   .grid { grid-template-columns: 1fr; }
   .docs-layout { grid-template-columns: 1fr; }
   .docs-nav { position: static; }
-  .nav-links { display: none; }
 }

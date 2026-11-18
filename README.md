@@ -26,7 +26,7 @@
 
 ## Install
 
-1. Download `CastMirror-Setup-<version>-x64.exe` from the [latest release](https://github.com/vindeckyy/CastMirror/releases/latest).
+1. Download `CastMirror-Setup-1.0.4-x64.exe` from the [Windows 1.0.4 release](https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.4) (or the [latest release](https://github.com/vindeckyy/CastMirror/releases/latest)).
 2. Run it. The installer adds a Start menu entry and a Windows Firewall rule for private and domain networks, so Windows doesn't stop discovery with a prompt.
 3. Turn your TV on, put it on the same Wi-Fi as the PC, and open CastMirror.
 
@@ -40,14 +40,14 @@ CastMirror needs Windows 10 version 2004 or later, 64-bit. Checksums for every d
 2. Under **Casting options**, pick what to share: the entire screen, or one application window. For a window, choose it from the list that appears.
 3. Choose a quality preset on the **Cast** page, then press **Start casting** (Ctrl+Enter) or **Cast** on a device card.
 
-While casting you can freeze the picture, mute the TV, and change the bitrate without restarting. Closing the window keeps the cast running in the tray. Quit from the tray icon.
+While casting you can freeze the picture, mute the TV, watch live FPS, bitrate, round-trip time and packet-loss sparklines, and change the bitrate without restarting. Closing the window keeps the cast running in the tray when the tray icon is enabled. Quit from the tray icon.
 
 | Preset | Use it for | Buffer |
 |---|---|---|
-| Auto | Most things. Starts at 1080p and adapts to your Wi-Fi. | 200 ms |
-| High | A strong 5 GHz link and a TV that can take the bitrate. | 200 ms |
-| Balanced | Everyday use over average Wi-Fi. | 200 ms |
-| Smooth | Weak Wi-Fi. Drops to 720p. | 200 ms |
+| Auto | Most things. Starts at 1080p and adapts to your Wi-Fi. | 200 ms (default) |
+| High | A strong 5 GHz link and a TV that can take the bitrate. | 200 ms (default) |
+| Balanced | Everyday use over average Wi-Fi. | 200 ms (default) |
+| Smooth | Weak Wi-Fi. Drops to 720p. | 200 ms (default) |
 | Game | Lowest delay. Keeps resolution fixed. | 150 ms |
 | Cinema | Video. Highest bitrate, deepest buffer. | 400 ms |
 
@@ -62,22 +62,23 @@ Optional system-wide shortcuts (Settings, Desktop integration, Global shortcuts)
 - Discovers Cast devices over mDNS. If your router blocks mDNS, an opt-in subnet scan finds them directly.
 - Captures a monitor with DXGI Desktop Duplication, or a single window through Windows.Graphics.Capture, at a steady 30 or 60 fps even when nothing on screen changes. Window capture shows the window's own content, so windows in front of it stay out of the picture. If a driver hands back HDR or 10-bit surfaces, they are converted to SDR.
 - Captures system audio with WASAPI loopback, follows the default speakers when you switch to headphones, and folds 5.1 and 7.1 down to stereo. You can share one app's sound instead of everything (Settings, Audio, Share audio from), so notifications and other apps stay off the TV.
-- Encodes H.264 on the GPU through Media Foundation and falls back to x264 on the CPU when the GPU encoder doesn't produce frames. Audio is Opus.
+- Encodes H.264 on the GPU through Media Foundation and falls back to x264 on the CPU when the GPU encoder doesn't produce frames (the CLI also supports VP8 via `--codec vp8`). Audio is Opus.
 - Sends the same encrypted Cast RTP stream Chrome's "Cast screen" uses. The control connection is TLS on port 8009, and each device proves its identity against the Cast root certificates.
 - Adapts bitrate and resolution to packet loss and round-trip time, and reconnects after a dropped connection, a sleep or a Wi-Fi change. You choose how long it keeps trying.
 - Runs a single instance. Starting it again brings the running window forward.
-- Optional: start hidden in the tray at sign-in, desktop notifications, light or dark theme.
+- Optional: system tray icon and close-to-tray, start hidden in the tray at sign-in, desktop notifications, Light, Dark or System theme, and a built-in capture/encoder/audio/network self-test (Settings, Diagnostics, Run self-test).
 - Speaks English, Spanish, German and French, following your Windows display language. The translations are unreviewed machine translations, so corrections are welcome. To try one, set `CASTMIRROR_LANG=de` before starting the app.
 
 ## Privacy
 
-CastMirror talks to your TV over your local network and to nothing else. It has no telemetry and no account. It contacts GitHub only when you press **Check for updates** in About. Logs and settings stay in `%APPDATA%\CastMirror`. **Logs, Copy for bug report** masks the last part of every IP address before it reaches your clipboard.
+CastMirror talks to your TV over your local network and to nothing else. It has no telemetry and no account. It contacts GitHub only when you press **Check for updates** in About. Logs and settings stay in `%APPDATA%\CastMirror` (or `CASTMIRROR_CONFIG_DIR`). **Logs, Copy for bug report** masks the last part of every IP address before it reaches your clipboard.
 
 ## When something goes wrong
 
 - **No devices found.** Check the PC and TV are on the same network, and that the network isn't a guest or "client isolation" network. Then try **Settings, Device discovery, Scan the network for TVs**.
 - **Windows asked about the firewall.** Choose **Allow** for private networks. The installer normally does this for you.
 - **The picture glitches or stutters.** Lower the preset to Balanced or Smooth, or turn on **Force software encode**.
+- **Check your hardware path.** Open **Settings, Diagnostics, Run self-test** to verify display capture, encoder, audio loopback and UDP sockets.
 - **CastMirror crashed.** It saves a crash file in `%APPDATA%\CastMirror\crashes` and tells you next launch. The file holds a copy of the program's memory, so share it only if you're comfortable with that.
 - **Anything else.** Open **Logs**, press **Copy for bug report**, and paste it into an [issue](https://github.com/vindeckyy/CastMirror/issues).
 
@@ -86,8 +87,9 @@ CastMirror talks to your TV over your local network and to nothing else. It has 
 Windows build steps, including the MSYS2 packages and the .NET SDK, are in [docs/building.md](docs/building.md). In short:
 
 ```bat
-build-all.bat        :: native core + WinUI app
-package.ps1          :: tests, self-contained publish, licence checks
+build-all.bat                                  :: native core + WinUI app
+dotnet test tests\winui\CastMirror.Tests.csproj :: .NET client unit tests
+package.ps1                                    :: tests, self-contained publish, licence checks
 ```
 
 Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the Cast protocol details in [docs/protocol.md](docs/protocol.md), test results (<!-- testcount -->271<!-- /testcount --> cases) in [docs/TEST_REPORT.md](docs/TEST_REPORT.md), and device test results in [docs/DEVICE_MATRIX.md](docs/DEVICE_MATRIX.md). Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -100,17 +102,19 @@ Architecture notes are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the Cast
 
 ## Linux
 
-The same `castcore` engine builds on Linux with a GTK 4 app and a CLI. It has its own release, `linux-v1.0.4`, with a `.deb` and an `.rpm`:
+The same `castcore` engine builds on Linux with a GTK 4 app (`castmirror-gui`) and an interactive/flag CLI (`castmirror`). It has its own release, [`linux-v1.0.4`](https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.4), with `.deb` and `.rpm` packages:
 
 ```bash
-sudo apt install ./castmirror_1.0.4_x86_64.deb        # Ubuntu 24.04 and derivatives
+sudo apt install ./castmirror_1.0.4_x86_64.deb           # Ubuntu 24.04 and derivatives
 sudo apt install ./castmirror_1.0.4_debian13_x86_64.deb  # Debian 13 (trixie)
 castmirror-gui
 ```
 
+An RPM (`castmirror_1.0.4_x86_64.rpm`) is also attached to the release on a best-effort basis, with checksums for all Linux packages in `SHA256SUMS`.
+
 The two `.deb` files are not interchangeable: each is built on its own distro, because the binaries link that distro's FFmpeg sonames (FFmpeg 6 on Ubuntu 24.04, FFmpeg 7 on Debian 13). Installing the Ubuntu package on Debian 13 fails on `libavcodec60` / `libavutil58` / `libswscale7`, which do not exist there.
 
-Capture works on X11 and, through the desktop portal, on Wayland. Video is VAAPI H.264 with an x264 fallback, and sound comes from the PulseAudio or PipeWire default sink. The Windows app is the primary product and Linux gets fixes rather than features; the Linux GUI and Wayland path were built and unit-tested for 1.0.4 but not exercised on a live desktop. Build steps are in [docs/building.md](docs/building.md).
+Capture works on X11 and, through the desktop portal, on Wayland. Video is VAAPI H.264 with an x264 fallback (or VP8 via `castmirror --codec vp8`), and sound comes from the PulseAudio or PipeWire default sink. The Windows app is the primary product and Linux gets fixes rather than features; the Linux GUI and Wayland path were built and unit-tested for 1.0.4 but not exercised on a live desktop. Build steps are in [docs/building.md](docs/building.md), and manpages are included as [`app/castmirror.1`](app/castmirror.1) and [`app/castmirror-gui.1`](app/castmirror-gui.1).
 
 ## Licence
 

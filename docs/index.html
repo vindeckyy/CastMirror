@@ -42,7 +42,7 @@
         CastMirror finds Cast devices on your network, captures your whole screen or a single window with its sound, and streams H.264 and Opus over the same encrypted Cast RTP path Chrome uses. The Windows app is the main product; Linux has its own packages.
       </p>
       <div class="cta">
-        <a class="btn btn-primary" href="#download">Download 1.0.0</a>
+        <a class="btn btn-primary" href="#download">Download 1.0.4</a>
         <a class="btn btn-secondary" href="#documentation">Read the docs</a>
         <a class="btn btn-ghost" data-repo-href="">GitHub</a>
       </div>
@@ -55,10 +55,10 @@
 
     <!-- Interactive Tabbed App Showcase -->
     <div class="showcase-container" id="showcase">
-      <div class="showcase-tabs">
-        <button class="showcase-tab-btn is-active" data-tab="winmain" type="button">Windows</button>
-        <button class="showcase-tab-btn" data-tab="winsettings" type="button">Windows settings</button>
-        <button class="showcase-tab-btn" data-tab="linuxcast" type="button">Linux</button>
+      <div class="showcase-tabs" role="tablist" aria-label="Application screenshots">
+        <button class="showcase-tab-btn is-active" data-tab="winmain" type="button" role="tab" aria-selected="true">Windows</button>
+        <button class="showcase-tab-btn" data-tab="winsettings" type="button" role="tab" aria-selected="false">Windows settings</button>
+        <button class="showcase-tab-btn" data-tab="linuxcast" type="button" role="tab" aria-selected="false">Linux</button>
       </div>
       <div class="bezel">
         <img id="showcase-img" src="assets/screenshot-windows-main.png" alt="CastMirror on Windows: a navigation rail, two Cast devices as cards, and a casting panel with Start casting and the casting options">
@@ -73,20 +73,31 @@
   <section id="download">
     <div class="wrap">
       <p class="section-kicker">Download</p>
-      <h2>Version 1.0.0</h2>
+      <h2>Version 1.0.4</h2>
       <p class="lede">Windows and Linux ship as separate releases. Every file has a checksum in the same release.</p>
-      <div class="grid">
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
         <article class="card">
           <span class="card-icon">🪟</span>
           <h3>Windows 10 2004 or later, 64-bit</h3>
-          <p>The installer adds a Start menu entry and Windows Firewall rules for private and domain networks. A portable zip is also there. The binaries are not code-signed yet, so SmartScreen warns on first run: choose More info, then Run anyway.</p>
-          <p><a class="btn btn-primary" href="https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.0">Windows release</a></p>
+          <p>The installer adds a Start menu entry and Windows Firewall rules for private and domain networks. A portable zip is also provided. The binaries are not code-signed yet, so SmartScreen warns on first run: choose More info, then Run anyway.</p>
+          <ul class="download-files">
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/windows-v1.0.4/CastMirror-Setup-1.0.4-x64.exe"><code>CastMirror-Setup-1.0.4-x64.exe</code></a> — Installer</li>
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/windows-v1.0.4/CastMirror-win-x64.zip"><code>CastMirror-win-x64.zip</code></a> — Portable zip</li>
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/windows-v1.0.4/SHA256SUMS-windows.txt"><code>SHA256SUMS-windows.txt</code></a> — SHA-256 checksums</li>
+          </ul>
+          <p><a class="btn btn-primary" href="https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.4">Windows release (windows-v1.0.4)</a></p>
         </article>
         <article class="card">
           <span class="card-icon">🐧</span>
           <h3>Linux, x86-64</h3>
-          <p>A .deb for Debian and Ubuntu and an .rpm for Fedora, with the GTK 4 app and the command-line tool. X11, and Wayland through the desktop portal. The Windows app gets more testing than this one.</p>
-          <p><a class="btn btn-secondary" href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.0">Linux release</a></p>
+          <p>Separate <code>.deb</code> packages for Ubuntu 24.04 / Debian 12 (FFmpeg 6) and Debian 13 (FFmpeg 7), plus a best-effort Fedora <code>.rpm</code>, carrying the GTK 4 app and CLI. Release <code>.deb</code> builds omit the optional tray icon. X11, and Wayland through the desktop portal.</p>
+          <ul class="download-files">
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/linux-v1.0.4/castmirror_1.0.4_x86_64.deb"><code>castmirror_1.0.4_x86_64.deb</code></a> — Ubuntu 24.04 / Debian 12</li>
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/linux-v1.0.4/castmirror_1.0.4_debian13_x86_64.deb"><code>castmirror_1.0.4_debian13_x86_64.deb</code></a> — Debian 13 (trixie)</li>
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/linux-v1.0.4/castmirror_1.0.4_x86_64.rpm"><code>castmirror_1.0.4_x86_64.rpm</code></a> — Fedora / RPM (best-effort)</li>
+            <li><a href="https://github.com/vindeckyy/CastMirror/releases/download/linux-v1.0.4/SHA256SUMS"><code>SHA256SUMS</code></a> — SHA-256 checksums</li>
+          </ul>
+          <p><a class="btn btn-secondary" href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.4">Linux release (linux-v1.0.4)</a></p>
         </article>
       </div>
     </div>
@@ -121,19 +132,19 @@
         <article class="card">
           <span class="card-icon">🎬</span>
           <h3>Freeze and mute</h3>
-          <p>Freeze the picture or mute the TV without ending the cast. Global shortcuts (Ctrl+Alt+C, F and M) work from any app on Windows.</p>
+          <p>Freeze the picture or mute the TV without ending the cast. Opt-in global shortcuts (Ctrl+Alt+C, F and M) work from any app on Windows; in-window shortcuts include Ctrl+Enter, F5, Ctrl+K, Ctrl+, and Ctrl+L.</p>
         </article>
 
         <article class="card">
           <span class="card-icon">🔄</span>
           <h3>Adaptive bitrate</h3>
-          <p>An eight-step ladder lowers resolution, frame rate and bitrate when packets are lost and climbs back when the link recovers. After a dropped connection, a sleep or a Wi-Fi change it reconnects for as long as you allow.</p>
+          <p>An eight-step ladder lowers resolution, frame rate and bitrate when packets are lost and climbs back when the link recovers. After a dropped connection, a sleep or a Wi-Fi change it reconnects for as long as you allow (10–600 s).</p>
         </article>
 
         <article class="card">
           <span class="card-icon">🛠️</span>
           <h3>Diagnostics and privacy</h3>
-          <p>Copy a bug report from the Logs window with the last part of every IP address masked. A crash saves a memory dump on your PC and nothing is uploaded. There is no telemetry and no account.</p>
+          <p>Copy a bug report from the Logs window with the last part of every IP address masked. A crash saves a local minidump (newest 5 kept) and nothing is uploaded. There is no telemetry and no account; GitHub is contacted only if you click Check for updates.</p>
         </article>
       </div>
     </div>
@@ -158,12 +169,12 @@
     <div class="wrap">
       <p class="section-kicker">Hardware Matrix</p>
       <h2>Cast video devices Chrome can mirror to</h2>
-      <p class="lede">The limits CastMirror applies per device class, from its capability model. They are predictions, not measurements: the rows in the device matrix predate 1.0.0 and were not re-measured for it.</p>
+      <p class="lede">The limits CastMirror applies per device class, from its capability model. They are model predictions, not physical measurements: no real-device soak runs have been recorded in the device matrix yet.</p>
       <div class="strip">
         <span class="chip">📺 Chromecast (3rd Gen) · <strong>1080p60</strong></span>
-        <span class="chip">⚡ Chromecast Ultra · <strong>4K30 / 1080p60</strong></span>
+        <span class="chip">⚡ Chromecast Ultra · <strong>4K60 / 1080p60</strong></span>
         <span class="chip">🚀 Google TV Streamer · <strong>4K60 / 1080p60</strong></span>
-        <span class="chip">🖥️ Cast TVs (Sony, Vizio, Philips) · <strong>1080p60</strong></span>
+        <span class="chip">🖥️ Cast TVs (Sony Bravia, Vizio, Generic) · <strong>4K60 / 1080p60</strong></span>
         <span class="chip">📟 Google Nest Hub · <strong>720p60</strong></span>
       </div>
     </div>
@@ -202,15 +213,21 @@
               <span class="doc-badge">Guide</span>
             </div>
             <h4>Windows</h4>
-            <p>Install the app from the <a href="https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.0">Windows release</a>, or build it. Building needs MSYS2 (UCRT64) with GCC, CMake, Ninja, protobuf, OpenSSL, Opus, FFmpeg, nlohmann-json and libx264, plus the .NET 8 SDK for the WinUI app. The full package list is in <a data-repo-file="docs/building.md">docs/building.md</a>.</p>
-            <pre><button class="copy" type="button">Copy</button>build-all.bat        :: native core + WinUI app
-package.ps1          :: self-contained publish, licence and package checks
-scripts\run_ubsan.ps1   :: test suite under UBSan (needs clang)
-scripts\soak_windows.ps1 -Minutes 10   :: memory and handle soak</pre>
-            <p>Windows needs 10 version 2004 or later, 64-bit. Control traffic uses TCP 8009 and media uses UDP, so the installer adds Firewall rules for private and domain networks; <code>scripts\setup_firewall.ps1</code> does the same for the portable zip.</p>
+            <p>Install the app from the <a href="https://github.com/vindeckyy/CastMirror/releases/tag/windows-v1.0.4">Windows 1.0.4 release</a>, or build it from source. Building requires MSYS2 (UCRT64) with GCC, CMake, Ninja, pkgconf, protobuf, OpenSSL, Opus, FFmpeg, nlohmann-json, gtest and libx264, plus the .NET 8 SDK for the WinUI 3 app (and Inno Setup 6 for the installer). Full steps are in <a data-repo-file="docs/building.md">docs/building.md</a>.</p>
+            <pre><button class="copy" type="button">Copy</button># In an MSYS2 UCRT64 shell:
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,protobuf,openssl,opus,ffmpeg,nlohmann-json,gtest,libx264}
+
+build-all.bat                            :: native core, CLI, tests + WinUI 3 app
+ctest --test-dir build --output-on-failure
+dotnet test tests\winui\CastMirror.Tests.csproj
+package.ps1                              :: build, ctest, self-contained publish, licence &amp; package checks
+iscc installer\CastMirror.iss /DAppVersion=1.0.4
+scripts\run_ubsan.ps1                    :: test suite under UBSan (needs mingw-w64-ucrt-x86_64-clang)
+scripts\soak_windows.ps1 -Minutes 10     :: memory and handle soak</pre>
+            <p>Windows requires Windows 10 version 2004 or later, 64-bit. Control traffic uses TCP 8009 and media uses UDP, so the installer adds Firewall rules for private and domain networks; for the portable zip, run <code>scripts\setup_firewall.ps1 -Program &lt;path to CastMirror.exe&gt;</code> from an elevated PowerShell.</p>
 
             <h4>Linux</h4>
-            <p>Install the <a href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.0">Linux release</a> packages, or build from source. You need a C++20 compiler (GCC 11+ or Clang 14+), CMake 3.20+, Ninja, and developer libraries for GTK 4, Libadwaita, FFmpeg, and PulseAudio.</p>
+            <p>Install the <a href="https://github.com/vindeckyy/CastMirror/releases/tag/linux-v1.0.4">Linux 1.0.4 release</a> packages, or build from source. You need a C++20 compiler (GCC 11+ or Clang 14+), CMake 3.20+, Ninja, and developer libraries for GTK 4 (&ge; 4.12), Libadwaita (&ge; 1.5), FFmpeg, and PulseAudio.</p>
 
             <h5>Prerequisites (Debian / Ubuntu)</h5>
             <pre><button class="copy" type="button">Copy</button>sudo apt update
@@ -220,13 +237,27 @@ sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compil
     libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
     nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev</pre>
 
+            <h5>Prerequisites (Fedora)</h5>
+            <pre><button class="copy" type="button">Copy</button>sudo dnf install -y gcc-c++ cmake ninja-build pkgconf-pkg-config protobuf-compiler protobuf-devel \
+    openssl-devel opus-devel pulseaudio-libs-devel libX11-devel libXext-devel libXrandr-devel \
+    libXfixes-devel libXcomposite-devel libXdamage-devel libva-devel libdrm-devel pipewire-devel \
+    glib2-devel ffmpeg-free-devel json-devel gtest-devel gtk4-devel libadwaita-devel</pre>
+
             <div class="callout callout-tip">
               <strong>Optional Packages:</strong> <code>libxcomposite-dev</code> and <code>libxdamage-dev</code> enable occluded-window capture and damage tracking for X11 window sharing. <code>libayatana-appindicator-glib-dev</code> (Debian Testing / Ubuntu 25.04+) enables the system tray icon.
             </div>
 
-            <h5>Configure and build</h5>
+            <h5>Configure, CMake options, and build</h5>
             <pre><button class="copy" type="button">Copy</button>cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"</pre>
+            <ul>
+              <li><code>BUILD_TESTING</code> (default <code>ON</code>): Build the native test suite.</li>
+              <li><code>CASTMIRROR_BUILD_GUI</code> (default <code>ON</code> on Linux, <code>OFF</code> on Windows): Build the GTK 4 desktop application.</li>
+              <li><code>CASTMIRROR_ENABLE_TRAY</code> (default <code>ON</code>): Enable Ayatana AppIndicator system tray support when available.</li>
+              <li><code>CASTMIRROR_REQUIRE_TRAY</code> (default <code>OFF</code>): Fail CMake configuration if tray support was requested but the library is missing.</li>
+              <li><code>CASTMIRROR_BUILD_FUZZERS</code> (default <code>OFF</code>): Build libFuzzer harnesses for the RTCP and mDNS parsers (requires Clang).</li>
+              <li><code>CASTMIRROR_PACKAGE_DISTRO_SUFFIX</code> (default empty): Insert a distro suffix into CPack package names (e.g. <code>debian13</code>).</li>
+            </ul>
 
             <h5>Build artifacts</h5>
             <div class="doc-table-wrap">
@@ -235,9 +266,9 @@ cmake --build build -j"$(nproc)"</pre>
                   <tr><th>Binary Path</th><th>Component Role</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td><code>build/app/castmirror-gui</code></td><td>Modern GTK 4 + Libadwaita desktop graphical application</td></tr>
-                  <tr><td><code>build/app/castmirror</code></td><td>Interactive and non-interactive command-line interface</td></tr>
-                  <tr><td><code>build/tests/castmirror_tests</code></td><td>Full Google Test test suite (<!-- testcount -->271<!-- /testcount --> tests)</td></tr>
+                  <tr><td><code>build/app/castmirror-gui</code></td><td>Modern GTK 4 + Libadwaita desktop graphical application (Linux)</td></tr>
+                  <tr><td><code>build/app/castmirror</code></td><td>Interactive and non-interactive command-line interface (cross-platform)</td></tr>
+                  <tr><td><code>build/tests/castmirror_tests</code></td><td>Full Google Test test suite (<!-- testcount -->271<!-- /testcount --> test cases across 31 files)</td></tr>
                   <tr><td><code>build/tools/poc-*</code></td><td>Protocol, encoding, and transport benchmark tools</td></tr>
                   <tr><td><code>build/tools/fake-receiver</code></td><td>Automated simulated Cast receiver for local loopback verification</td></tr>
                 </tbody>
@@ -245,24 +276,35 @@ cmake --build build -j"$(nproc)"</pre>
             </div>
 
             <h5>Running the GUI and CLI</h5>
-            <pre><button class="copy" type="button">Copy</button># Launch the GTK 4 desktop app
+            <pre><button class="copy" type="button">Copy</button># Launch the GTK 4 desktop app (or run interactive CLI with no arguments)
 ./build/app/castmirror-gui
+./build/app/castmirror
 
 # Cast a full monitor via CLI
 ./build/app/castmirror --device 192.168.0.164 --display 0 --preset High
 
-# List available application windows, then mirror one
+# List available displays or application windows, then mirror a window (decimal ID)
+./build/app/castmirror --list-displays
 ./build/app/castmirror --list-windows
-./build/app/castmirror --device 192.168.0.164 --window 0x2400004
+./build/app/castmirror --device 192.168.0.164 --window 37748740
 
-# Cast display without mirroring system audio
-./build/app/castmirror --device 192.168.0.164 --no-audio</pre>
+# Cast display without audio, custom bitrate, or run device-auth probe
+./build/app/castmirror --device 192.168.0.164 --no-audio --bitrate 12000 --codec h264
+./build/app/castmirror --auth-probe 192.168.0.164</pre>
+            <p>Supported CLI flags (<code>app/cli/main.cc</code>): <code>--device &lt;IP or ID&gt;</code>, <code>--display &lt;ID&gt;</code>, <code>--window &lt;ID&gt;</code>, <code>--list-windows</code>, <code>--list-displays</code>, <code>--preset &lt;Auto|High|Balanced|Smooth|Game|Cinema&gt;</code>, <code>--no-audio</code>, <code>--bitrate &lt;1-100000&gt;</code>, <code>--codec &lt;h264|vp8&gt;</code>, <code>--low-latency</code> (200 ms delay), <code>--no-verify</code> (dev escape hatch), <code>--auth-probe &lt;IP&gt;</code>, <code>--help</code> / <code>-h</code>.</p>
 
             <h5>Environment variables</h5>
             <ul>
-              <li><code>CASTMIRROR_FORCE_SOFTWARE_ENCODE=1</code>: Force FFmpeg <code>libx264</code> software encoding even when VAAPI GPU acceleration is available.</li>
-              <li><code>CASTMIRROR_VAAPI_DEVICE=/dev/dri/renderD129</code>: Use one specific VAAPI render node instead of probing.</li>
+              <li><code>CASTMIRROR_FORCE_SOFTWARE_ENCODE=1</code>: Force FFmpeg software encoding (<code>libx264</code> / fallback) even when VAAPI GPU acceleration is available.</li>
+              <li><code>CASTMIRROR_VAAPI_DEVICE=/dev/dri/renderD129</code>: Use one specific VAAPI render node instead of probing <code>/dev/dri/renderD*</code>.</li>
               <li><code>CASTMIRROR_FORCE_X11=1</code>: Force X11 display capture instead of the PipeWire portal when running under a Wayland compositor via XWayland.</li>
+              <li><code>CASTMIRROR_CONFIG_DIR=/path/to/dir</code>: Redirect <code>config.json</code> and logs away from the default per-user directory.</li>
+              <li><code>CASTMIRROR_LANG=de</code>: Override the Windows WinUI UI language (<code>en</code>, <code>de</code>, <code>es</code>, <code>fr</code>).</li>
+              <li><code>CASTMIRROR_DISABLE_WGC=1</code>: Disable <code>Windows.Graphics.Capture</code> on Windows.</li>
+              <li><code>CASTMIRROR_VERBOSE_JSON=1</code>: Emit per-frame JSON diagnostic breadcrumbs to the log.</li>
+              <li><code>CASTMIRROR_CSS=/path/to/castmirror.css</code>: Override the Linux GTK stylesheet.</li>
+              <li><code>CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE=1</code>: Allow generated test frames/audio when real capture is unavailable (tests only).</li>
+              <li><code>CASTMIRROR_MSYS2_BIN</code> / <code>CASTMIRROR_DOTNET_ROOT</code>: Override MSYS2 UCRT64 and .NET 8 SDK paths in Windows build/packaging scripts.</li>
             </ul>
 
             <h5>Network and firewall (Linux)</h5>
@@ -275,7 +317,7 @@ cmake --build build -j"$(nproc)"</pre>
               <h3>2. System Architecture &amp; Design</h3>
               <span class="doc-badge">Architecture</span>
             </div>
-            <p>CastMirror is a <strong>C++20 engine (<code>castcore</code>)</strong> with a C API (ABI version 3) and three front ends: the <strong>WinUI 3 app (<code>app/winui</code>, .NET 8)</strong> on Windows, and a <strong>GTK 4 + Libadwaita app (<code>app/gui</code>)</strong> and CLI (<code>app/cli</code>) on Linux. The Windows app calls the engine through P/Invoke and checks the ABI version at start-up.</p>
+            <p>CastMirror is a <strong>C++20 engine (<code>castcore</code>)</strong> with a C API (ABI version 3) and three front ends: the <strong>WinUI 3 app (<code>app/winui</code>, .NET 8)</strong> on Windows, a <strong>GTK 4 + Libadwaita app (<code>app/gui</code>)</strong> on Linux, and the cross-platform <strong>CLI (<code>app/cli</code>)</strong>. The Windows app calls the engine through P/Invoke and checks the ABI version at start-up.</p>
 
             <h4>Performance &amp; Latency Contract</h4>
             <ul>
@@ -287,10 +329,10 @@ cmake --build build -j"$(nproc)"</pre>
 
             <h4>Media Pipeline</h4>
             <ul>
-              <li><strong>Video path (Windows):</strong> DXGI Desktop Duplication for a display, or Windows.Graphics.Capture for a window &rarr; conversion to BGRA (HDR and 10-bit surfaces tone-mapped to SDR) &rarr; frame pacer (steady 30 or 60 fps) &rarr; BT.709 limited-range conversion &rarr; Media Foundation H.264 (asynchronous hardware transforms supported, x264 fallback) &rarr; <code>FrameCrypto</code> &rarr; <code>RtpPacketizer</code> &rarr; paced UDP.</li>
-              <li><strong>Video path (Linux):</strong> X11 XRandR / PipeWire portal &rarr; BGRA frame &rarr; <code>GpuProcessor</code> (letterbox scaling, direct YUV420P/NV12 plane write) &rarr; Hardware VAAPI / libx264 encoder (0 B-frames, zerolatency) &rarr; Annex-B NALUs &rarr; <code>FrameCrypto</code> (AES-128-CTR) &rarr; <code>RtpPacketizer</code> (Cast RTP) &rarr; Paced UDP socket.</li>
-              <li><strong>Audio path (Windows):</strong> WASAPI loopback of the default speakers, or of one app through process loopback (Windows 10 2004+) &rarr; folded to 48 kHz stereo &rarr; Opus &rarr; <code>FrameCrypto</code> &rarr; <code>RtpPacketizer</code> &rarr; UDP. Capture follows the default device when it changes.</li>
-              <li><strong>Audio path (Linux):</strong> PulseAudio / PipeWire default sink monitor &rarr; PCM 48 kHz stereo (10 ms chunks) &rarr; Opus encoder (192 kbps) &rarr; <code>FrameCrypto</code> &rarr; <code>RtpPacketizer</code> &rarr; UDP. Host audio sink is muted during streaming and restored on Stop.</li>
+              <li><strong>Video path (Windows):</strong> DXGI Desktop Duplication for a display, or Windows.Graphics.Capture for a window &rarr; conversion to BGRA (HDR and 10-bit surfaces tone-mapped to SDR) &rarr; frame pacer (steady 30 or 60 fps) &rarr; <code>GpuProcessor</code> (letterbox scaling, BT.709 limited-range NV12/YUV420P) &rarr; Media Foundation H.264 (asynchronous hardware transforms supported, FFmpeg <code>libx264</code> fallback) &rarr; <code>FrameCrypto</code> &rarr; <code>RtpPacketizer</code> &rarr; paced UDP.</li>
+              <li><strong>Video path (Linux):</strong> X11 XRandR / PipeWire portal &rarr; BGRA or direct NV12 frame &rarr; <code>GpuProcessor</code> (letterbox scaling, BT.709 YUV420P/NV12 plane write) &rarr; Hardware VAAPI (<code>h264_vaapi</code>) / <code>libx264</code> (or <code>libopenh264</code>) encoder (0 B-frames, zerolatency) &rarr; Annex-B NALUs &rarr; <code>FrameCrypto</code> (AES-128-CTR) &rarr; <code>RtpPacketizer</code> (Cast RTP) &rarr; Paced UDP socket.</li>
+              <li><strong>Audio path (Windows):</strong> WASAPI loopback of the default speakers, or of one app through process loopback (Windows 10 2004+) &rarr; folded to 48 kHz stereo &rarr; Opus (64–256 kbps, 192 kbps default) &rarr; <code>FrameCrypto</code> &rarr; <code>RtpPacketizer</code> &rarr; UDP. Capture follows the default device when it changes.</li>
+              <li><strong>Audio path (Linux):</strong> PulseAudio / PipeWire default sink monitor &rarr; PCM 48 kHz stereo (10 ms chunks) &rarr; Opus encoder (64–256 kbps, 192 kbps default) &rarr; <code>FrameCrypto</code> &rarr; <code>RtpPacketizer</code> &rarr; UDP. Host audio sink is muted by default during streaming and restored on Stop.</li>
             </ul>
 
             <h4>State Machine</h4>
@@ -305,13 +347,13 @@ cmake --build build -j"$(nproc)"</pre>
                   <tr><th>Module</th><th>Responsibilities</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td><code>DeviceDiscovery</code></td><td>mDNS <code>_googlecast._tcp</code> browsing + local subnet TCP port 8009 scan; drops devices after ten minutes of silence</td></tr>
-                  <tr><td><code>CastChannel</code></td><td>TLS 1.2/1.3 Cast V2 socket on port 8009, Protobuf packet framing, PING/PONG heartbeats</td></tr>
-                  <tr><td><code>MirroringNegotiator</code></td><td>Firmware app launch (<code>0F5096E8</code>), JSON OFFER/ANSWER generation, AES key negotiation</td></tr>
+                  <tr><td><code>DeviceDiscovery</code></td><td>mDNS <code>_googlecast._tcp</code> browsing + opt-in local subnet TCP port 8009 scan; drops mDNS devices after ten minutes of silence</td></tr>
+                  <tr><td><code>CastChannel</code></td><td>TLS 1.2 Cast V2 socket on port 8009, Protobuf packet framing, device auth, 2 s PING/PONG heartbeats</td></tr>
+                  <tr><td><code>MirroringNegotiator</code></td><td>Firmware app launch (<code>0F5096E8</code> / <code>85CDB22F</code>), JSON OFFER/ANSWER generation, AES key negotiation</td></tr>
                   <tr><td><code>IDisplayCapture</code></td><td>DXGI Desktop Duplication and Windows.Graphics.Capture on Windows; X11 (MIT-SHM, XComposite, XDamage, XFixes) and Wayland (PipeWire portal) on Linux</td></tr>
-                  <tr><td><code>IAudioCapture</code></td><td>WASAPI loopback and per-app process loopback on Windows; PulseAudio monitor sink with host speaker muting on Linux</td></tr>
-                  <tr><td><code>IVideoEncoder</code></td><td>Media Foundation on Windows and VAAPI (<code>h264_vaapi</code>) on Linux, each with automatic fallback to FFmpeg <code>libx264</code></td></tr>
-                  <tr><td><code>CastTransport</code></td><td>UDP Cast RTP packetization, pacing token bucket, RTCP feedback parser, duplicate NACK suppression</td></tr>
+                  <tr><td><code>IAudioCapture</code></td><td>WASAPI loopback and per-app process loopback on Windows; PulseAudio monitor sink with configurable host speaker muting on Linux</td></tr>
+                  <tr><td><code>IVideoEncoder</code></td><td>Media Foundation on Windows and VAAPI (<code>h264_vaapi</code>) on Linux, each with fallback to FFmpeg <code>libx264</code> (or <code>libopenh264</code> / <code>libvpx</code>)</td></tr>
+                  <tr><td><code>RtpPacketizer</code> / <code>CastTransport</code></td><td>Cast RTP packetization (<code>RtpPacketizer</code>), pacing token bucket, retransmission cache, RTCP feedback parser, duplicate NACK suppression</td></tr>
                   <tr><td><code>AdaptiveController</code></td><td>8-rung dynamic adaptation ladder tracking packet loss, RTT, and jitter</td></tr>
                 </tbody>
               </table>
@@ -372,14 +414,15 @@ cmake --build build -j"$(nproc)"</pre>
             </div>
             <p>Google Cast screen mirroring uses a specialized real-time media protocol (not WebRTC ICE/DTLS and not HLS media playback).</p>
 
-            <h4>1. Control Plane (Cast V2 TLS :8009)</h4>
+            <h4>1. Control Plane (Cast V2 TLS 1.2 :8009)</h4>
             <ul>
-              <li><strong>Connection:</strong> OpenSSL TLS connection to device port 8009.</li>
+              <li><strong>Connection:</strong> OpenSSL TLS 1.2 connection to device port 8009 (<code>SSL_OP_NO_TLSv1_3</code>).</li>
               <li><strong>Protobuf Frame:</strong> 4-byte big-endian length prefix followed by serialized <code>CastMessage</code>.</li>
               <li><strong>Namespaces:</strong>
                 <ul>
                   <li><code>urn:x-cast:com.google.cast.tp.connection</code> &mdash; Virtual sender/receiver session bindings.</li>
-                  <li><code>urn:x-cast:com.google.cast.tp.heartbeat</code> &mdash; PING / PONG keepalive packets (5-second cadence).</li>
+                  <li><code>urn:x-cast:com.google.cast.tp.heartbeat</code> &mdash; PING / PONG keepalive packets (2-second cadence, 6-second timeout).</li>
+                  <li><code>urn:x-cast:com.google.cast.tp.deviceauth</code> &mdash; Cast device certificate challenge / response verification.</li>
                   <li><code>urn:x-cast:com.google.cast.receiver</code> &mdash; <code>LAUNCH</code>, <code>STOP</code>, and <code>GET_STATUS</code> requests.</li>
                   <li><code>urn:x-cast:com.google.cast.webrtc</code> &mdash; JSON OFFER / ANSWER session negotiation.</li>
                 </ul>
@@ -389,11 +432,12 @@ cmake --build build -j"$(nproc)"</pre>
 
             <h4>2. Media Plane (Cast RTP / RTCP over UDP)</h4>
             <ul>
-              <li><strong>RTP Profile:</strong> <code>rtpProfile: "cast"</code> with a custom 7-byte Cast RTP header extension:
-                <pre>Byte 0:    Flags (Keyframe marker, Reference frame present)
-Bytes 1-2: Frame ID (monotonically increasing 16-bit integer)
-Bytes 3-4: Packet ID (packet index within frame)
-Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
+              <li><strong>RTP Profile:</strong> <code>rtpProfile: "cast"</code> with a 7-byte Cast header immediately after the 12-byte RTP header (plus an optional 4-byte adaptive playout delay extension on packet 0):
+                <pre>Byte 0:    Flags (Keyframe marker, Reference Frame ID present, extension count)
+Byte 1:    Frame ID (lower 8 bits)
+Bytes 2-3: Packet ID (16-bit packet index within frame)
+Bytes 4-5: Max Packet ID (16-bit total packet count - 1)
+Byte 6:    Reference Frame ID (lower 8 bits)</pre>
               </li>
               <li><strong>AES-128-CTR Crypto:</strong> Fresh random 16-byte key and 16-byte IV mask per session. Per-frame IV mixes <code>frame_id</code> with the IV mask.</li>
               <li><strong>Compound RTCP:</strong> Sender Reports (SR) paired with receiver CAST feedback packets containing:
@@ -412,7 +456,7 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
               <h3>5. Test &amp; Verification Report</h3>
               <span class="doc-badge">Verification</span>
             </div>
-            <p>The suite covers unit tests, integration tests, network impairments and a simulated receiver that speaks TLS and Cast RTP over loopback. CI runs it on Windows (Release and UBSan) and on Ubuntu (Release, GTK4 + System Tray, ASan and UBSan, TSan) and Fedora.</p>
+            <p>The native suite covers unit tests, integration tests, network impairments and a simulated receiver that speaks TLS and Cast RTP over loopback. CI runs it across Windows (MSYS2 UCRT64 Release + .NET <code>CastMirror.Tests</code>, and clang UBSan in trap mode), Ubuntu (Release, Ubuntu 26.04 GTK4 + System Tray, ASan/UBSan, TSan, Code Coverage, libFuzzer RTCP/mDNS harnesses, and <code>clang-format</code>/<code>clang-tidy</code>), and Fedora. Note that CTest registers the platform-applicable subset of the <!-- testcount -->271<!-- /testcount --> test definitions (e.g., 255 cases on Linux with 1 Windows-only test skipped).</p>
 
             <h4>Test Suite Status (<!-- testcount -->271<!-- /testcount --> cases; generated by <code>scripts/count_tests.py</code>)</h4>
             <div class="doc-table-wrap">
@@ -481,7 +525,7 @@ Bytes 5-6: Max Packet ID (total packet count - 1)</pre>
               <h3>6. Physical Device Matrix</h3>
               <span class="doc-badge">Hardware</span>
             </div>
-            <p>Firmware, resolution and frame-rate ceilings, codecs and playout delay per receiver generation live in the source document. Its rows predate 1.0.0 and were not re-measured for it, so treat them as unverified: <a data-repo-file="docs/DEVICE_MATRIX.md">docs/DEVICE_MATRIX.md</a>.</p>
+            <p>No real-device soak runs have been recorded in the repository yet, so every row in the generated matrix reads <code>_not measured_</code>. Run <code>scripts/soak_real_device.sh</code> against physical hardware and regenerate with <code>scripts/render_device_matrix.sh</code> to populate: <a data-repo-file="docs/DEVICE_MATRIX.md">docs/DEVICE_MATRIX.md</a>.</p>
 
             <h4>Playout delay bounds</h4>
             <ul>

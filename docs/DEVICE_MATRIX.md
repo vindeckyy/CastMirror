@@ -2,7 +2,7 @@
 
 This matrix documents real-hardware validation, empirical performance boundaries, firmware targets, and validated streaming parameters across Google Cast hardware generations.
 
-> **Status for 1.0.0.** No real-device soak runs have been recorded in `docs/bench/device_runs/` yet, so every row in the generated matrix below reads `_not measured_`. The 1.0.0 release was tested against a simulated receiver, not against physical hardware. Run `scripts/soak_real_device.sh` against a physical device and regenerate with `scripts/render_device_matrix.sh` to populate it.
+> **Status for 1.0.4.** No real-device soak runs have been recorded in `docs/bench/device_runs/` yet, so every row in the generated matrix below reads `_not measured_`. Releases through 1.0.4 were validated against a simulated receiver, not against physical hardware. Run `scripts/soak_real_device.sh` (which runs `scripts/fetch_cast_appids.sh --check` preflight before driving a physical device) and regenerate with `scripts/render_device_matrix.sh` to populate it.
 
 ## How to read this table
 
@@ -54,8 +54,8 @@ _None recorded._
    - Minimum target playout delay the sender will request: **150 ms**.
    - Default target delay: **200 ms** (`CapabilityModel::GetRecommendedSettings` returns 200 for the Auto, High, Balanced and Smooth presets).
    - Maximum: **400 ms** (the **Cinema** preset starts there, **Game** starts at 150). Every value the controller accepts is clamped to 150–400 ms.
-   - The delay is then adapted at runtime: `AdaptiveController::StepUpPlayoutDelay` walks 150→200→300→400 ms when jitter exceeds 30 ms or loss exceeds 3%, and `StepDownPlayoutDelay` walks back down after 15 consecutive clean intervals (`core/src/adaptive_controller.cc`).
-2. **Keyframe Cadence**:
-   - 2000ms periodic intra-refresh or IDR on packet loss bursts.
+   - The delay is then adapted at runtime: `AdaptiveController::StepUpPlayoutDelay` walks 150→200→300→400 ms when jitter exceeds 30 ms, loss exceeds 3%, or on a NACK burst / PLI, and `StepDownPlayoutDelay` walks back down after 15 consecutive clean intervals (`core/src/adaptive_controller.cc`).
+2. **Keyframe Cadence (`core/src/video_encoder.cc`):**
+   - Software H.264 defaults to periodic intra-refresh (`intra_refresh = true`, `gop_size = 10000`; or `framerate * 5` when intra-refresh is disabled), forcing immediate IDR keyframes on frame 0, RTCP PLI, `Reconfigure`, `SetLiveVideoBitrateKbps`, and >400 ms video stalls.
 3. **Crypto Acceleration**:
    - OpenSSL AES-128-CTR hardware-accelerated via AES-NI / ARMv8 Crypto Extensions.

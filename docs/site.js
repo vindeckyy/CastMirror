@@ -13,10 +13,9 @@
     const path = el.getAttribute("data-repo-href") || "";
     el.setAttribute("href", "https://github.com/" + repo + path);
   });
-  // Same derivation for links to a file on the default branch. The branch is
-  // read from the same place the repo is: the hostname/path, defaulting to
-  // "main" (ci.yml and pages.yml both trigger on master and main).
-  const branch = (location.pathname.split("/").filter(Boolean)[1] || "main");
+  // Always link repository files on the default branch ("master"), regardless of
+  // whether the page is loaded at /CastMirror/, /CastMirror/index.html, or file://.
+  const branch = "master";
   document.querySelectorAll("[data-repo-file]").forEach(function (el) {
     const path = el.getAttribute("data-repo-file") || "";
     el.setAttribute("href", "https://github.com/" + repo + "/blob/" + branch + "/" + path);
@@ -26,21 +25,52 @@
   });
 
   // 2. Clipboard copy button
+  function extractPreText(pre, btn) {
+    let out = "";
+    pre.childNodes.forEach(function (node) {
+      if (node !== btn) out += node.textContent || "";
+    });
+    return out.trim();
+  }
+
+  function showCopied(btn) {
+    btn.textContent = "Copied";
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer = setTimeout(function () { btn.textContent = "Copy"; }, 1400);
+  }
+
   document.querySelectorAll(".copy").forEach(function (btn) {
     btn.addEventListener("click", function () {
       const pre = btn.parentElement;
-      const text = pre.innerText.replace(/^Copy\n?/, "");
-      navigator.clipboard.writeText(text.trim()).then(function () {
-        btn.textContent = "Copied";
-        setTimeout(function () { btn.textContent = "Copy"; }, 1400);
-      });
+      const text = extractPreText(pre, btn);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          showCopied(btn);
+        }).catch(function () {
+          btn.textContent = "Copy";
+        });
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          if (document.execCommand("copy")) showCopied(btn);
+        } finally {
+          document.body.removeChild(ta);
+        }
+      }
     });
   });
 
   // 3. Hero App Showcase Tab Switcher
-  const showcaseTabs = document.querySelectorAll(".showcase-tab-btn");
+  const showcaseTabs = Array.from(document.querySelectorAll(".showcase-tab-btn"));
   const showcaseImg = document.getElementById("showcase-img");
   const showcaseCaption = document.getElementById("showcase-caption");
+  let showcaseTimer = null;
 
   const showcaseData = {
     winmain: {
@@ -60,21 +90,42 @@
     }
   };
 
-  showcaseTabs.forEach(function (tab) {
+  function activateShowcaseTab(tab) {
+    const target = tab.getAttribute("data-tab");
+    if (!showcaseData[target] || !showcaseImg) return;
+
+    showcaseTabs.forEach(function (t) {
+      const selected = t === tab;
+      t.classList.toggle("is-active", selected);
+      t.setAttribute("aria-selected", selected ? "true" : "false");
+    });
+
+    clearTimeout(showcaseTimer);
+    showcaseImg.style.opacity = "0.4";
+    showcaseTimer = setTimeout(function () {
+      showcaseImg.src = showcaseData[target].src;
+      showcaseImg.alt = showcaseData[target].alt;
+      if (showcaseCaption) showcaseCaption.textContent = showcaseData[target].caption;
+      showcaseImg.style.opacity = "1";
+    }, 100);
+  }
+
+  showcaseTabs.forEach(function (tab, index) {
     tab.addEventListener("click", function () {
-      const target = tab.getAttribute("data-tab");
-      if (!showcaseData[target] || !showcaseImg) return;
-
-      showcaseTabs.forEach(function (t) { t.classList.remove("is-active"); });
-      tab.classList.add("is-active");
-
-      showcaseImg.style.opacity = "0.4";
-      setTimeout(function () {
-        showcaseImg.src = showcaseData[target].src;
-        showcaseImg.alt = showcaseData[target].alt;
-        if (showcaseCaption) showcaseCaption.textContent = showcaseData[target].caption;
-        showcaseImg.style.opacity = "1";
-      }, 100);
+      activateShowcaseTab(tab);
+    });
+    tab.addEventListener("keydown", function (e) {
+      if (!showcaseTabs.length) return;
+      let nextIdx = -1;
+      if (e.key === "ArrowRight") nextIdx = (index + 1) % showcaseTabs.length;
+      else if (e.key === "ArrowLeft") nextIdx = (index - 1 + showcaseTabs.length) % showcaseTabs.length;
+      else if (e.key === "Home") nextIdx = 0;
+      else if (e.key === "End") nextIdx = showcaseTabs.length - 1;
+      if (nextIdx >= 0) {
+        e.preventDefault();
+        showcaseTabs[nextIdx].focus();
+        activateShowcaseTab(showcaseTabs[nextIdx]);
+      }
     });
   });
 
@@ -86,8 +137,10 @@
     docNavLinks.forEach(function (link) {
       if (link.getAttribute("data-doc") === targetId) {
         link.classList.add("is-active");
+        link.setAttribute("aria-current", "true");
       } else {
         link.classList.remove("is-active");
+        link.removeAttribute("aria-current");
       }
     });
   }
