@@ -58,21 +58,27 @@ TEST(LoggerTest, MainLogRedactsIpWithoutCorruptingLongerDottedNumbers) {
   auto& log = Logger::Instance();
   LogLevel previous = log.GetMinLevel();
   log.SetMinLevel(LogLevel::kInfo);
-  const std::string path = "/tmp/castmirror_test_redact.log";
-  std::filesystem::remove(path);
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "castmirror_test_redact.log";
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
 
-  log.SetFileLogging(path);
+  log.SetFileLogging(path.string());
   LOG_INFO << "peer=192.168.1.42:8009 oid=1.2.3.4.5 big=9999.1.2.3";
   log.SetFileLogging("");
 
-  std::ifstream in(path);
-  std::ostringstream ss;
-  ss << in.rdbuf();
-  const std::string contents = ss.str();
+  std::string contents;
+  {
+    std::ifstream in(path);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    contents = ss.str();
+  }
   EXPECT_NE(contents.find("peer=[REDACTED]:8009"), std::string::npos);
   EXPECT_NE(contents.find("oid=1.2.3.4.5"), std::string::npos);
   EXPECT_NE(contents.find("big=9999.1.2.3"), std::string::npos);
 
-  std::filesystem::remove(path);
+  std::filesystem::remove(path, ec);
+  EXPECT_FALSE(ec) << ec.message();
   log.SetMinLevel(previous);
 }

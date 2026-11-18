@@ -516,9 +516,8 @@ bool CastSession::NegotiateControlPlane() {
     if (channel_disconnected_) {
       return false;
     }
+    return answer_received_ && !stop_requested_.load() && !fail_requested_.load();
   }
-
-  return answer_received_ && !stop_requested_ && !fail_requested_;
 }
 
 bool CastSession::StartStreamingMedia() {
