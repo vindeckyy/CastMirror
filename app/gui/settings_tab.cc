@@ -1,4 +1,5 @@
 #include "settings_tab.h"
+#include "cast_tab.h"
 #include "gui_app.h"
 #include "widgets.h"
 #include "help_copy.h"
@@ -43,6 +44,12 @@ SettingsTab::~SettingsTab() {
   if (bitrate_debounce_id_ != 0) {
     g_source_remove(bitrate_debounce_id_);
     bitrate_debounce_id_ = 0;
+    if (pending_bitrate_kbps_ > 0) {
+      auto& c = ConfigStore::Instance().Mutable();
+      c.SetPresetBitrateKbps(c.quality_preset, pending_bitrate_kbps_);
+      c.max_bitrate_kbps = pending_bitrate_kbps_;
+      ConfigStore::Instance().Save();
+    }
   }
 }
 
@@ -119,6 +126,7 @@ void SettingsTab::BuildUi() {
   adw_preferences_row_set_title(ADW_PREFERENCES_ROW(audio_quality_row_), copy::kAudioQualityTitle);
   adw_action_row_set_subtitle(ADW_ACTION_ROW(audio_quality_row_), copy::kAudioQualityHelp);
   adw_combo_row_set_model(ADW_COMBO_ROW(audio_quality_row_), G_LIST_MODEL(string_list));
+  g_object_unref(string_list);
   adw_combo_row_set_selected(ADW_COMBO_ROW(audio_quality_row_),
                              AudioBitrateToComboIndex(cfg.audio_bitrate_bps));
   adw_preferences_group_add(audio_group, audio_quality_row_);
@@ -250,30 +258,37 @@ void SettingsTab::BuildUi() {
   adw_action_row_set_subtitle(ADW_ACTION_ROW(theme_row),
                               "Choose between light, dark, or system visual styles");
   adw_combo_row_set_model(ADW_COMBO_ROW(theme_row), G_LIST_MODEL(theme_list));
+  g_object_unref(theme_list);
 
-  AdwStyleManager* sm = adw_style_manager_get_default();
-  AdwColorScheme scheme = adw_style_manager_get_color_scheme(sm);
   guint sel_idx = 0;
-  if (scheme == ADW_COLOR_SCHEME_FORCE_LIGHT)
+  if (cfg.ui_theme == "light")
     sel_idx = 1;
-  else if (scheme == ADW_COLOR_SCHEME_FORCE_DARK)
+  else if (cfg.ui_theme == "dark")
     sel_idx = 2;
   adw_combo_row_set_selected(ADW_COMBO_ROW(theme_row), sel_idx);
 
   g_signal_connect(theme_row,
                    "notify::selected",
-                   G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer) {
+                   G_CALLBACK(+[](GObject* obj, GParamSpec*, gpointer user_data) {
+                     auto* self = static_cast<SettingsTab*>(user_data);
+                     if (self->syncing_controls_) return;
                      guint idx = adw_combo_row_get_selected(ADW_COMBO_ROW(obj));
                      AdwStyleManager* style_mgr = adw_style_manager_get_default();
+                     std::string theme_pref;
                      if (idx == 1) {
                        adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_LIGHT);
+                       theme_pref = "light";
                      } else if (idx == 2) {
                        adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_FORCE_DARK);
+                       theme_pref = "dark";
                      } else {
                        adw_style_manager_set_color_scheme(style_mgr, ADW_COLOR_SCHEME_DEFAULT);
                      }
+                     auto& c = ConfigStore::Instance().Mutable();
+                     c.ui_theme = theme_pref;
+                     ConfigStore::Instance().Save();
                    }),
-                   nullptr);
+                   this);
   adw_preferences_group_add(appearance_group, theme_row);
 
   // 8. Diagnostics & Health
@@ -339,6 +354,10 @@ void SettingsTab::BuildUi() {
             c.max_bitrate_kbps = kbps;
             ConfigStore::Instance().Save();
           }
+          if (tab->app_ && tab->app_->GetCastTab()) {
+            tab->app_->GetCastTab()->SaveSelectedDeviceProfile();
+            ConfigStore::Instance().Save();
+          }
           return G_SOURCE_REMOVE;
         },
         self);
@@ -351,6 +370,9 @@ void SettingsTab::BuildUi() {
     if (self->syncing_controls_) return;
     auto& c = ConfigStore::Instance().Mutable();
     c.capture_fps = static_cast<int>(adw_spin_row_get_value(ADW_SPIN_ROW(self->fps_row_)));
+    if (self->app_ && self->app_->GetCastTab()) {
+      self->app_->GetCastTab()->SaveSelectedDeviceProfile();
+    }
     ConfigStore::Instance().Save();
   };
   g_signal_connect(fps_row_, "notify::value", G_CALLBACK(on_fps_changed), this);
@@ -403,6 +425,9 @@ void SettingsTab::BuildUi() {
     self->UpdateDelayLabel(delay);
     auto& c = ConfigStore::Instance().Mutable();
     c.target_delay_ms = delay;
+    if (self->app_ && self->app_->GetCastTab()) {
+      self->app_->GetCastTab()->SaveSelectedDeviceProfile();
+    }
     ConfigStore::Instance().Save();
   };
   g_signal_connect(delay_scale_, "value-changed", G_CALLBACK(on_delay_changed), this);
@@ -489,6 +514,9 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.force_x11_capture = state;
     ConfigStore::Instance().Save();
+    if (self->app_ && self->app_->GetCastTab()) {
+      self->app_->GetCastTab()->RefreshDisplays();
+    }
   };
   g_signal_connect(force_x11_row_, "notify::active", G_CALLBACK(on_fx11_toggle), this);
 
@@ -511,6 +539,18 @@ void SettingsTab::BuildUi() {
     auto& c = ConfigStore::Instance().Mutable();
     c.enable_tray_on_startup = state;
     ConfigStore::Instance().Save();
+    if (self->app_ && self->app_->GetTrayManager()) {
+      auto* tray = self->app_->GetTrayManager();
+      if (state) {
+        tray->CreateIndicator();
+        tray->UpdateState(self->app_->GetCurrentState(),
+                          self->app_->GetCastTab()
+                              ? self->app_->GetCastTab()->GetSelectedDeviceName()
+                              : std::string());
+      } else {
+        tray->DestroyIndicator();
+      }
+    }
     self->UpdateDependentSensitivities(self->app_ ? self->app_->GetCurrentState()
                                                   : SessionState::kIdle);
   };
@@ -616,6 +656,17 @@ void SettingsTab::SyncBitrateSlider(uint32_t kbps) {
   syncing_controls_ = prev;
 }
 
+void SettingsTab::SyncDelaySlider(int delay_ms) {
+  const bool prev = syncing_controls_;
+  syncing_controls_ = true;
+  const int clamped = std::clamp(delay_ms, 100, 400);
+  if (delay_scale_) {
+    gtk_range_set_value(GTK_RANGE(delay_scale_), clamped);
+  }
+  UpdateDelayLabel(clamped);
+  syncing_controls_ = prev;
+}
+
 void SettingsTab::RunSelfTestDialog() {
   GtkWindow* parent_win = app_ ? app_->GetWindow() : nullptr;
 
@@ -649,6 +700,11 @@ void SettingsTab::RunSelfTestDialog() {
   AdwDialog* dialog = adw_alert_dialog_new("Hardware & Network Diagnostics", msg.str().c_str());
   adw_alert_dialog_add_response(ADW_ALERT_DIALOG(dialog), "close", "Close");
   adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "close");
+  adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "close");
+  if (app_) {
+    app_->PushModalActionBlock();
+    app_->OwnModalDialog(dialog);
+  }
   adw_dialog_present(dialog, GTK_WIDGET(parent_win));
 }
 

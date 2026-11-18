@@ -42,6 +42,9 @@
                         <GradientStop Color="#FF122347" Offset="0" />
                         <GradientStop Color="#FF2A1358" Offset="1" />
                     </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HeroTextPrimaryBrush" Color="#FFFFFFFF" />
+                    <SolidColorBrush x:Key="HeroTextSecondaryBrush" Color="#FFD7DEEA" />
+                    <SolidColorBrush x:Key="HeroTextTertiaryBrush" Color="#FFAEBAD0" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FFF4F6FB" />
@@ -67,14 +70,9 @@
                         <GradientStop Color="#FFDBE7FF" Offset="0" />
                         <GradientStop Color="#FFE9DDFF" Offset="1" />
                     </LinearGradientBrush>
-                    <SolidColorBrush x:Key="RadioButtonOuterEllipseFill" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonOuterEllipseStroke" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonOuterEllipseFillPointerOver" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonOuterEllipseStrokePointerOver" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedFill" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonOuterEllipseCheckedStroke" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonCheckGlyphFill" Color="Transparent" />
-                    <SolidColorBrush x:Key="RadioButtonCheckGlyphStroke" Color="Transparent" />
+                    <SolidColorBrush x:Key="HeroTextPrimaryBrush" Color="#FF0F172A" />
+                    <SolidColorBrush x:Key="HeroTextSecondaryBrush" Color="#FF334155" />
+                    <SolidColorBrush x:Key="HeroTextTertiaryBrush" Color="#FF475569" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="ShellBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -100,6 +98,9 @@
                         <GradientStop Color="{ThemeResource SystemColorWindowColor}" Offset="0" />
                         <GradientStop Color="{ThemeResource SystemColorWindowColor}" Offset="1" />
                     </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HeroTextPrimaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="HeroTextSecondaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="HeroTextTertiaryBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 

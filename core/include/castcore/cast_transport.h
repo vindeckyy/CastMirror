@@ -91,6 +91,7 @@ class CastTransport {
   mutable std::mutex send_mutex_;
   mutable std::mutex stats_mutex_;
   mutable std::mutex cache_mutex_;
+  mutable std::mutex callback_mutex_;
 
   // Retransmission cache: ssrc -> frame_id -> packet_id -> RtpPacket
   std::map<uint32_t, std::map<uint32_t, std::map<uint16_t, RtpPacket>>> packet_cache_;
@@ -120,6 +121,7 @@ class CastTransport {
   double last_loss_fraction_ = 0.0;
   std::chrono::steady_clock::time_point session_start_time_;
   std::chrono::steady_clock::time_point last_udp_drop_log_{};
+  std::chrono::steady_clock::time_point last_drop_warn_{};
   uint32_t udp_drops_since_log_ = 0;
   mutable std::chrono::steady_clock::time_point fps_sample_time_{};
   mutable uint32_t fps_sample_frames_ = 0;

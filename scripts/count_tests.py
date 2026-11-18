@@ -23,7 +23,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = ROOT / "tests"
 TARGETS = [
-    ROOT / "README.md",
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "TEST_REPORT.md",
     ROOT / "docs" / "index.html",
@@ -38,7 +37,7 @@ MARKER_RE = re.compile(r"<!--\s*testcount\s*-->(\d+)<!--\s*/testcount\s*-->")
 # README's shields badge carries the count inside a URL, where an HTML comment
 # marker is not legal, so it is rewritten by pattern instead.
 BADGE_RE = re.compile(r"(img\.shields\.io/badge/tests-)[A-Za-z0-9]+")
-BADGE_TARGET = ROOT / "README.md"
+README_TARGET = ROOT / "README.md"
 SUITE_RE = re.compile(r"<!--\s*testsuite:start\s*-->.*?<!--\s*testsuite:end\s*-->",
                       re.DOTALL)
 
@@ -57,6 +56,8 @@ COVERAGE = {
     "test_logger.cc": "Severity filter, callback delivery",
     "test_display_capture.cc": "Synthetic/X11 enumerate and start, DMA-BUF metadata, WGC pacing (`_WIN32` only)",
     "test_frame_pacer.cc": "Frame pacing cadence",
+    "test_media_timeline.cc": "MediaTimeline tick stepping, due-frame math, reset handling, 48 kHz audio RTP ticks",
+    "test_av_clock_drift.cc": "Long-run A/V clock drift bound under jitter and suspend",
     "test_session_recovery.cc": "Recovery state and the 30 s timeout ceiling",
     "test_cast_transport.cc": "RTCP source filter, rolling FPS, duplicate-NACK suppression, pacing",
     "test_capture_source.cc": "CaptureSource kind round-trip, config v2 to v3 migration, legacy Start forwarding",
@@ -67,7 +68,12 @@ COVERAGE = {
     "test_device_discovery.cc": "mDNS TXT parsing, device list, subnet probe",
     "test_net_platform.cc": "Interface enumeration, socket init idempotence, error classification",
     "test_gpu_processor.cc": "Letterbox geometry, YUV/NV12 conversion correctness, invalid args",
+    "test_pixel_convert.cc": "Half-float, BGRA/RGBA, RGB10A2 unpacking, HDR-to-SDR tone mapping",
+    "test_parser_robustness.cc": "Fuzz-corpus and mutation robustness for RTCP and mDNS TXT parsers",
+    "test_audio_sessions.cc": "Per-process audio session enumeration and WASAPI loopback isolation",
+    "test_window_capture.cc": "Window capture isolation, occlusion rejection, desktop-crop fallback, close handling",
     "test_audio_capture.cc": "10 ms cadence, monotonic timestamps, join-or-detach worker cleanup",
+    "test_wgc_window_source.cc": "WGC content-instant tracking, missing/negative instant fallback, drift prevention (_WIN32 only)",
 }
 
 
@@ -133,12 +139,19 @@ def main():
     print(f"{total} test cases across {len(per_file)} files")
     for name, n in per_file.items():
         print(f"  {name}: {n}")
+        if name not in COVERAGE:
+            print(f"  ! missing COVERAGE description for {name}", file=sys.stderr)
 
     stale = []
+    missing_markers = []
     for target in TARGETS:
+        if not target.exists():
+            missing_markers.append((target, "file missing"))
+            continue
         text = target.read_text(encoding="utf-8")
         if not MARKER_RE.search(text):
-            print(f"  ! no testcount marker in {target.relative_to(ROOT)}")
+            print(f"  ! no testcount marker in {target.relative_to(ROOT)}", file=sys.stderr)
+            missing_markers.append((target, "missing <!-- testcount --> marker"))
             continue
         new_text, n = MARKER_RE.subn(
             lambda m: f"<!-- testcount -->{total}<!-- /testcount -->", text)
@@ -148,17 +161,35 @@ def main():
                 target.write_text(new_text, encoding="utf-8")
                 print(f"  updated {target.relative_to(ROOT)}")
 
-    badge_text = BADGE_TARGET.read_text(encoding="utf-8")
-    badge_new = BADGE_RE.sub(lambda m: m.group(1) + str(total), badge_text)
-    if badge_new != badge_text:
-        stale.append(BADGE_TARGET)
-        if not args.check:
-            BADGE_TARGET.write_text(badge_new, encoding="utf-8")
-            print(f"  updated {BADGE_TARGET.relative_to(ROOT)} badge")
+    if README_TARGET.exists():
+        readme_text = README_TARGET.read_text(encoding="utf-8")
+        has_marker = bool(MARKER_RE.search(readme_text))
+        has_badge = bool(BADGE_RE.search(readme_text))
+        if not has_marker and not has_badge:
+            print(f"  ! no testcount marker or tests badge in {README_TARGET.relative_to(ROOT)}",
+                  file=sys.stderr)
+            missing_markers.append((README_TARGET, "missing tests badge or <!-- testcount --> marker"))
+        else:
+            readme_new = readme_text
+            if has_marker:
+                readme_new = MARKER_RE.sub(
+                    lambda m: f"<!-- testcount -->{total}<!-- /testcount -->", readme_new)
+            if has_badge:
+                readme_new = BADGE_RE.sub(lambda m: m.group(1) + str(total), readme_new)
+            if readme_new != readme_text:
+                stale.append(README_TARGET)
+                if not args.check:
+                    README_TARGET.write_text(readme_new, encoding="utf-8")
+                    print(f"  updated {README_TARGET.relative_to(ROOT)}")
 
     for suite_target, fmt in SUITE_TARGETS:
+        if not suite_target.exists():
+            missing_markers.append((suite_target, "file missing"))
+            continue
         text = suite_target.read_text(encoding="utf-8")
         if not SUITE_RE.search(text):
+            print(f"  ! no testsuite markers in {suite_target.relative_to(ROOT)}", file=sys.stderr)
+            missing_markers.append((suite_target, "missing <!-- testsuite:start/end --> markers"))
             continue
         block = ("<!-- testsuite:start -->\n" + suite_table(total, per_file, fmt)
                  + "\n<!-- testsuite:end -->")
@@ -167,11 +198,13 @@ def main():
             stale.append(suite_target)
             if not args.check:
                 suite_target.write_text(new_text, encoding="utf-8")
-                print(f"  updated {suite_target.relative_to(ROOT)} suite table")
+                print(f"  updated {suite_target.relative_to(ROOT)}")
 
-    if args.check and stale:
-        for target in set(stale):
+    if args.check and (stale or missing_markers):
+        for target in sorted(set(stale)):
             print(f"  stale: {target.relative_to(ROOT)}", file=sys.stderr)
+        for target, reason in missing_markers:
+            print(f"  missing: {target.relative_to(ROOT)} ({reason})", file=sys.stderr)
         return 1
     return 0
 

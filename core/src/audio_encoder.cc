@@ -14,6 +14,11 @@ class OpusAudioEncoder : public IAudioEncoder {
 
   bool Initialize(const AudioEncoderConfig& config) override {
     Cleanup();
+    if (config.sample_rate <= 0 || config.channels <= 0 || config.channels > 2) {
+      LOG_ERROR << "Invalid Opus audio config: " << config.sample_rate << " Hz, " << config.channels
+                << " ch";
+      return false;
+    }
     config_ = config;
 
     int error = 0;
@@ -39,7 +44,15 @@ class OpusAudioEncoder : public IAudioEncoder {
   }
 
   bool Encode(const CapturedAudioFrame& frame, EncodedFrame& out_encoded_frame) override {
-    if (!encoder_ || frame.pcm_data.empty()) return false;
+    if (!encoder_ || frame.pcm_data.empty() || frame.samples_per_channel <= 0) return false;
+    if (frame.channels > 0 && frame.channels != config_.channels) return false;
+    if (frame.sample_rate > 0 && frame.sample_rate != config_.sample_rate) return false;
+
+    const size_t required_bytes = static_cast<size_t>(frame.samples_per_channel) *
+                                  static_cast<size_t>(config_.channels) * sizeof(int16_t);
+    if (frame.pcm_data.size() < required_bytes) {
+      return false;
+    }
 
     const int16_t* pcm = reinterpret_cast<const int16_t*>(frame.pcm_data.data());
     int samples_per_channel = frame.samples_per_channel;
@@ -116,6 +129,10 @@ class OpusAudioEncoder : public IAudioEncoder {
 };
 
 std::unique_ptr<IAudioEncoder> AudioEncoderFactory::Create(AudioCodec codec) {
+  if (codec != AudioCodec::kOpus) {
+    LOG_WARN << "Audio codec " << AudioCodecToString(codec)
+             << " is not supported; falling back to Opus";
+  }
   return std::make_unique<OpusAudioEncoder>();
 }
 

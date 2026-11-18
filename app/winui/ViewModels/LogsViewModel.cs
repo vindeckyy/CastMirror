@@ -34,6 +34,10 @@ namespace CastMirror.ViewModels
         private readonly DispatcherQueue? _dispatcher;
         private readonly List<LogEntry> _all = new();
         private readonly LogCallback _logCallback;
+        // Retain the latest registered native log callback statically so a rapid
+        // window close cannot let GC collect the delegate thunk while a native
+        // thread is still entering it.
+        private static LogCallback? _retainedCallback;
         // The engine can still be winding down (its own log callback fires from
         // worker threads) after Detach() unsubscribes us. Without this the
         // already-queued work keeps appending to a window that no longer exists,
@@ -82,6 +86,7 @@ namespace CastMirror.ViewModels
             SeedFromDisk();
             try
             {
+                _retainedCallback = _logCallback;
                 CastCoreBridge.castmirror_set_log_callback(_logCallback, IntPtr.Zero);
             }
             catch (Exception ex)

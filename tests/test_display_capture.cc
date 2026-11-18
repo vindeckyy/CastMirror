@@ -529,3 +529,22 @@ TEST(DisplayCaptureTest, LatencyHudRendersOntoFrameWhenEnabled) {
   EXPECT_EQ(a, 255);
   EXPECT_GT(b, 0);
 }
+
+TEST(DisplayCaptureTest, LatencyHudIgnoresDmabufAndUndersizedBuffers) {
+  CapturedVideoFrame dmabuf;
+  dmabuf.width = 640;
+  dmabuf.height = 480;
+  dmabuf.stride = 640;
+  dmabuf.is_dmabuf = true;
+  dmabuf.data.assign(640 * 480 * 3 / 2, 0x11);
+  LatencyHud::Render(dmabuf);
+  EXPECT_EQ(dmabuf.data[25 * dmabuf.stride + 25], 0x11);
+
+  CapturedVideoFrame undersized;
+  undersized.width = 640;
+  undersized.height = 480;
+  undersized.stride = 640 * 4;
+  undersized.data.assign(640 * 4, 0x22);
+  LatencyHud::Render(undersized);
+  EXPECT_EQ(undersized.data[0], 0x22);
+}

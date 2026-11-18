@@ -3,6 +3,7 @@
 #include "castcore/cast_engine.h"
 #include <nlohmann/json.hpp>
 #include <atomic>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -459,6 +460,42 @@ TEST(CApiTest, SizeQueryThenFillContractHoldsForConfigAndSelfTest) {
   char one_selftest[1] = {'x'};
   EXPECT_EQ(castmirror_self_test(one_selftest, 1), 0);
   EXPECT_EQ(one_selftest[0], '\0');
+
+  castmirror_shutdown();
+}
+
+TEST(CApiTest, ConfigJsonRefreshesWhenEngineMutatesSettings) {
+  ASSERT_TRUE(castmirror_init());
+
+  auto read_config = []() {
+    int needed = castmirror_get_config_json(nullptr, 0);
+    std::vector<char> buf(static_cast<size_t>(needed));
+    int written = castmirror_get_config_json(buf.data(), needed);
+    return nlohmann::json::parse(std::string(buf.data(), static_cast<size_t>(written)));
+  };
+
+  const nlohmann::json original = read_config();
+  castmirror_set_bitrate(9500);
+  castmirror_set_audio_bitrate(128000);
+
+  const nlohmann::json updated = read_config();
+  EXPECT_EQ(updated["max_bitrate_kbps"].get<uint32_t>(), 9500u);
+  EXPECT_EQ(updated["audio_bitrate_bps"].get<uint32_t>(), 128000u);
+
+  ASSERT_TRUE(castmirror_set_config_json(original.dump().c_str()));
+  castmirror_shutdown();
+}
+
+TEST(CApiTest, GetStatsZeroInitializesPaddingAndStrings) {
+  ASSERT_TRUE(castmirror_init());
+
+  CastMirrorStreamStats stats;
+  std::memset(&stats, 0xAA, sizeof(stats));
+  ASSERT_TRUE(castmirror_get_stats(&stats));
+  EXPECT_EQ(stats.encoder_name[sizeof(stats.encoder_name) - 1], '\0');
+  EXPECT_EQ(stats.capture_backend[sizeof(stats.capture_backend) - 1], '\0');
+  EXPECT_EQ(stats.display_name[sizeof(stats.display_name) - 1], '\0');
+  EXPECT_EQ(stats.health_hint[sizeof(stats.health_hint) - 1], '\0');
 
   castmirror_shutdown();
 }

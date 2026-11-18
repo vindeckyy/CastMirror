@@ -21,6 +21,7 @@ std::string Utf8(const std::wstring& wide) {
   if (wide.empty()) return {};
   int n = WideCharToMultiByte(
       CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+  if (n <= 0) return {};
   std::string out(static_cast<size_t>(n), '\0');
   WideCharToMultiByte(
       CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), out.data(), n, nullptr, nullptr);

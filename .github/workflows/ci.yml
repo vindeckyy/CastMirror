@@ -23,12 +23,16 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          TRAY_PKG=""
+          if apt-cache show libayatana-appindicator-glib-dev >/dev/null 2>&1; then
+            TRAY_PKG="libayatana-appindicator-glib-dev"
+          fi
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
             libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
             libxcomposite-dev libxdamage-dev \
             libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
-            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev xvfb ${TRAY_PKG}
 
       - name: Install GoogleTest (Ubuntu source package)
         run: |
@@ -39,7 +43,7 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCASTMIRROR_ENABLE_TRAY=OFF
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build -j"$(nproc)"
@@ -49,10 +53,66 @@ jobs:
         run: xvfb-run -a ctest --output-on-failure --timeout 120
 
       - name: License Surface & GPL Hygiene Check
-        run: ./scripts/check_license_surface.sh
+        run: ./scripts/check_license_surface.sh --build-dir build
 
       - name: Accessibility Audit
         run: ./scripts/audit_a11y.sh
+
+      - name: Docs Markers, Script Syntax & Soak Fixture Check
+        run: |
+          python3 scripts/count_tests.py --check
+          ./scripts/render_device_matrix.sh --check
+          ./scripts/run_soak_test.sh --fixture --out-dir /tmp/soak-fixture
+          bash -n scripts/*.sh
+          python3 -m py_compile scripts/*.py
+
+  ubuntu-tray:
+    name: Ubuntu 26.04 (GTK4 + System Tray)
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:26.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential clang-tidy cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
+            libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
+            libxcomposite-dev libxdamage-dev \
+            libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+            nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev \
+            libayatana-appindicator-glib-dev xvfb
+
+      - name: Install GoogleTest (Ubuntu source package)
+        run: |
+          if [ -d /usr/src/googletest ] && ! find /usr/lib* -name 'GTestConfig.cmake' 2>/dev/null | grep -q .; then
+            cmake -S /usr/src/googletest -B /tmp/gtest-build
+            cmake --build /tmp/gtest-build -j"$(nproc)"
+            cmake --install /tmp/gtest-build
+          fi
+
+      - name: Configure (require tray)
+        run: |
+          cmake -S . -B build-tray -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCASTMIRROR_ENABLE_TRAY=ON \
+            -DCASTMIRROR_REQUIRE_TRAY=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: cmake --build build-tray -j"$(nproc)"
+
+      - name: Test
+        working-directory: build-tray
+        run: xvfb-run -a ctest --output-on-failure --timeout 120
+
+      - name: License Surface & GPL Hygiene Check
+        run: ./scripts/check_license_surface.sh --build-dir build-tray
+
+      - name: clang-tidy (tray with CASTMIRROR_HAVE_TRAY=1)
+        run: clang-tidy -p build-tray app/gui/tray.cc
 
   fuzz:
     name: libFuzzer (RTCP + mDNS parsers)
@@ -108,13 +168,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          TRAY_PKG=""
+          if apt-cache show libayatana-appindicator-glib-dev >/dev/null 2>&1; then
+            TRAY_PKG="libayatana-appindicator-glib-dev"
+          fi
           sudo apt-get install -y --no-install-recommends \
             clang clang-tidy cmake ninja-build pkg-config protobuf-compiler \
             libprotobuf-dev libssl-dev libopus-dev libpulse-dev libx11-dev \
             libxext-dev libxrandr-dev libxfixes-dev libxcomposite-dev \
             libxdamage-dev libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev \
             libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev \
-            libgtest-dev
+            libgtest-dev libgtk-4-dev libadwaita-1-dev ${TRAY_PKG}
 
       # .clang-format and .clang-tidy are committed but were never run by any
       # workflow, so both configs were decorative.
@@ -130,13 +194,12 @@ jobs:
         run: |
           cmake -S . -B build-tidy -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCASTMIRROR_BUILD_GUI=OFF -DCASTMIRROR_ENABLE_TRAY=OFF \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
-      # clang-tidy needs the generated protobuf header on disk, and CMake only writes it when
-      # the target is built.
-      - name: Generate protobuf sources
-        run: ninja -C build-tidy core/cast_channel.pb.h core/cast_channel.pb.cc
+      # clang-tidy needs generated protobuf and GResource sources on disk, and
+      # CMake only writes them when those outputs are built.
+      - name: Generate protobuf and GResource sources
+        run: ninja -C build-tidy core/cast_channel.pb.h core/cast_channel.pb.cc app/castmirror-resources.c
 
       # Reported, not enforced: the point on the first run is to publish the
       # backlog rather than block every PR on pre-existing findings.
@@ -174,7 +237,7 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCASTMIRROR_ENABLE_TRAY=OFF -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+        run: cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
 
       - name: Build
         run: cmake --build build-asan -j"$(nproc)"
@@ -208,7 +271,7 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCASTMIRROR_ENABLE_TRAY=OFF -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
+        run: cmake -S . -B build-tsan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=thread -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
 
       - name: Build
         run: cmake --build build-tsan -j"$(nproc)"
@@ -242,7 +305,7 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake -S . -B build-cov -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCASTMIRROR_ENABLE_TRAY=OFF -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
+        run: cmake -S . -B build-cov -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
 
       - name: Build
         run: cmake --build build-cov -j"$(nproc)"
@@ -290,7 +353,7 @@ jobs:
             glib2-devel ffmpeg-free-devel json-devel gtest-devel gtk4-devel libadwaita-devel xorg-x11-server-Xvfb
 
       - name: Configure
-        run: cmake -S . -B build-fedora -G Ninja -DCMAKE_BUILD_TYPE=Release -DCASTMIRROR_ENABLE_TRAY=OFF
+        run: cmake -S . -B build-fedora -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build-fedora -j"$(nproc)"

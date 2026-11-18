@@ -77,6 +77,7 @@ CastMirrorState ConvertState(castcore::SessionState s) {
 
 void ConvertStats(const castcore::StreamStats& in, CastMirrorStreamStats* out) {
   if (!out) return;
+  std::memset(out, 0, sizeof(*out));
   out->bitrate_kbps = in.bitrate_kbps;
   out->current_fps = in.current_fps;
   out->round_trip_time_ms = in.round_trip_time_ms;
@@ -120,6 +121,7 @@ nlohmann::json BuildConfigJson() {
   const auto& cfg = castcore::ConfigStore::Instance().Get();
   nlohmann::json j;
   j["quality_preset"] = castcore::QualityPresetToString(cfg.quality_preset);
+  j["preferred_video_codec"] = castcore::VideoCodecToString(cfg.preferred_video_codec);
   j["max_bitrate_kbps"] = cfg.max_bitrate_kbps;
   j["bitrate_kbps_auto"] = cfg.bitrate_kbps_auto;
   j["bitrate_kbps_high"] = cfg.bitrate_kbps_high;
@@ -166,6 +168,7 @@ nlohmann::json BuildConfigJson() {
 std::mutex g_config_json_mutex;
 std::string g_config_json_cache;
 bool g_config_json_cache_valid = false;
+uint64_t g_config_json_revision = 0;
 
 // Conservative upper bound returned by the size query. Even with the cache a
 // rebuild can slip between the two calls, so the size query reports at least
@@ -179,8 +182,10 @@ int JsonOutSizeHint(int required) {
 
 std::string CachedConfigJson() {
   std::lock_guard<std::mutex> lock(g_config_json_mutex);
-  if (!g_config_json_cache_valid) {
+  const uint64_t rev = castcore::ConfigStore::Instance().Revision();
+  if (!g_config_json_cache_valid || g_config_json_revision != rev) {
     g_config_json_cache = BuildConfigJson().dump();
+    g_config_json_revision = rev;
     g_config_json_cache_valid = true;
   }
   return g_config_json_cache;
@@ -218,6 +223,10 @@ void MergeConfigJson(const nlohmann::json& j, castcore::AppConfig& cfg) {
 
   if (j.contains("quality_preset") && j["quality_preset"].is_string()) {
     cfg.quality_preset = castcore::QualityPresetFromString(j["quality_preset"].get<std::string>());
+  }
+  if (j.contains("preferred_video_codec") && j["preferred_video_codec"].is_string()) {
+    cfg.preferred_video_codec =
+        castcore::VideoCodecFromString(j["preferred_video_codec"].get<std::string>());
   }
   get_u32("max_bitrate_kbps", &cfg.max_bitrate_kbps);
   get_u32("bitrate_kbps_auto", &cfg.bitrate_kbps_auto);
@@ -306,6 +315,11 @@ bool castmirror_init(void) {
           CallbackInvocationScope invocation;
           cb(static_cast<int>(devs.size()), user_data);
         });
+    {
+      auto initial_devs = castcore::CastEngine::Instance().GetDevices();
+      std::lock_guard<std::mutex> lock(g_c_state.cb_mutex);
+      g_c_state.cached_devices = std::move(initial_devs);
+    }
 
     castcore::CastEngine::Instance().SetOnStatsUpdated([](const castcore::StreamStats& stats) {
       CastMirrorStatsCallback cb = nullptr;
@@ -391,6 +405,17 @@ void castmirror_shutdown(void) {
     }
   }
   castcore::CastEngine::Instance().Shutdown();
+  castcore::CastEngine::Instance().SetOnStateChanged(nullptr);
+  castcore::CastEngine::Instance().SetOnDevicesChanged(nullptr);
+  castcore::CastEngine::Instance().SetOnStatsUpdated(nullptr);
+  castcore::Logger::Instance().SetCallback(nullptr);
+  {
+    std::lock_guard<std::mutex> lock(g_c_state.cb_mutex);
+    g_c_state.cached_devices.clear();
+    g_c_state.cached_displays.clear();
+    g_c_state.cached_windows.clear();
+  }
+  InvalidateConfigJsonCache();
 }
 
 void castmirror_start_discovery(void) {
@@ -413,6 +438,7 @@ bool castmirror_get_device_info(int index, CastMirrorDeviceInfo* out_info) {
     return false;
   }
   const auto& dev = g_c_state.cached_devices[index];
+  std::memset(out_info, 0, sizeof(*out_info));
   std::strncpy(out_info->id, dev.id.c_str(), sizeof(out_info->id) - 1);
   out_info->id[sizeof(out_info->id) - 1] = '\0';
   std::strncpy(out_info->name, dev.name.c_str(), sizeof(out_info->name) - 1);

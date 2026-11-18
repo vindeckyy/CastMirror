@@ -80,49 +80,35 @@ class FakeCastReceiver {
     while (!is_ready_.load() && running_.load()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    LOG_INFO << "Fake Cast Receiver running on 127.0.0.1:" << tls_port_
-             << " and UDP :" << udp_port_;
+    LOG_INFO << "Fake Cast Receiver running on 127.0.0.1:" << tls_port_.load()
+             << " and UDP :" << udp_port_.load();
     return true;
   }
 
   void Stop() {
     if (!running_.exchange(false)) return;
-    if (server_fd_ >= 0) {
-#if defined(_WIN32)
-      shutdown(server_fd_, SD_BOTH);
-#else
-      shutdown(server_fd_, SHUT_RDWR);
-#endif
-      close(server_fd_);
-      server_fd_ = -1;
-    }
-    if (udp_fd_ >= 0) {
-#if defined(_WIN32)
-      shutdown(udp_fd_, SD_BOTH);
-#else
-      shutdown(udp_fd_, SHUT_RDWR);
-#endif
-      close(udp_fd_);
-      udp_fd_ = -1;
-    }
-    // Unblock accept/recvfrom with dummy connects strictly to 127.0.0.1 loopback
-    {
+    // Wake the accept() and recvfrom() calls with a throwaway connection and
+    // datagram, join the threads, and only then close the sockets. Closing a
+    // descriptor another thread is still blocked on is a data race.
+    const uint16_t tls_p = tls_port_.load();
+    const uint16_t udp_p = udp_port_.load();
+    if (tls_p > 0) {
       int dummy = socket(AF_INET, SOCK_STREAM, 0);
       if (dummy >= 0) {
         struct sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(tls_port_);
+        addr.sin_port = htons(tls_p);
         inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
         connect(dummy, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
         close(dummy);
       }
     }
-    {
+    if (udp_p > 0) {
       int dummy_u = socket(AF_INET, SOCK_DGRAM, 0);
       if (dummy_u >= 0) {
         struct sockaddr_in uaddr{};
         uaddr.sin_family = AF_INET;
-        uaddr.sin_port = htons(udp_port_);
+        uaddr.sin_port = htons(udp_p);
         inet_pton(AF_INET, "127.0.0.1", &uaddr.sin_addr);
         sendto(dummy_u, "x", 1, 0, reinterpret_cast<struct sockaddr*>(&uaddr), sizeof(uaddr));
         close(dummy_u);
@@ -130,12 +116,30 @@ class FakeCastReceiver {
     }
     if (tls_thread_.joinable()) tls_thread_.join();
     if (udp_thread_.joinable()) udp_thread_.join();
+    const int sfd = server_fd_.exchange(-1);
+    if (sfd >= 0) {
+#if defined(_WIN32)
+      shutdown(sfd, SD_BOTH);
+#else
+      shutdown(sfd, SHUT_RDWR);
+#endif
+      close(sfd);
+    }
+    const int ufd = udp_fd_.exchange(-1);
+    if (ufd >= 0) {
+#if defined(_WIN32)
+      shutdown(ufd, SD_BOTH);
+#else
+      shutdown(ufd, SHUT_RDWR);
+#endif
+      close(ufd);
+    }
     LOG_INFO << "Fake Cast Receiver stopped";
   }
 
   bool IsReady() const { return is_ready_.load(); }
-  uint16_t GetTlsPort() const { return tls_port_; }
-  uint16_t GetUdpPort() const { return udp_port_; }
+  uint16_t GetTlsPort() const { return tls_port_.load(); }
+  uint16_t GetUdpPort() const { return udp_port_.load(); }
   std::string GetBoundIp() const { return bound_ip_; }
   uint32_t GetUdpPacketsReceived() const { return packets_received_.load(); }
   uint32_t GetVideoPacketsReceived() const { return video_packets_received_.load(); }
@@ -154,7 +158,8 @@ class FakeCastReceiver {
   }
 
   void TriggerNackBurst(uint32_t frame_id, const std::vector<uint16_t>& packets) {
-    if (!has_sender_.load() || udp_fd_ < 0 || packets.empty()) return;
+    const int ufd = udp_fd_.load();
+    if (!has_sender_.load() || ufd < 0 || packets.empty()) return;
     ApplySimulatedJitter();
 
     size_t count = std::min(packets.size(), size_t{32});
@@ -195,7 +200,7 @@ class FakeCastReceiver {
     }
 
     std::lock_guard<std::mutex> lock(sender_mutex_);
-    sendto(udp_fd_,
+    sendto(ufd,
            reinterpret_cast<const char*>(rtcp.data()),
            rtcp.size(),
            0,
@@ -204,7 +209,8 @@ class FakeCastReceiver {
   }
 
   void TriggerPictureLossIndicator() {
-    if (!has_sender_.load() || udp_fd_ < 0) return;
+    const int ufd = udp_fd_.load();
+    if (!has_sender_.load() || ufd < 0) return;
     ApplySimulatedJitter();
 
     uint8_t pli[12] = {
@@ -222,7 +228,7 @@ class FakeCastReceiver {
         0x02  // Sender SSRC 2
     };
     std::lock_guard<std::mutex> lock(sender_mutex_);
-    sendto(udp_fd_,
+    sendto(ufd,
            reinterpret_cast<const char*>(pli),
            sizeof(pli),
            0,
@@ -237,7 +243,9 @@ class FakeCastReceiver {
     if (max_j > 0) {
       int delay = min_j;
       if (max_j > min_j) {
-        delay = min_j + (std::rand() % (max_j - min_j + 1));
+        thread_local std::mt19937 jitter_rng(std::random_device{}());
+        std::uniform_int_distribution<int> d(min_j, max_j);
+        delay = d(jitter_rng);
       }
       if (delay > 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
@@ -246,7 +254,8 @@ class FakeCastReceiver {
   }
 
   void SendReceiverReport() {
-    if (!has_sender_.load() || udp_fd_ < 0) return;
+    const int ufd = udp_fd_.load();
+    if (!has_sender_.load() || ufd < 0) return;
     ApplySimulatedJitter();
 
     uint8_t rtcp[32]{};
@@ -273,14 +282,15 @@ class FakeCastReceiver {
 
     int max_j = jitter_max_ms_.load();
     int min_j = jitter_min_ms_.load();
-    uint32_t jitter_val = static_cast<uint32_t>((min_j + max_j) / 2);
+    // RFC 3550 RR interarrival jitter is expressed in 90 kHz video RTP timestamp units.
+    uint32_t jitter_val = static_cast<uint32_t>((min_j + max_j) / 2) * 90u;
     rtcp[20] = static_cast<uint8_t>((jitter_val >> 24) & 0xFF);
     rtcp[21] = static_cast<uint8_t>((jitter_val >> 16) & 0xFF);
     rtcp[22] = static_cast<uint8_t>((jitter_val >> 8) & 0xFF);
     rtcp[23] = static_cast<uint8_t>(jitter_val & 0xFF);
 
     std::lock_guard<std::mutex> lock(sender_mutex_);
-    sendto(udp_fd_,
+    sendto(ufd,
            reinterpret_cast<const char*>(rtcp),
            sizeof(rtcp),
            0,
@@ -304,6 +314,9 @@ class FakeCastReceiver {
     X509_gmtime_adj(X509_get_notAfter(x509), 31536000L);
     X509_set_pubkey(x509, pkey);
 
+    // OpenSSL 4.0 types this accessor as returning const X509_NAME*. The cert
+    // was just created by X509_new() and is owned solely here, so dropping the
+    // const to populate the subject is safe.
     X509_NAME* name = const_cast<X509_NAME*>(X509_get_subject_name(x509));
     X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, (unsigned char*)"US", -1, -1, 0);
     X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, (unsigned char*)"Google Inc", -1, -1, 0);
@@ -368,40 +381,51 @@ class FakeCastReceiver {
 
   void TlsServerLoop() {
     SSL_CTX* ctx = CreateServerContext();
-    if (!ctx) return;
+    if (!ctx) {
+      running_ = false;
+      return;
+    }
 
-    server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd < 0) {
+      LOG_ERROR << "Fake receiver failed to create TLS socket (" << SocketErrorString() << ")";
+      SSL_CTX_free(ctx);
+      running_ = false;
+      return;
+    }
+    server_fd_.store(sfd);
     int opt = 1;
-    setsockopt(
-        server_fd_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
 #if defined(SO_REUSEPORT)
-    setsockopt(
-        server_fd_, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&opt), sizeof(opt));
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char*>(&opt), sizeof(opt));
 #endif
 
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(tls_port_);
+    addr.sin_port = htons(tls_port_.load());
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-    if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-      LOG_ERROR << "Fake receiver failed to bind TLS port " << tls_port_ << " ("
+    if (bind(sfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+      LOG_ERROR << "Fake receiver failed to bind TLS port " << tls_port_.load() << " ("
                 << SocketErrorString() << ")";
+      close(sfd);
+      server_fd_.store(-1);
       SSL_CTX_free(ctx);
+      running_ = false;
       return;
     }
 
     socklen_t slen = sizeof(addr);
-    getsockname(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), &slen);
-    tls_port_ = ntohs(addr.sin_port);
+    getsockname(sfd, reinterpret_cast<struct sockaddr*>(&addr), &slen);
+    tls_port_.store(ntohs(addr.sin_port));
 
-    listen(server_fd_, 5);
+    listen(sfd, 5);
     is_ready_ = true;
 
     while (running_.load()) {
       struct sockaddr_in client_addr{};
       socklen_t clen = sizeof(client_addr);
-      int client_fd = accept(server_fd_, reinterpret_cast<struct sockaddr*>(&client_addr), &clen);
+      int client_fd = accept(sfd, reinterpret_cast<struct sockaddr*>(&client_addr), &clen);
       if (client_fd < 0) {
         if (!running_.load()) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -432,6 +456,10 @@ class FakeCastReceiver {
         uint32_t msg_len =
             (static_cast<uint32_t>(len_buf[0]) << 24) | (static_cast<uint32_t>(len_buf[1]) << 16) |
             (static_cast<uint32_t>(len_buf[2]) << 8) | static_cast<uint32_t>(len_buf[3]);
+        if (msg_len == 0 || msg_len > 1024u * 1024u) {
+          LOG_WARN << "[FakeReceiver] Rejecting invalid CastMessage length: " << msg_len;
+          break;
+        }
 
         std::vector<uint8_t> body(msg_len);
         if (!ReadExact(ssl, body.data(), msg_len)) break;
@@ -501,14 +529,15 @@ class FakeCastReceiver {
               int seq = j.value("seqNum", 1001);
 
               if (type == "OFFER") {
+                const uint16_t uport = udp_port_.load();
                 LOG_INFO << "[FakeReceiver] OFFER received! Replying with ANSWER on UDP port "
-                         << udp_port_;
+                         << uport;
                 nlohmann::json ans;
                 ans["type"] = "ANSWER";
                 ans["seqNum"] = seq;
                 ans["result"] = "ok";
                 ans["answer"]["castMode"] = "mirroring";
-                ans["answer"]["udpPort"] = udp_port_;
+                ans["answer"]["udpPort"] = uport;
                 ans["answer"]["sendIndexes"] = nlohmann::json::array({0, 1});
                 ans["answer"]["ssrcs"] = nlohmann::json::array({10001, 10002});
                 ans["answer"]["constraints"]["video"]["maxDimensions"] = {
@@ -587,22 +616,29 @@ class FakeCastReceiver {
   }
 
   void UdpMediaLoop() {
-    udp_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
-    if (udp_fd_ < 0) return;
+    int ufd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (ufd < 0) {
+      running_ = false;
+      return;
+    }
+    udp_fd_.store(ufd);
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(udp_port_);
+    addr.sin_port = htons(udp_port_.load());
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 
-    if (bind(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-      LOG_ERROR << "Fake receiver failed to bind UDP port " << udp_port_ << " ("
+    if (bind(ufd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+      LOG_ERROR << "Fake receiver failed to bind UDP port " << udp_port_.load() << " ("
                 << SocketErrorString() << ")";
+      close(ufd);
+      udp_fd_.store(-1);
+      running_ = false;
       return;
     }
 
     socklen_t ulen = sizeof(addr);
-    getsockname(udp_fd_, reinterpret_cast<struct sockaddr*>(&addr), &ulen);
-    udp_port_ = ntohs(addr.sin_port);
+    getsockname(ufd, reinterpret_cast<struct sockaddr*>(&addr), &ulen);
+    udp_port_.store(ntohs(addr.sin_port));
 
     uint8_t buf[4096];
     uint32_t loop_count = 0;
@@ -612,7 +648,7 @@ class FakeCastReceiver {
     while (running_.load()) {
       struct sockaddr_in saddr{};
       socklen_t slen = sizeof(saddr);
-      ssize_t r = recvfrom(udp_fd_,
+      ssize_t r = recvfrom(ufd,
                            reinterpret_cast<char*>(buf),
                            sizeof(buf),
                            0,
@@ -649,6 +685,8 @@ class FakeCastReceiver {
         if (is_rtp) {
           video_packets_received_++;
         }
+        // CastTransport expects video RTP on payload type 96, audio on 127.
+        // Drop simulation above only triggered NACKs on video (is_rtp).
         // RTCP Sender Reports (PT 200, >= 28 bytes) share the media 5-tuple but
         // never match the RTP test above, so they are handled in their own
         // branch: RTP counters and the loss simulation stay untouched.
@@ -719,8 +757,8 @@ class FakeCastReceiver {
     }
   }
 
-  uint16_t tls_port_ = 8009;
-  uint16_t udp_port_ = 33533;
+  std::atomic<uint16_t> tls_port_{8009};
+  std::atomic<uint16_t> udp_port_{33533};
   std::string bound_ip_ = "127.0.0.1";
   std::atomic<bool> running_{false};
   std::atomic<bool> is_ready_{false};
@@ -769,8 +807,8 @@ class FakeCastReceiver {
   struct sockaddr_in sender_addr_{};
   std::atomic<bool> has_sender_{false};
 
-  int server_fd_ = -1;
-  int udp_fd_ = -1;
+  std::atomic<int> server_fd_{-1};
+  std::atomic<int> udp_fd_{-1};
   std::thread tls_thread_;
   std::thread udp_thread_;
 };

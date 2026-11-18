@@ -287,3 +287,63 @@ TEST(GpuProcessorTest, ColoursAreConvertedWithBt709NotBt601) {
   ASSERT_TRUE(gp.ConvertBgraToYuv420p(white, y, u, v, y_stride, u_stride, v_stride));
   EXPECT_NEAR(y[static_cast<size_t>(h / 2) * w + w / 2], 235, 2) << "limited-range white";
 }
+
+TEST(GpuProcessorTest, RejectsEmptyOrUndersizedSourceAndInsufficientDstStride) {
+  GpuProcessor gp;
+  EXPECT_FALSE(gp.Initialize(64, 64, 1, 64));
+  EXPECT_FALSE(gp.Initialize(64, 64, 64, 1));
+  ASSERT_TRUE(gp.Initialize(64, 64, 64, 64));
+
+  std::vector<uint8_t> y(64 * 64, 0);
+  std::vector<uint8_t> u(32 * 32, 0);
+  std::vector<uint8_t> v(32 * 32, 0);
+  std::vector<uint8_t> uv(64 * 32, 0);
+
+  CapturedVideoFrame empty_src;
+  empty_src.width = 64;
+  empty_src.height = 64;
+  empty_src.stride = 64 * 4;
+  EXPECT_FALSE(gp.ConvertBgraToYuv420p(empty_src, y.data(), 64, u.data(), 32, v.data(), 32));
+  EXPECT_FALSE(gp.ConvertBgraToNv12(empty_src, y.data(), 64, uv.data(), 64));
+
+  CapturedVideoFrame short_src = MakeSolidFrame(64, 64, 0, 0, 0);
+  short_src.data.resize(64 * 4);  // only 1 row instead of 64
+  EXPECT_FALSE(gp.ConvertBgraToYuv420p(short_src, y.data(), 64, u.data(), 32, v.data(), 32));
+  EXPECT_FALSE(gp.ConvertBgraToNv12(short_src, y.data(), 64, uv.data(), 64));
+
+  CapturedVideoFrame valid_src = MakeSolidFrame(64, 64, 10, 20, 30);
+  EXPECT_FALSE(gp.ConvertBgraToYuv420p(valid_src, y.data(), 62, u.data(), 32, v.data(), 32));
+  EXPECT_FALSE(gp.ConvertBgraToYuv420p(valid_src, y.data(), 64, u.data(), 30, v.data(), 32));
+  EXPECT_FALSE(gp.ConvertBgraToNv12(valid_src, y.data(), 62, uv.data(), 64));
+  EXPECT_FALSE(gp.ConvertBgraToNv12(valid_src, y.data(), 64, uv.data(), 62));
+
+  CapturedVideoFrame bad_dmabuf;
+  bad_dmabuf.width = 64;
+  bad_dmabuf.height = 64;
+  bad_dmabuf.is_dmabuf = true;
+  bad_dmabuf.dmabuf_stride = 64;
+  bad_dmabuf.dmabuf_offset_y = 0;
+  bad_dmabuf.dmabuf_offset_uv = 64 * 64;
+  bad_dmabuf.data.resize(64 * 64);  // missing UV plane
+  EXPECT_FALSE(gp.ConvertBgraToNv12(bad_dmabuf, y.data(), 64, uv.data(), 64));
+}
+
+TEST(GpuProcessorTest, FullFrameNv12ConversionWithoutLetterboxRespectsGuardBytes) {
+  GpuProcessor gp;
+  const int w = 64, h = 64;
+  ASSERT_TRUE(gp.Initialize(w, h, w, h));
+  CapturedVideoFrame red = MakeSolidFrame(w, h, 0, 0, 255);
+  const size_t guard = 64;
+  std::vector<uint8_t> y(static_cast<size_t>(w) * h + guard, 0xCD);
+  std::vector<uint8_t> uv(static_cast<size_t>(w) * (h / 2) + guard, 0xCD);
+  ASSERT_TRUE(gp.ConvertBgraToNv12(red, y.data(), w, uv.data(), w));
+  EXPECT_NEAR(y[0], 63, 3);
+  EXPECT_LT(uv[0], 128);
+  EXPECT_GT(uv[1], 128);
+  for (size_t i = static_cast<size_t>(w) * h; i < y.size(); ++i) {
+    EXPECT_EQ(y[i], 0xCD);
+  }
+  for (size_t i = static_cast<size_t>(w) * (h / 2); i < uv.size(); ++i) {
+    EXPECT_EQ(uv[i], 0xCD);
+  }
+}

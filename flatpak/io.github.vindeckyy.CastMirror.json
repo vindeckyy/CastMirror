@@ -23,7 +23,8 @@
       "buildsystem": "cmake-ninja",
       "config-opts": [
         "-DCMAKE_BUILD_TYPE=Release",
-        "-DCASTMIRROR_ENABLE_TRAY=OFF"
+        "-DCASTMIRROR_ENABLE_TRAY=OFF",
+        "-DBUILD_TESTING=OFF"
       ],
       "sources": [
         {

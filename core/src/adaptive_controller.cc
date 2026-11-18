@@ -33,13 +33,18 @@ void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPr
       initial_target.target_delay_ms > 0
           ? std::clamp(initial_target.target_delay_ms, kMinPlayoutDelayMs, kMaxPlayoutDelayMs)
           : kDefaultPlayoutDelayMs;
-  current_bitrate_kbps_ = initial_target.bitrate_kbps;
-  max_encode_width_ = initial_target.current_resolution.width;
-  max_encode_height_ = initial_target.current_resolution.height;
+  current_bitrate_kbps_ = initial_target.bitrate_kbps > 0 ? initial_target.bitrate_kbps
+                                                          : QualityPresetDefaultBitrateKbps(preset);
+  max_encode_width_ =
+      initial_target.current_resolution.width > 0 ? initial_target.current_resolution.width : 1920;
+  max_encode_height_ = initial_target.current_resolution.height > 0
+                           ? initial_target.current_resolution.height
+                           : 1080;
   initial_framerate_ = initial_target.current_framerate > 0 ? initial_target.current_framerate : 60;
-  user_bitrate_cap_kbps_ = initial_target.bitrate_kbps;
-  custom_target_kbps_ = initial_target.bitrate_kbps;
+  user_bitrate_cap_kbps_ = current_bitrate_kbps_;
+  custom_target_kbps_ = current_bitrate_kbps_;
   stability_cap_kbps_ = 0;
+  stability_cap_clean_ticks_ = 0;
   last_eval_time_ = std::chrono::steady_clock::now();
   last_downshift_time_ = last_eval_time_ - std::chrono::seconds(10);
   last_floor_warning_time_ = {};
@@ -52,9 +57,10 @@ void AdaptiveController::Initialize(const StreamStats& initial_target, QualityPr
   // Find closest rung in ladder
   current_rung_idx_ = 3;  // Default 1080p60
   for (size_t i = 0; i < ladder_.size(); ++i) {
-    if (ladder_[i].resolution.width <= initial_target.current_resolution.width &&
-        ladder_[i].framerate <= initial_target.current_framerate &&
-        ladder_[i].bitrate_kbps <= initial_target.bitrate_kbps) {
+    if (ladder_[i].resolution.width <= max_encode_width_ &&
+        ladder_[i].resolution.height <= max_encode_height_ &&
+        ladder_[i].framerate <= initial_framerate_ &&
+        ladder_[i].bitrate_kbps <= current_bitrate_kbps_) {
       current_rung_idx_ = static_cast<int>(i);
       break;
     }
@@ -425,17 +431,23 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
         (custom_target_kbps_ == 0) || (current_bitrate_kbps_ >= custom_target_kbps_);
     if (bitrate_recovered && consecutive_clean_seconds_ >= 10 && time_since_downshift >= 15 &&
         current_rung_idx_ > 0) {
+      // Skip intermediate rungs whose fps/size exceeds the session's initial
+      // ceiling (e.g. a 30fps session recovering past a 60fps rung back to 4K30).
       int next = current_rung_idx_ - 1;
-      // Do not upshift past initial max dimensions
-      if (ladder_[next].resolution.width <= max_encode_width_ &&
-          ladder_[next].resolution.height <= max_encode_height_ &&
-          ladder_[next].framerate <= initial_framerate_) {
+      while (next >= 0 && (ladder_[next].resolution.width > max_encode_width_ ||
+                           ladder_[next].resolution.height > max_encode_height_ ||
+                           ladder_[next].framerate > initial_framerate_)) {
+        --next;
+      }
+      if (next >= 0) {
         uint32_t next_br = ladder_[next].bitrate_kbps;
         if (user_bitrate_cap_kbps_ > 0 && next_br > user_bitrate_cap_kbps_) {
           consecutive_clean_seconds_ = 0;
         } else {
           current_rung_idx_ = next;
-          current_bitrate_kbps_ = next_br;
+          // Preserve already-ramped bitrate when the session's custom target
+          // exceeds the rung's nominal bitrate (e.g. 12 Mbps at 1080p60).
+          current_bitrate_kbps_ = std::max(current_bitrate_kbps_, next_br);
           apply_caps();
           consecutive_clean_seconds_ = 0;
 
@@ -443,7 +455,7 @@ bool AdaptiveController::CheckAdaptation(StreamStats& out_updated_settings) {
                    << current_rung_idx_ << ")";
         }
       } else {
-        // Rung is larger than initial maximum encode size; stop upshifting here.
+        // No higher rung fits the initial maximum encode geometry/framerate.
         consecutive_clean_seconds_ = 0;
       }
     }

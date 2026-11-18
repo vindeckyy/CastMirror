@@ -7,7 +7,9 @@
 #include <openssl/rand.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+#include <limits>
 #include <mutex>
+#include <random>
 
 namespace castcore {
 
@@ -143,6 +145,9 @@ const unsigned char kEurekaRootCaDer[] = {
     0x99, 0x2c, 0x51, 0x01, 0x14, 0xfe, 0xa2, 0x48, 0xf0, 0x7e, 0xbe, 0x84, 0x0d, 0xb4, 0xd3, 0xe2,
     0xf3, 0x0e, 0x7d, 0xde, 0x8b, 0xf5, 0x33};
 
+// OpenSSL 4.0 returns const X509_NAME* from X509_get_subject_name() and
+// X509_get_issuer_name(); these take const so the same code builds against
+// OpenSSL 1.1/3.x as well.
 std::string X509NameToStr(const X509_NAME* name) {
   if (!name) return "";
   char buf[256] = {0};
@@ -324,10 +329,15 @@ DeviceAuthResult DeviceAuth::VerifyDerCertificateChain(
 
 std::vector<uint8_t> DeviceAuth::GenerateNonce(size_t length) {
   std::vector<uint8_t> nonce(length);
-  if (RAND_bytes(nonce.data(), static_cast<int>(length)) != 1) {
-    // Fallback pseudo-random if RAND_bytes fails
+  if (length == 0) return nonce;
+  const bool fits_int = length <= static_cast<size_t>(std::numeric_limits<int>::max());
+  if (!fits_int || RAND_bytes(nonce.data(), static_cast<int>(length)) != 1) {
+    // Thread-safe fallback if RAND_bytes fails
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(0, 255);
     for (size_t i = 0; i < length; ++i) {
-      nonce[i] = static_cast<uint8_t>(rand() & 0xFF);
+      nonce[i] = static_cast<uint8_t>(dist(gen));
     }
   }
   return nonce;

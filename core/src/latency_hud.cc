@@ -154,7 +154,16 @@ void LatencyHud::DrawString(uint8_t* dst, int stride, int width, int height, int
 }
 
 void LatencyHud::Render(CapturedVideoFrame& frame) {
-  if (frame.data.empty() || frame.width < 320 || frame.height < 180) return;
+  if (frame.is_dmabuf || frame.data.empty() || frame.width < 320 || frame.height < 180 ||
+      frame.stride < frame.width * 4) {
+    return;
+  }
+  const size_t required_bytes =
+      static_cast<size_t>(frame.height - 1) * static_cast<size_t>(frame.stride) +
+      static_cast<size_t>(frame.width) * 4;
+  if (frame.data.size() < required_bytes) {
+    return;
+  }
 
   uint64_t fid = ++s_frame_counter;
   auto now = std::chrono::steady_clock::now();
@@ -170,13 +179,13 @@ void LatencyHud::Render(CapturedVideoFrame& frame) {
   char time_buf[64];
   std::snprintf(time_buf,
                 sizeof(time_buf),
-                "TIME: %02lu:%02lu.%03lu",
-                static_cast<unsigned long>(mins),
-                static_cast<unsigned long>(secs),
-                static_cast<unsigned long>(ms));
+                "TIME: %02llu:%02llu.%03llu",
+                static_cast<unsigned long long>(mins),
+                static_cast<unsigned long long>(secs),
+                static_cast<unsigned long long>(ms));
 
   char frame_buf[64];
-  std::snprintf(frame_buf, sizeof(frame_buf), "FRAME: #%lu", static_cast<unsigned long>(fid));
+  std::snprintf(frame_buf, sizeof(frame_buf), "FRAME: #%llu", static_cast<unsigned long long>(fid));
 
   // Render background badge: 240x48 at (20, 20)
   const int badge_x = 20;

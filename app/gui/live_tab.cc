@@ -76,19 +76,6 @@ LiveTab::LiveTab(GuiApp* app) : app_(app) {
 
 LiveTab::~LiveTab() = default;
 
-void LiveTab::OnGoToCastClicked() {
-  if (app_) {
-    app_->SwitchToPage("cast");
-  }
-}
-
-void LiveTab::OnBackToCastClicked() {
-  failure_visible_ = false;
-  if (app_) {
-    app_->SwitchToPage("cast");
-  }
-}
-
 void LiveTab::BuildUi() {
   root_widget_ = gtk_stack_new();
   gtk_stack_set_transition_type(GTK_STACK(root_widget_), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
@@ -157,8 +144,9 @@ void LiveTab::BuildUi() {
   gtk_widget_add_css_class(hero_status_pill_, "cm-status-pill");
   gtk_widget_set_valign(hero_status_pill_, GTK_ALIGN_CENTER);
 
-  hero_status_dot_ = gtk_image_new();
+  hero_status_dot_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_add_css_class(hero_status_dot_, "cm-status-dot");
+  gtk_widget_set_valign(hero_status_dot_, GTK_ALIGN_CENTER);
 
   hero_status_lbl_ = gtk_label_new("Connecting");
   gtk_box_append(GTK_BOX(hero_status_pill_), hero_status_dot_);
@@ -753,7 +741,13 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
       SetHealthState(copy::kHealthHealthy, "is-live", "emblem-ok-symbolic");
     }
     if (freeze_btn_) gtk_widget_set_sensitive(freeze_btn_, TRUE);
-    if (mute_btn_) gtk_widget_set_sensitive(mute_btn_, TRUE);
+    if (mute_btn_) {
+      const bool audio_on = !app_ || app_->IsActiveSessionAudioEnabled();
+      gtk_widget_set_sensitive(mute_btn_, audio_on);
+      gtk_widget_set_tooltip_text(mute_btn_,
+                                  audio_on ? "Mute/unmute stream audio sent to the Cast device"
+                                           : "Audio is disabled for this session");
+    }
     if (app_) {
       // Re-assert the authoritative live-control state so the toggles still
       // match after a reconnect or a re-entry into kStreaming.
@@ -767,6 +761,11 @@ void LiveTab::UpdateSessionState(SessionState state, const std::string& message)
     current_ui_state_ = state;
     return;
   }
+
+  if (freeze_btn_) gtk_widget_set_sensitive(freeze_btn_, FALSE);
+  if (mute_btn_) gtk_widget_set_sensitive(mute_btn_, FALSE);
+  if (game_mode_btn_) gtk_widget_set_sensitive(game_mode_btn_, FALSE);
+  if (cinema_mode_btn_) gtk_widget_set_sensitive(cinema_mode_btn_, FALSE);
 
   if (state == SessionState::kReconnecting) {
     failure_visible_ = false;
@@ -845,6 +844,7 @@ void LiveTab::AppendActivityEvent(const std::string& message) {
 void LiveTab::ResetSessionValues() {
   timeline_items_.clear();
   last_health_hint_.clear();
+  last_device_name_.clear();
   last_stats_ = StreamStats{};
 
   if (timeline_list_) {
@@ -855,7 +855,11 @@ void LiveTab::ResetSessionValues() {
 
   if (val_fps_) gtk_label_set_text(GTK_LABEL(val_fps_), "—");
   if (val_bitrate_) gtk_label_set_text(GTK_LABEL(val_bitrate_), "—");
-  if (val_rtt_) gtk_label_set_text(GTK_LABEL(val_rtt_), "—");
+  if (val_rtt_) {
+    gtk_label_set_text(GTK_LABEL(val_rtt_), "—");
+    gtk_widget_remove_css_class(val_rtt_, "error");
+    gtk_widget_remove_css_class(val_rtt_, "success");
+  }
   if (val_loss_) gtk_label_set_text(GTK_LABEL(val_loss_), "—");
   if (val_delay_) gtk_label_set_text(GTK_LABEL(val_delay_), "—");
   if (val_size_) gtk_label_set_text(GTK_LABEL(val_size_), "—");
@@ -966,12 +970,19 @@ void LiveTab::OnGameModeClicked() {
   CastEngine::Instance().SetPlayoutDelayMs(150);
   CastEngine::Instance().SetAdaptiveResolutionChangeAllowed(false);
   AppendActivityEvent("Switched to Game Mode: target delay 150 ms, adaptive resolution locked");
+  if (app_) {
+    app_->ShowToast("Game Mode: 150 ms delay, resolution locked");
+  }
 }
 
 void LiveTab::OnCinemaModeClicked() {
   CastEngine::Instance().SetPlayoutDelayMs(400);
   CastEngine::Instance().SetAdaptiveResolutionChangeAllowed(true);
   CastEngine::Instance().SetLiveVideoBitrateKbps(16000);
+  if (app_) {
+    app_->SyncBitrateSlider(16000);
+    app_->ShowToast("Cinema Mode: 400 ms delay, 16.0 Mbps cap");
+  }
   AppendActivityEvent(
       "Switched to Cinema Mode: target delay 400 ms, maximum bitrate budget (16 Mbps)");
 }
@@ -990,23 +1001,32 @@ extern "C" void castmirror_inject_test_health_warning() {
   if (!gui || !gui->GetLiveTab()) {
     return;
   }
+  struct TestInjectCtx {
+    GuiApp* gui;
+    LivenessToken alive;
+  };
+  auto* ctx = new TestInjectCtx{gui, gui->GetLivenessToken()};
   g_idle_add(
       +[](gpointer data) -> gboolean {
-        LiveTab* live = static_cast<LiveTab*>(data);
-        StreamStats st = live->LastStats();
-        st.packet_loss_fraction = 0.06;
-        st.round_trip_time_ms = 90;
-        st.health_hint = "Test network warning";
-        if (st.bitrate_kbps == 0) {
-          st.bitrate_kbps = 8000;
+        auto* ctx = static_cast<TestInjectCtx*>(data);
+        if (Alive(ctx->alive) && ctx->gui && ctx->gui->GetLiveTab()) {
+          LiveTab* live = ctx->gui->GetLiveTab();
+          StreamStats st = live->LastStats();
+          st.packet_loss_fraction = 0.06;
+          st.round_trip_time_ms = 90;
+          st.health_hint = "Test network warning";
+          if (st.bitrate_kbps == 0) {
+            st.bitrate_kbps = 8000;
+          }
+          if (st.current_fps == 0) {
+            st.current_fps = 58.0;
+          }
+          live->UpdateStats(st);
         }
-        if (st.current_fps == 0) {
-          st.current_fps = 58.0;
-        }
-        live->UpdateStats(st);
+        delete ctx;
         return G_SOURCE_REMOVE;
       },
-      gui->GetLiveTab());
+      ctx);
 }
 #endif
 

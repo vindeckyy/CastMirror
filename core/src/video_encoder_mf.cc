@@ -55,7 +55,7 @@ bool MediaFoundationVideoEncoder::SetOutputType() {
   mt->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
   mt->SetUINT32(MF_MT_AVG_BITRATE, config_.bitrate_kbps * 1000);
   MFSetAttributeSize(mt.Get(), MF_MT_FRAME_SIZE, config_.width, config_.height);
-  MFSetAttributeRatio(mt.Get(), MF_MT_FRAME_RATE, config_.framerate, 1);
+  MFSetAttributeRatio(mt.Get(), MF_MT_FRAME_RATE, std::max(config_.framerate, 1), 1);
   MFSetAttributeRatio(mt.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
   mt->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
   // The bitstream is BT.709 limited range, matching the RGB-to-YUV conversion.
@@ -76,7 +76,7 @@ bool MediaFoundationVideoEncoder::SetInputType() {
     mt->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
     mt->SetGUID(MF_MT_SUBTYPE, fmt);
     MFSetAttributeSize(mt.Get(), MF_MT_FRAME_SIZE, config_.width, config_.height);
-    MFSetAttributeRatio(mt.Get(), MF_MT_FRAME_RATE, config_.framerate, 1);
+    MFSetAttributeRatio(mt.Get(), MF_MT_FRAME_RATE, std::max(config_.framerate, 1), 1);
     MFSetAttributeRatio(mt.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
     mt->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
     mt->SetUINT32(MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709);
@@ -270,7 +270,7 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
                                &count);
 
   bool configured = false;
-  if (SUCCEEDED(hr) && count > 0) {
+  if (SUCCEEDED(hr)) {
     for (UINT32 i = 0; i < count && !configured; ++i) {
       if (ConfigureMft(activates[i])) {
         configured = true;
@@ -279,7 +279,7 @@ bool MediaFoundationVideoEncoder::Initialize(const VideoEncoderConfig& config) {
     }
     for (UINT32 i = 0; i < count; ++i)
       activates[i]->Release();
-    CoTaskMemFree(activates);
+    if (activates) CoTaskMemFree(activates);
   }
 
   if (!configured) {
@@ -322,7 +322,7 @@ bool MediaFoundationVideoEncoder::Reconfigure(const VideoEncoderConfig& config) 
 
 #if defined(_WIN32)
 bool MediaFoundationVideoEncoder::ConvertInput(const CapturedVideoFrame& frame, uint8_t* dst) {
-  if (dst == nullptr) return false;
+  if (dst == nullptr || frame.width <= 0 || frame.height <= 0 || frame.data.empty()) return false;
   if (gpu_src_w_ != frame.width || gpu_src_h_ != frame.height) {
     if (!gpu_processor_.Initialize(frame.width, frame.height, config_.width, config_.height)) {
       LOG_ERROR << "GpuProcessor init failed for " << frame.width << "x" << frame.height;
@@ -527,7 +527,7 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
 #else
   if (!mft_) return false;
   uint32_t current_fid = next_frame_id_;
-  bool want_key = force_keyframe_.exchange(false);
+  bool want_key = force_keyframe_.exchange(false) || current_fid == 0;
 
   if (!rtp_clock_origin_set_) {
     rtp_clock_origin_ = frame.timestamp;
@@ -535,6 +535,9 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
   }
   auto elapsed =
       std::chrono::duration_cast<std::chrono::microseconds>(frame.timestamp - rtp_clock_origin_);
+  if (elapsed.count() < 0) {
+    elapsed = std::chrono::microseconds(0);
+  }
 
   // The MFT copies the input sample during ProcessInput, so one buffer and one
   // sample serve every frame: the conversion writes straight into the locked
@@ -597,7 +600,9 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
   if (hr == MF_E_NOTACCEPTING) {
     // Encoder's input queue is full — drain pending output and retry once.
     EncodedFrame drain_tmp;
-    DrainOutput(drain_tmp);
+    if (DrainOutput(drain_tmp) && async_mft_ && have_output_ > 0) {
+      --have_output_;
+    }
     hr = mft_->ProcessInput(input_stream_id_, input_sample_.Get(), 0);
   }
   if (FAILED(hr)) {
@@ -633,12 +638,13 @@ bool MediaFoundationVideoEncoder::Encode(const CapturedVideoFrame& frame,
   }
 
   out_encoded_frame.frame_id = current_fid;
-  out_encoded_frame.referenced_frame_id = is_key ? current_fid : (current_fid - 1);
-  out_encoded_frame.rtp_timestamp =
-      static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                                out_encoded_frame.capture_time - rtp_clock_origin_)
-                                .count() *
-                            90 / 1000);
+  out_encoded_frame.referenced_frame_id =
+      (is_key || current_fid == 0) ? current_fid : (current_fid - 1);
+  int64_t rtp_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                       out_encoded_frame.capture_time - rtp_clock_origin_)
+                       .count();
+  if (rtp_us < 0) rtp_us = 0;
+  out_encoded_frame.rtp_timestamp = static_cast<uint32_t>((rtp_us * 90) / 1000);
   int delay_ms = config_.playout_delay_ms > 0 ? config_.playout_delay_ms : 200;
   out_encoded_frame.playout_delay = std::chrono::milliseconds(delay_ms);
   return true;

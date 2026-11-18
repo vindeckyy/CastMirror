@@ -35,7 +35,7 @@ class FramePacer {
     bool fresh = false;
   };
 
-  FramePacer() : next_emit_(Clock::now()) {}
+  FramePacer() : next_emit_(Clock::now()), last_emit_now_(next_emit_) {}
 
   void SetTargetFps(int fps) {
     if (fps > 0) target_fps_.store(fps);
@@ -134,12 +134,18 @@ class FramePacer {
       // receiver — playing by RTP timestamp — showed late for the whole session.
       const bool ahead_of_source = last_.timestamp > last_emit_ts_;
       if (!decision.fresh || !ahead_of_source) {
-        const auto elapsed =
-            std::chrono::duration_cast<std::chrono::microseconds>(now - last_emit_now_);
-        // Floor at 1 ms (strictly increasing), not at the nominal interval:
-        // ticks land late then early, and flooring at the interval counts every
-        // early tick at full length, so the timeline ratchets ahead of wall clock.
-        last_.timestamp = last_emit_ts_ + std::max(elapsed, std::chrono::microseconds(1000));
+        if (last_emit_ts_ == Clock::time_point{} && last_.timestamp == Clock::time_point{}) {
+          // A caller submitted a frame with an unset timestamp before any frame
+          // was emitted; anchor to now instead of advancing from epoch zero.
+          last_.timestamp = now;
+        } else {
+          const auto elapsed =
+              std::chrono::duration_cast<std::chrono::microseconds>(now - last_emit_now_);
+          // Floor at 1 ms (strictly increasing), not at the nominal interval:
+          // ticks land late then early, and flooring at the interval counts every
+          // early tick at full length, so the timeline ratchets ahead of wall clock.
+          last_.timestamp = last_emit_ts_ + std::max(elapsed, std::chrono::microseconds(1000));
+        }
       }
       last_emit_ts_ = last_.timestamp;
       last_emit_now_ = now;

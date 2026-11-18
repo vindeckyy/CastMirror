@@ -21,9 +21,9 @@ inline uint32_t ReadUint32BE(const uint8_t* p) {
 // Expands an 8-bit truncated frame ID to a 32-bit frame ID closest to (and <=) reference
 uint32_t ExpandFrameId(uint8_t truncated_id, uint32_t reference_id) {
   uint32_t candidate = (reference_id & ~0xFFu) | truncated_id;
-  if (candidate > reference_id + 128) {
+  if (static_cast<uint64_t>(candidate) > static_cast<uint64_t>(reference_id) + 128ULL) {
     if (candidate >= 256) candidate -= 256;
-  } else if (candidate + 128 < reference_id) {
+  } else if (static_cast<uint64_t>(candidate) + 128ULL < static_cast<uint64_t>(reference_id)) {
     candidate += 256;
   }
   return candidate;
@@ -43,6 +43,7 @@ uint32_t ReferenceFrameId(uint32_t media_ssrc, uint32_t fallback,
 bool ParseInternal(const uint8_t* data, size_t length, uint32_t fallback_last_frame_id,
                    const std::map<uint32_t, uint32_t>* last_frame_by_ssrc,
                    RtcpFeedback& out_feedback) {
+  out_feedback = RtcpFeedback{};
   // Phase 2 fuzz hardening: empty/truncated/SDES/unknown PT must not crash
   if (!data || length < 4) return false;
   // Limit total blocks to avoid infinite loop on malformed length=0 loops

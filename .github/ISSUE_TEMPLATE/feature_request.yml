@@ -22,11 +22,11 @@ body:
     attributes:
       label: Area
       options:
+        - Windows WinUI app
         - Linux GTK GUI
         - CLI
         - Capture / encode
         - Cast protocol / transport
-        - Windows (blueprint)
         - Docs / site
         - Other
     validations:

@@ -79,10 +79,15 @@ void FreeModalBlock(gpointer data, GClosure*) {
 }
 
 bool IsGenericIdleStopMessage(const std::string& msg) {
-  return msg.empty() || msg == "Cast Stopped";
+  return msg.empty() || msg == "Cast Stopped" || msg == "Cast Stopped (fallback)" ||
+         msg == "Stopping";
 }
 
 std::string GetConfigDir() {
+  const char* override_dir = std::getenv("CASTMIRROR_CONFIG_DIR");
+  if (override_dir && override_dir[0] != '\0') {
+    return std::string(override_dir);
+  }
   const char* home = std::getenv("HOME");
   return std::string(home ? home : "/tmp") + "/.config/castmirror";
 }
@@ -122,6 +127,7 @@ GuiApp::GuiApp(AdwApplication* application) : application_(application) {
     cast_tab_->SetScanInProgress(true);
     cast_tab_->RefreshDevices();
     cast_tab_->RefreshDisplays();
+    cast_tab_->RestoreSavedSource();
   }
   OnDestinationSelectionChanged();
   TriggerRescan();
@@ -134,12 +140,17 @@ GuiApp::~GuiApp() {
     *alive_ = false;
   }
   Shutdown();
+  if (window_) {
+    g_object_remove_weak_pointer(G_OBJECT(window_), reinterpret_cast<gpointer*>(&window_));
+    window_ = nullptr;
+  }
 }
 
 void GuiApp::BuildUi() {
   const auto& cfg = ConfigStore::Instance().Get();
 
   window_ = adw_application_window_new(GTK_APPLICATION(application_));
+  g_object_add_weak_pointer(G_OBJECT(window_), reinterpret_cast<gpointer*>(&window_));
   gtk_window_set_title(GTK_WINDOW(window_), copy::kAppTitle);
   gtk_window_set_icon_name(GTK_WINDOW(window_), "io.github.vindeckyy.CastMirror");
   gtk_widget_add_css_class(window_, "cm-window");
@@ -496,10 +507,15 @@ void GuiApp::Shutdown() {
   }
   shutdown_done_ = true;
   is_quitting_ = true;
+  if (alive_) {
+    *alive_ = false;
+  }
 
   SaveWindowGeometry();
   LOG_INFO << "[UI] Shutting down CastMirror application...";
   Logger::Instance().SetCallback(nullptr);
+  CastEngine::Instance().SetOnStateChanged(nullptr);
+  CastEngine::Instance().GetDiscovery().SetCallback(nullptr);
 
   if (stats_timer_id_ != 0) {
     g_source_remove(stats_timer_id_);
@@ -510,13 +526,12 @@ void GuiApp::Shutdown() {
     rescan_timer_id_ = 0;
   }
 
-  // Tear the tray down first: DestroyIndicator() joins the tray's cast-last
-  // worker so it cannot race the engine teardown below.
+  // Stop any active or connecting session first so an in-flight tray
+  // StartCastingLastDevice() unblocks before DestroyIndicator() joins it.
+  CastEngine::Instance().StopCasting();
   if (tray_manager_) {
     tray_manager_->DestroyIndicator();
   }
-
-  CastEngine::Instance().StopCasting();
   CastEngine::Instance().Shutdown();
 
   NotificationManager::Shutdown();
@@ -559,6 +574,12 @@ void GuiApp::SyncBitrateSlider(uint32_t kbps) {
   }
 }
 
+void GuiApp::SyncDelaySlider(int delay_ms) {
+  if (settings_tab_) {
+    settings_tab_->SyncDelaySlider(delay_ms);
+  }
+}
+
 void GuiApp::ShowToast(const std::string& title) {
   if (!toast_overlay_ || title.empty()) {
     return;
@@ -594,10 +615,12 @@ void GuiApp::OnDestinationSelectionChanged() {
     std::string footer;
     if (!cast_tab_ || cast_tab_->GetSelectedDeviceId().empty()) {
       footer = "Select a Cast display to continue";
-    } else if (!cast_tab_->HasSelectedDisplay()) {
-      footer = "Select a screen to continue";
+    } else if (!cast_tab_->HasSelectedSource()) {
+      footer = (cast_tab_->GetSelectedSourceKind() == CaptureSourceKind::kWindow)
+                   ? "Select a window to continue"
+                   : "Select a screen to continue";
     } else {
-      footer = cast_tab_->GetSelectedDeviceName() + " · " + cast_tab_->GetSelectedDisplayName();
+      footer = cast_tab_->GetSelectedDeviceName() + " · " + cast_tab_->GetSelectedSourceName();
     }
     SetFooterStatus(footer);
   }
@@ -609,8 +632,8 @@ void GuiApp::RefreshWindowActionSensitivity() {
   const bool session_active = IsSessionActive();
   const bool stopping = current_state_ == SessionState::kStopping;
   const bool has_device = cast_tab_ && !cast_tab_->GetSelectedDeviceId().empty();
-  const bool has_display = cast_tab_ && cast_tab_->HasSelectedDisplay();
-  const bool can_cast_idle = has_device && has_display;
+  const bool has_source = cast_tab_ && cast_tab_->HasSelectedSource();
+  const bool can_cast_idle = has_device && has_source;
 
   bool cast_enabled = false;
   if (!blocked && !stopping) {
@@ -710,15 +733,12 @@ void GuiApp::TriggerCastAction() {
   const auto& cfg = ConfigStore::Instance().Get();
   uint32_t bitrate_kbps = cfg.GetPresetBitrateKbps(preset);
 
-  SessionOptions opts;
-  opts.preset = preset;
-  opts.enable_audio = audio_on;
-  opts.video_bitrate_kbps = bitrate_kbps;
-  opts.audio_bitrate_bps = cfg.audio_bitrate_bps;
-  opts.capture_fps = cfg.capture_fps;
-  opts.target_delay_ms = cfg.target_delay_ms;
-  opts.silence_host_speakers = cfg.silence_host_speakers;
-  opts.adaptive_enabled = cfg.adaptive_enabled;
+  SessionOverrides overrides;
+  overrides.preset = preset;
+  overrides.enable_audio = audio_on;
+  overrides.video_bitrate_kbps = bitrate_kbps;
+  overrides.source = source;
+  SessionOptions opts = BuildSessionOptions(cfg, overrides);
 
   LOG_INFO << "[UI] Starting Cast Session to device id " << device_id
            << " (source: " << CaptureSourceKindToString(source.kind) << " id=" << source.id
@@ -737,6 +757,12 @@ void GuiApp::TriggerCastAction() {
       return;  // the GUI is gone; there is nobody left to report to
     }
     PostToMain(self, alive, [err](GuiApp& app) {
+      // If the user cancelled during Connecting/Negotiating, the session stops
+      // back to Idle without entering kFailed; don't pop a failure alert.
+      if (app.current_state_ != SessionState::kFailed && app.last_failed_message_.empty() &&
+          IsGenericIdleStopMessage(err)) {
+        return;
+      }
       std::string last_err = app.last_failed_message_;
       if (IsGenericIdleStopMessage(last_err)) {
         last_err = err;
@@ -764,6 +790,11 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
     last_failed_message_ = display_msg;
   } else if (new_state == SessionState::kConnecting) {
     last_failed_message_.clear();
+    const auto& cfg = ConfigStore::Instance().Get();
+    if (last_device_name_.empty()) {
+      last_device_name_ = cfg.last_device_name;
+    }
+    active_session_audio_enabled_ = cfg.audio_enabled;
   }
 
   const bool session_active = IsSessionActive();
@@ -788,14 +819,14 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
 
   switch (new_state) {
     case SessionState::kStreaming:
-      ApplyPrimaryAction("Stop casting", "media-playback-stop-symbolic", true, true);
+      ApplyPrimaryAction("Stop casting", "media-playback-stop-symbolic", true);
       gtk_spinner_stop(GTK_SPINNER(spinner_));
       gtk_widget_set_visible(spinner_, FALSE);
       SwitchToPage("live");
       SetFooterStatus(last_device_name_.empty() ? "Live" : ("Casting to " + last_device_name_));
       break;
     case SessionState::kConnecting:
-      ApplyPrimaryAction("Cancel", "process-stop-symbolic", true, true);
+      ApplyPrimaryAction("Cancel", "process-stop-symbolic", true);
       gtk_widget_set_visible(spinner_, TRUE);
       gtk_spinner_start(GTK_SPINNER(spinner_));
       SwitchToPage("live");
@@ -803,20 +834,20 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
                                                 : ("Connecting to " + last_device_name_));
       break;
     case SessionState::kNegotiating:
-      ApplyPrimaryAction("Cancel", "process-stop-symbolic", true, true);
+      ApplyPrimaryAction("Cancel", "process-stop-symbolic", true);
       gtk_widget_set_visible(spinner_, TRUE);
       gtk_spinner_start(GTK_SPINNER(spinner_));
       SetFooterStatus(display_msg.empty() ? "Starting stream" : display_msg);
       break;
     case SessionState::kReconnecting:
-      ApplyPrimaryAction("Stop casting", "media-playback-stop-symbolic", true, true);
+      ApplyPrimaryAction("Stop casting", "media-playback-stop-symbolic", true);
       gtk_widget_set_visible(spinner_, TRUE);
       gtk_spinner_start(GTK_SPINNER(spinner_));
       SwitchToPage("live");
       SetFooterStatus(display_msg.empty() ? "Reconnecting" : display_msg);
       break;
     case SessionState::kStopping:
-      ApplyPrimaryAction("Stopping…", "media-playback-stop-symbolic", true, false);
+      ApplyPrimaryAction("Stopping…", "media-playback-stop-symbolic", true);
       gtk_widget_set_visible(spinner_, TRUE);
       gtk_spinner_start(GTK_SPINNER(spinner_));
       SetFooterStatus("Stopping");
@@ -826,10 +857,11 @@ void GuiApp::UpdateStateUi(SessionState new_state, const std::string& message) {
     case SessionState::kReady:
     case SessionState::kDiscovering:
     default:
-      ApplyPrimaryAction("Cast display", "castmirror-signal-symbolic", false, true);
+      ApplyPrimaryAction("Cast display", "castmirror-signal-symbolic", false);
       gtk_spinner_stop(GTK_SPINNER(spinner_));
       gtk_widget_set_visible(spinner_, FALSE);
       active_session_audio_enabled_ = false;
+      last_device_name_.clear();
       // The engine has ended the session; the live controls are no longer
       // authoritative.
       freeze_active_ = false;
@@ -930,8 +962,7 @@ void GuiApp::SetFooterStatus(const std::string& text) {
   gtk_widget_set_tooltip_text(footer_status_label_, text.c_str());
 }
 
-void GuiApp::ApplyPrimaryAction(const char* label, const char* icon_name, bool destructive,
-                                bool sensitive) {
+void GuiApp::ApplyPrimaryAction(const char* label, const char* icon_name, bool destructive) {
   if (cast_button_lbl_) {
     gtk_label_set_text(GTK_LABEL(cast_button_lbl_), label);
   }
@@ -942,10 +973,6 @@ void GuiApp::ApplyPrimaryAction(const char* label, const char* icon_name, bool d
     gtk_widget_remove_css_class(cast_button_, "suggested-action");
     gtk_widget_remove_css_class(cast_button_, "destructive-action");
     gtk_widget_add_css_class(cast_button_, destructive ? "destructive-action" : "suggested-action");
-    // Sensitivity has exactly one authority: the "win.cast" action, which
-    // RefreshWindowActionSensitivity() owns. Setting it here as well let the
-    // button stay clickable while win.cast was disabled.
-    (void)sensitive;
   }
 }
 

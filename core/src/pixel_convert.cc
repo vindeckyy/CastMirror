@@ -110,7 +110,7 @@ bool ConvertToBgra8(const uint8_t* src, size_t src_pitch, SourcePixelFormat fmt,
         float v = half[bits] * scale;  // 1.0 = SDR white
         if (!(v > 0.0f)) return static_cast<uint8_t>(0);  // negatives and NaN
         if (v >= 1.0f) return static_cast<uint8_t>(255);
-        return encode[static_cast<size_t>(v * kEncodeSteps + 0.5f)];
+        return encode[std::min<size_t>(static_cast<size_t>(v * kEncodeSteps + 0.5f), kEncodeSteps)];
       };
       for (int y = 0; y < height; ++y) {
         const uint8_t* s = src + y * src_pitch;

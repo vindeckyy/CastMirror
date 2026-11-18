@@ -13,11 +13,9 @@
 #if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#define close closesocket
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -37,11 +35,37 @@ std::string RedactSecrets(const std::string& json) {
     const std::string needle = std::string("\"") + key + "\"";
     size_t pos = 0;
     while ((pos = out.find(needle, pos)) != std::string::npos) {
-      size_t colon = out.find(':', pos + needle.size());
-      size_t open = colon == std::string::npos ? colon : out.find('"', colon + 1);
-      size_t close = open == std::string::npos ? open : out.find('"', open + 1);
-      if (close == std::string::npos) break;
-      out.replace(open + 1, close - open - 1, "<redacted>");
+      size_t colon = pos + needle.size();
+      while (colon < out.size() && (out[colon] == ' ' || out[colon] == '\t' || out[colon] == '\r' ||
+                                    out[colon] == '\n')) {
+        ++colon;
+      }
+      if (colon >= out.size() || out[colon] != ':') {
+        pos += needle.size();
+        continue;
+      }
+      size_t open = colon + 1;
+      while (open < out.size() &&
+             (out[open] == ' ' || out[open] == '\t' || out[open] == '\r' || out[open] == '\n')) {
+        ++open;
+      }
+      if (open >= out.size() || out[open] != '"') {
+        pos = open;
+        continue;
+      }
+      size_t close_quote = open + 1;
+      while (close_quote < out.size()) {
+        if (out[close_quote] == '\\' && close_quote + 1 < out.size()) {
+          close_quote += 2;
+          continue;
+        }
+        if (out[close_quote] == '"') {
+          break;
+        }
+        ++close_quote;
+      }
+      if (close_quote >= out.size()) break;
+      out.replace(open + 1, close_quote - open - 1, "<redacted>");
       pos = open + 1;
     }
   }
@@ -94,9 +118,9 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     return false;
   }
 #endif
-  if (is_connected_.load()) {
-    Disconnect();
-  }
+  // Always clean up any previous connection (including threads/TLS state left
+  // behind after an unexpected disconnect where is_connected_ flipped false).
+  Disconnect();
 
   // From here until the handshake is done the socket, SSL_CTX and SSL are
   // half built and owned by this call. Stop() cancels a Start() by calling
@@ -138,8 +162,7 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   server_addr.sin_port = htons(port);
   if (inet_pton(AF_INET, ip_address.c_str(), &server_addr.sin_addr) <= 0) {
     LOG_ERROR << "Invalid IP address: " << ip_address;
-    close(socket_fd_);
-    socket_fd_ = -1;
+    CloseSocket(socket_fd_.exchange(-1));
     return false;
   }
 
@@ -151,7 +174,9 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   ioctlsocket(socket_fd_, FIONBIO, &nonblocking);
 #else
   int sock_flags = fcntl(socket_fd_, F_GETFL, 0);
-  fcntl(socket_fd_, F_SETFL, sock_flags | O_NONBLOCK);
+  if (sock_flags >= 0) {
+    fcntl(socket_fd_, F_SETFL, sock_flags | O_NONBLOCK);
+  }
 #endif
 
   bool connected =
@@ -176,14 +201,26 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
                               deadline - std::chrono::steady_clock::now())
                               .count();
         if (left <= 0) break;
+        const int slice_ms = static_cast<int>(std::min<int64_t>(left, 50));
+#if defined(_WIN32)
         fd_set write_fds;
         FD_ZERO(&write_fds);
         FD_SET(fd, &write_fds);
         struct timeval slice_tv{};
         slice_tv.tv_sec = 0;
-        slice_tv.tv_usec = static_cast<int>(std::min<int64_t>(left, 50)) * 1000;
+        slice_tv.tv_usec = slice_ms * 1000;
         const int ready = select(fd + 1, nullptr, &write_fds, nullptr, &slice_tv);
         if (ready < 0) break;
+#else
+        struct pollfd pfd{};
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        const int ready = poll(&pfd, 1, slice_ms);
+        if (ready < 0) {
+          if (errno == EINTR) continue;
+          break;
+        }
+#endif
         if (ready > 0) {
           int so_error = 0;
           socklen_t so_len = sizeof(so_error);
@@ -202,14 +239,15 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   nonblocking = 0;
   ioctlsocket(socket_fd_, FIONBIO, &nonblocking);
 #else
-  fcntl(socket_fd_, F_SETFL, sock_flags);
+  if (sock_flags >= 0) {
+    fcntl(socket_fd_, F_SETFL, sock_flags);
+  }
 #endif
 
   if (!connected) {
     LOG_ERROR << "TCP connection to " << ip_address << ":" << port << " failed or timed out after "
               << connect_ms << "ms";
-    close(socket_fd_);
-    socket_fd_ = -1;
+    CloseSocket(socket_fd_.exchange(-1));
     return false;
   }
 
@@ -221,8 +259,7 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
   ssl_ctx_ = SSL_CTX_new(TLS_client_method());
   if (!ssl_ctx_) {
     LOG_ERROR << "Failed to create SSL_CTX";
-    close(socket_fd_);
-    socket_fd_ = -1;
+    CloseSocket(socket_fd_.exchange(-1));
     return false;
   }
 
@@ -252,8 +289,7 @@ bool CastChannel::Connect(const std::string& ip_address, uint16_t port, int time
     LOG_ERROR << "Failed to create SSL structure";
     SSL_CTX_free(ssl_ctx_);
     ssl_ctx_ = nullptr;
-    close(socket_fd_);
-    socket_fd_ = -1;
+    CloseSocket(socket_fd_.exchange(-1));
     return false;
   }
 
@@ -359,14 +395,14 @@ void CastChannel::ReleaseConnection() {
       ssl_ctx_ = nullptr;
     }
     if (socket_fd_ >= 0) {
-      close(socket_fd_);
-      socket_fd_ = -1;
+      CloseSocket(socket_fd_.exchange(-1));
     }
     app_transport_id_.clear();
   }
 }
 
 bool CastChannel::SendRawPacket(const uint8_t* data, size_t length) {
+  if (!data || length == 0) return false;
   std::lock_guard<std::mutex> lock(send_mutex_);
   if (!ssl_ || !is_connected_.load()) return false;
 
@@ -375,10 +411,19 @@ bool CastChannel::SendRawPacket(const uint8_t* data, size_t length) {
     int ret = SSL_write(ssl_, data + total_written, static_cast<int>(length - total_written));
     if (ret <= 0) {
       int err = SSL_get_error(ssl_, ret);
+      const int sock_err = SocketLastError();
+#if defined(_WIN32)
+      const bool interrupted = (err == SSL_ERROR_SYSCALL && sock_err == WSAEINTR);
+#else
+      const bool interrupted = (err == SSL_ERROR_SYSCALL && sock_err == EINTR);
+#endif
+      if (interrupted && !should_stop_.load() && is_connected_.load()) {
+        continue;
+      }
       LOG_ERROR << "SSL_write error: " << err;
       return false;
     }
-    total_written += ret;
+    total_written += static_cast<size_t>(ret);
   }
   return true;
 }
@@ -458,7 +503,11 @@ bool CastChannel::SendCastMessageBinary(const std::string& namespace_,
 }
 
 bool CastChannel::AuthenticateDevice(int timeout_ms) {
-  if (!is_connected_.load() || !ssl_) return false;
+  if (!is_connected_.load()) return false;
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    if (!ssl_) return false;
+  }
 
   // Cast protocol note: the receiver's TLS certificate is self-signed, so an
   // X.509 validation at the TLS layer would always fail. Authenticity is
@@ -529,16 +578,19 @@ void CastChannel::HandleDeviceAuthResponse(const std::string& payload_binary) {
     const proto::AuthResponse& response = msg.response();
 
     std::vector<uint8_t> nonce_response;
+    bool already_done = false;
     {
       std::lock_guard<std::mutex> lock(auth_mutex_);
       nonce_response = auth_nonce_;
+      already_done = auth_done_;
     }
-    if (response.has_sender_nonce()) {
+    if (already_done || nonce_response.empty()) {
+      result.error_message = "Unexpected device auth response (no pending challenge)";
+    } else if (response.has_sender_nonce()) {
       const std::string& echoed = response.sender_nonce();
-      if (!nonce_response.empty() && echoed.size() != nonce_response.size()) {
+      if (echoed.size() != nonce_response.size()) {
         result.error_message = "Device auth response nonce length mismatch";
-      } else if (!nonce_response.empty() &&
-                 CRYPTO_memcmp(echoed.data(), nonce_response.data(), nonce_response.size()) != 0) {
+      } else if (CRYPTO_memcmp(echoed.data(), nonce_response.data(), nonce_response.size()) != 0) {
         result.error_message = "Device auth response nonce mismatch";
       } else {
         nonce_response.assign(echoed.begin(), echoed.end());
@@ -555,6 +607,9 @@ void CastChannel::HandleDeviceAuthResponse(const std::string& payload_binary) {
     }
     std::vector<uint8_t> signature(response.signature().begin(), response.signature().end());
     std::vector<uint8_t> peer_cert = GetPeerCertificateDer();
+    if (result.error_message.empty() && peer_cert.empty()) {
+      result.error_message = "Missing TLS peer certificate for device auth binding";
+    }
 
     // Chromium signs/verifies the echoed nonce followed by the TLS peer
     // certificate DER.
@@ -572,6 +627,7 @@ void CastChannel::HandleDeviceAuthResponse(const std::string& payload_binary) {
     auth_done_ = true;
     auth_verified_ = result.verified;
     auth_error_ = result.error_message;
+    auth_nonce_.clear();
   }
   auth_cv_.notify_all();
 
@@ -584,6 +640,7 @@ void CastChannel::HandleDeviceAuthResponse(const std::string& payload_binary) {
 }
 
 std::vector<uint8_t> CastChannel::GetPeerCertificateDer() const {
+  std::lock_guard<std::mutex> lock(send_mutex_);
   if (!ssl_) return {};
   X509* cert = SSL_get1_peer_certificate(ssl_);
   if (!cert) return {};
@@ -823,6 +880,7 @@ bool CastChannel::HeartbeatTimedOut() const {
 }
 
 void CastChannel::NotifyDisconnected(const std::string& reason) {
+  auth_cv_.notify_all();
   if (disconnect_notified_.exchange(true)) {
     return;
   }

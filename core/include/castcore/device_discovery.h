@@ -77,6 +77,8 @@ class DeviceDiscovery {
   std::atomic<bool> running_{false};
   std::thread discovery_thread_;
   std::thread subnet_thread_;
+  std::mutex subnet_mutex_;
+  std::atomic<bool> subnet_scanning_{false};
   std::atomic<bool> force_mdns_query_{false};
   mutable std::mutex mutex_;
   std::vector<CastDevice> devices_;

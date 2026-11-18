@@ -94,7 +94,7 @@ namespace CastMirror.Services
 
         private IntPtr WindowProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
         {
-            if (msg == WmHotkey && _actions.TryGetValue((int)wParam, out Action? action))
+            if (msg == WmHotkey && _actions.TryGetValue(unchecked((int)wParam.ToInt64()), out Action? action))
             {
                 try
                 {

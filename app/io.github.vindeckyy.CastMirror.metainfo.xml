@@ -82,6 +82,11 @@
          CMakeLists.txt; the date is the HEAD commit date of the tagged
          release, not an invented value. -->
 
+    <release version="1.0.4" date="2026-11-18">
+      <description>
+        <p>Hardens hybrid-graphics VAAPI probing, TLS/RTP/mDNS bounds and concurrency safety, audio/video capture error handling, GTK 4 and WinUI 3 UI lifecycle, and packaging/CI gates.</p>
+      </description>
+    </release>
     <release version="1.0.3" date="2026-11-17">
       <description>
         <p>Fixes Linux A/V sync drift: audio and video RTP timestamps now share one steady clock, and X11 re-sends no longer step the video timeline forward.</p>

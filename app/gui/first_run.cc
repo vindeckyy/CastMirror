@@ -18,9 +18,22 @@ struct FirstRunState {
   GtkWidget* done_button = nullptr;
   GtkWidget* step_label = nullptr;
   GuiApp* app = nullptr;
+  LivenessToken alive;
   bool completed = false;
+  bool block_released = false;
   std::vector<GtkWidget*> pages;
 };
+
+void ReleaseFirstRunBlock(FirstRunState* state) {
+  if (!state || state->block_released) {
+    return;
+  }
+  state->block_released = true;
+  if (Alive(state->alive) && state->app) {
+    state->app->PopModalActionBlock();
+  }
+  state->app = nullptr;
+}
 
 void CompleteFirstRunOnce(FirstRunState* state) {
   if (!state || state->completed) {
@@ -34,10 +47,7 @@ void CompleteFirstRunOnce(FirstRunState* state) {
     ConfigStore::Instance().Save();
   }
 
-  if (state->app) {
-    state->app->PopModalActionBlock();
-    state->app = nullptr;
-  }
+  ReleaseFirstRunBlock(state);
 
   if (state->dialog) {
     adw_dialog_force_close(state->dialog);
@@ -115,6 +125,7 @@ void ShowFirstRunDialogIfNeeded(AdwApplicationWindow* parent) {
   auto* state = new FirstRunState();
   state->app = static_cast<GuiApp*>(g_object_get_data(G_OBJECT(parent), "castmirror-gui-app"));
   if (state->app) {
+    state->alive = state->app->GetLivenessToken();
     state->app->PushModalActionBlock();
   }
 
@@ -126,7 +137,9 @@ void ShowFirstRunDialogIfNeeded(AdwApplicationWindow* parent) {
   adw_dialog_set_title(dialog, copy::kFirstRunWelcomeTitle);
 
   g_object_set_data_full(G_OBJECT(dialog), "first_run_state", state, [](gpointer data) {
-    delete static_cast<FirstRunState*>(data);
+    auto* st = static_cast<FirstRunState*>(data);
+    ReleaseFirstRunBlock(st);
+    delete st;
   });
 
   GtkWidget* toolbar_view = adw_toolbar_view_new();

@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -13,6 +14,9 @@ namespace CastMirror.Services
     /// </summary>
     public static class UiTranslator
     {
+        private static readonly ConditionalWeakTable<DependencyObject, object> Translated = new();
+        private static readonly object Marker = new();
+
         public static void Apply(Window window)
         {
             if (Localizer.Language == "en") return;
@@ -20,22 +24,27 @@ namespace CastMirror.Services
             if (window.Content is DependencyObject root) Walk(root);
         }
 
-        /// <summary>Translates one element and everything under it (used for flyouts, which sit outside the window tree).</summary>
+        /// <summary>Translates one element and everything under it (used for flyouts and item templates).</summary>
         public static void Apply(DependencyObject root)
         {
-            if (Localizer.Language == "en") return;
+            if (Localizer.Language == "en" || root == null) return;
             Walk(root);
         }
 
         private static void Walk(DependencyObject node)
         {
+            if (!Translated.TryAdd(node, Marker)) return;
+
             switch (node)
             {
                 case TextBlock text:
-                    if (string.IsNullOrEmpty(text.Text) == false) text.Text = Localizer.T(text.Text);
+                    if (!string.IsNullOrEmpty(text.Text)) text.Text = Localizer.T(text.Text);
                     break;
                 case TextBox box:
-                    box.PlaceholderText = Localizer.T(box.PlaceholderText);
+                    if (!string.IsNullOrEmpty(box.PlaceholderText)) box.PlaceholderText = Localizer.T(box.PlaceholderText);
+                    break;
+                case ComboBox combo:
+                    if (!string.IsNullOrEmpty(combo.PlaceholderText)) combo.PlaceholderText = Localizer.T(combo.PlaceholderText);
                     break;
                 case ToggleSwitch toggle:
                     if (toggle.Header is string header) toggle.Header = Localizer.T(header);
@@ -44,6 +53,13 @@ namespace CastMirror.Services
                     break;
                 case Expander expander:
                     if (expander.Header is string expanderHeader) expander.Header = Localizer.T(expanderHeader);
+                    break;
+                case MenuFlyoutItem menuItem:
+                    if (!string.IsNullOrEmpty(menuItem.Text)) menuItem.Text = Localizer.T(menuItem.Text);
+                    break;
+                case MenuFlyoutSubItem subItem:
+                    if (!string.IsNullOrEmpty(subItem.Text)) subItem.Text = Localizer.T(subItem.Text);
+                    foreach (MenuFlyoutItemBase child in subItem.Items) Walk(child);
                     break;
                 case ContentControl control when control.Content is string content:
                     control.Content = Localizer.T(content);
@@ -78,6 +94,9 @@ namespace CastMirror.Services
                     break;
                 case ContentControl host when host.Content is DependencyObject hosted:
                     Walk(hosted);
+                    break;
+                case MenuFlyout flyout:
+                    foreach (MenuFlyoutItemBase item in flyout.Items) Walk(item);
                     break;
                 case ItemsControl items:
                     foreach (object item in items.Items)

@@ -47,23 +47,6 @@ void Sparkline::PushValue(float val) {
   }
 }
 
-void Sparkline::SetRange(float min_val, float max_val) {
-  min_val_ = min_val;
-  max_val_ = std::max(min_val + 0.001f, max_val);
-  if (drawing_area_) {
-    gtk_widget_queue_draw(drawing_area_);
-  }
-}
-
-void Sparkline::SetColor(double r, double g, double b) {
-  color_r_ = r;
-  color_g_ = g;
-  color_b_ = b;
-  if (drawing_area_) {
-    gtk_widget_queue_draw(drawing_area_);
-  }
-}
-
 void Sparkline::Reset() {
   values_.clear();
   if (drawing_area_) {

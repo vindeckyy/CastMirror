@@ -1,7 +1,10 @@
 #include "castcore/net_platform.h"
 
+#include <algorithm>
+#include <bit>
 #include <cstring>
 #include <mutex>
+#include <system_error>
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -78,7 +81,7 @@ std::vector<IPv4Interface> EnumerateIPv4Interfaces() {
       char ip_buf[INET_ADDRSTRLEN]{};
       inet_ntop(AF_INET, &sin->sin_addr, ip_buf, sizeof(ip_buf));
       iface.address = ip_buf;
-      iface.prefix_len = ua->OnLinkPrefixLength;
+      iface.prefix_len = std::min<uint32_t>(ua->OnLinkPrefixLength, 32u);
       uint64_t mask64 = iface.prefix_len >= 32
                             ? 0xFFFFFFFFULL
                             : (0xFFFFFFFFULL << (32 - iface.prefix_len)) & 0xFFFFFFFFULL;
@@ -115,7 +118,7 @@ std::vector<IPv4Interface> EnumerateIPv4Interfaces() {
       inet_ntop(AF_INET, &nm->sin_addr, mask_buf, sizeof(mask_buf));
       iface.netmask = mask_buf;
       uint32_t m = ntohl(nm->sin_addr.s_addr);
-      iface.prefix_len = static_cast<uint32_t>(__builtin_popcount(m));
+      iface.prefix_len = static_cast<uint32_t>(std::popcount(m));
     }
     out.push_back(iface);
   }
@@ -190,7 +193,8 @@ std::string SocketErrorString() {
   }
   return s.empty() ? ("WSA error " + std::to_string(err)) : s;
 #else
-  return std::strerror(err);
+  std::string s = std::generic_category().message(err);
+  return s.empty() ? ("errno " + std::to_string(err)) : s;
 #endif
 }
 

@@ -12,8 +12,6 @@ namespace castcore {
 
 class SessionRecovery {
  public:
-  using ReconnectAction = std::function<bool()>;
-
   SessionRecovery(int max_timeout_seconds = 30);
   ~SessionRecovery();
 
@@ -39,7 +37,6 @@ class SessionRecovery {
   std::atomic<bool> is_recovering_{false};
   std::atomic<int> max_timeout_seconds_{30};
   std::atomic<int> attempt_count_{0};
-  std::string reason_;
   std::chrono::steady_clock::time_point recovery_start_time_;
 };
 

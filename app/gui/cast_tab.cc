@@ -8,6 +8,7 @@
 #include "castcore/device_selection.h"
 #include "castcore/logger.h"
 #include <arpa/inet.h>
+#include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <unordered_set>
@@ -42,6 +43,31 @@ bool DisplaysEqual(const std::vector<DisplayInfo>& a, const std::vector<DisplayI
     }
   }
   return true;
+}
+
+bool WindowsEqual(const std::vector<WindowInfo>& a, const std::vector<WindowInfo>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i].id != b[i].id || a[i].title != b[i].title || a[i].app_class != b[i].app_class ||
+        a[i].width != b[i].width || a[i].height != b[i].height) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::string TrimWhitespace(const std::string& s) {
+  size_t start = 0;
+  while (start < s.size() &&
+         (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n')) {
+    ++start;
+  }
+  size_t end = s.size();
+  while (end > start &&
+         (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r' || s[end - 1] == '\n')) {
+    --end;
+  }
+  return s.substr(start, end - start);
 }
 
 GtkWidget* MakeCircularGlyph(const char* icon_name, int box_px, int icon_px) {
@@ -370,8 +396,8 @@ void CastTab::BuildUi() {
   gtk_widget_set_halign(win_empty_title, GTK_ALIGN_CENTER);
   gtk_box_append(GTK_BOX(window_empty_box_), win_empty_title);
   GtkWidget* win_empty_body = gtk_label_new(
-      "Window sharing is not available with the current capture backend. On Wayland, the system "
-      "dialog will let you pick a window when casting.");
+      "No capturable application windows were found. Open a window and it will appear here "
+      "automatically.");
   gtk_widget_add_css_class(win_empty_body, "cm-section-description");
   gtk_widget_set_halign(win_empty_body, GTK_ALIGN_CENTER);
   gtk_label_set_wrap(GTK_LABEL(win_empty_body), TRUE);
@@ -899,6 +925,7 @@ void CastTab::RefreshDevices() {
 
   gtk_list_box_invalidate_sort(GTK_LIST_BOX(device_list_box_));
 
+  std::string previous_selected_id = selected_device_id_;
   if (devices_.empty()) {
     selected_device_id_.clear();
   } else {
@@ -933,6 +960,9 @@ void CastTab::RefreshDevices() {
 
   UpdateDeviceSectionState();
   updating_ui_ = false;
+  if (!selected_device_id_.empty() && selected_device_id_ != previous_selected_id) {
+    ApplyDeviceProfile(selected_device_id_);
+  }
   app_->OnDestinationSelectionChanged();
 }
 
@@ -940,6 +970,11 @@ void CastTab::RefreshDisplays() {
   auto new_displays = CastEngine::Instance().GetDisplays();
   bool equal = DisplaysEqual(displays_, new_displays);
   if (equal && !displays_.empty() && !display_row_widgets_.empty()) {
+    if (wayland_banner_) {
+      const bool show_wayland = (selected_source_kind_ == CaptureSourceKind::kMonitor) &&
+                                !ConfigStore::Instance().Get().force_x11_capture;
+      gtk_widget_set_visible(wayland_banner_, show_wayland);
+    }
     return;
   }
 
@@ -949,8 +984,10 @@ void CastTab::RefreshDisplays() {
   if (displays_.empty()) {
     has_selected_display_ = false;
     selected_display_id_ = 0;
-    gtk_widget_set_visible(display_list_box_, FALSE);
-    gtk_widget_set_visible(disp_empty_box_, TRUE);
+    if (selected_source_kind_ == CaptureSourceKind::kMonitor) {
+      gtk_widget_set_visible(display_list_box_, FALSE);
+      gtk_widget_set_visible(disp_empty_box_, TRUE);
+    }
     if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, FALSE);
 
     for (auto it = display_row_widgets_.begin(); it != display_row_widgets_.end();) {
@@ -958,9 +995,13 @@ void CastTab::RefreshDisplays() {
       it = display_row_widgets_.erase(it);
     }
   } else {
+    const bool show_screen = (selected_source_kind_ == CaptureSourceKind::kMonitor);
     gtk_widget_set_visible(disp_empty_box_, FALSE);
-    gtk_widget_set_visible(display_list_box_, TRUE);
-    if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, TRUE);
+    gtk_widget_set_visible(display_list_box_, show_screen);
+    if (wayland_banner_) {
+      gtk_widget_set_visible(wayland_banner_,
+                             show_screen && !ConfigStore::Instance().Get().force_x11_capture);
+    }
 
     std::unordered_set<int> current_ids;
     for (size_t i = 0; i < displays_.size(); ++i) {
@@ -1028,6 +1069,37 @@ void CastTab::RefreshDisplays() {
   app_->OnDestinationSelectionChanged();
 }
 
+void CastTab::ApplyDeviceProfile(const std::string& device_id) {
+  if (device_id.empty()) return;
+  auto& cfg = ConfigStore::Instance().Mutable();
+  auto profile = cfg.GetDeviceProfile(device_id);
+  if (!profile.has_value()) return;
+
+  selected_preset_ = profile->preset;
+  cfg.quality_preset = selected_preset_;
+
+  const bool prev = updating_ui_;
+  updating_ui_ = true;
+  SetPresetButtons(selected_preset_);
+  updating_ui_ = prev;
+
+  uint32_t kbps = profile->bitrate_kbps > 0 ? profile->bitrate_kbps
+                                            : cfg.GetPresetBitrateKbps(selected_preset_);
+  cfg.SetPresetBitrateKbps(selected_preset_, kbps);
+  cfg.max_bitrate_kbps = kbps;
+  SyncInlineBitrate(kbps);
+  if (app_) {
+    app_->SyncBitrateSlider(kbps);
+  }
+  if (profile->target_delay_ms > 0) {
+    cfg.target_delay_ms = profile->target_delay_ms;
+    if (app_) {
+      app_->SyncDelaySlider(cfg.target_delay_ms);
+    }
+  }
+  ConfigStore::Instance().Save();
+}
+
 void CastTab::OnDeviceRowSelected(GtkListBox*, GtkListBoxRow* row) {
   if (updating_ui_ || !row) return;
   const char* id_str = static_cast<const char*>(g_object_get_data(G_OBJECT(row), "cm_id"));
@@ -1041,27 +1113,12 @@ void CastTab::OnDeviceRowSelected(GtkListBox*, GtkListBoxRow* row) {
       cfg.last_device_id = dev.id;
       cfg.last_device_name = dev.name;
       cfg.last_device_ip = dev.ip_address;
-
-      // Restore per-device profile if exists
-      auto profile = cfg.GetDeviceProfile(dev.id);
-      if (profile.has_value()) {
-        selected_preset_ = profile->preset;
-        updating_ui_ = true;
-        SetPresetButtons(selected_preset_);
-        updating_ui_ = false;
-
-        uint32_t kbps = profile->bitrate_kbps > 0 ? profile->bitrate_kbps
-                                                  : cfg.GetPresetBitrateKbps(selected_preset_);
-        SyncInlineBitrate(kbps);
-        if (profile->target_delay_ms > 0) {
-          cfg.target_delay_ms = profile->target_delay_ms;
-        }
-      }
-
       ConfigStore::Instance().Save();
       break;
     }
   }
+
+  ApplyDeviceProfile(selected_device_id_);
 
   for (auto& [id, w] : device_row_widgets_) {
     ApplyRowSelection(w.row, w.select_icon, id == selected_device_id_);
@@ -1162,6 +1219,11 @@ CastTab::WindowRowWidgets CastTab::CreateWindowRow(const WindowInfo& win, int ra
 
 void CastTab::RefreshWindows() {
   auto new_windows = CastEngine::Instance().GetWindows();
+  if (WindowsEqual(windows_, new_windows) &&
+      (!windows_.empty() ? !window_row_widgets_.empty()
+                         : gtk_widget_get_visible(window_empty_box_))) {
+    return;
+  }
 
   updating_ui_ = true;
   windows_ = std::move(new_windows);
@@ -1188,17 +1250,32 @@ void CastTab::RefreshWindows() {
       window_row_widgets_[windows_[i].id] = w;
     }
 
-    // Select the first window by default (or the previously selected one
-    // if it's still present).
-    int prefer = has_selected_window_ ? selected_window_id_ : windows_[0].id;
+    // Select the previously selected window, or match the saved window name/id,
+    // or fall back to the first window.
+    const auto& cfg = ConfigStore::Instance().Get();
+    int prefer = 0;
     bool found = false;
-    for (const auto& win : windows_) {
-      if (win.id == prefer) {
-        found = true;
-        break;
+    if (has_selected_window_) {
+      for (const auto& win : windows_) {
+        if (win.id == selected_window_id_) {
+          prefer = win.id;
+          found = true;
+          break;
+        }
       }
     }
-    if (!found) prefer = windows_[0].id;
+    if (!found && !cfg.last_source_name.empty()) {
+      for (const auto& win : windows_) {
+        if (win.title == cfg.last_source_name) {
+          prefer = win.id;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) {
+      prefer = windows_[0].id;
+    }
 
     selected_window_id_ = prefer;
     has_selected_window_ = true;
@@ -1222,6 +1299,16 @@ void CastTab::RefreshWindows() {
   app_->OnDestinationSelectionChanged();
 }
 
+void CastTab::RestoreSavedSource() {
+  const auto& cfg = ConfigStore::Instance().Get();
+  if (CaptureSourceKindFromString(cfg.last_source_kind) == CaptureSourceKind::kWindow &&
+      CastEngine::Instance().WindowCaptureSupported()) {
+    if (source_window_btn_) {
+      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(source_window_btn_), TRUE);
+    }
+  }
+}
+
 void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
   if (updating_ui_) return;
   // Mutual exclusion: only one toggle active at a time.
@@ -1232,10 +1319,15 @@ void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
       g_signal_handlers_unblock_by_func(source_window_btn_, (gpointer)OnSourceWindowToggled, this);
     }
     StopWindowRefreshTimer();
-    gtk_widget_set_visible(display_list_box_, TRUE);
+    const bool empty_displays = displays_.empty();
+    gtk_widget_set_visible(display_list_box_, !empty_displays);
+    gtk_widget_set_visible(disp_empty_box_, empty_displays);
     gtk_widget_set_visible(window_list_box_, FALSE);
     gtk_widget_set_visible(window_empty_box_, FALSE);
-    if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, TRUE);
+    if (wayland_banner_) {
+      gtk_widget_set_visible(wayland_banner_,
+                             !empty_displays && !ConfigStore::Instance().Get().force_x11_capture);
+    }
   } else {
     if (source_screen_btn_ && gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(source_screen_btn_))) {
       g_signal_handlers_block_by_func(source_screen_btn_, (gpointer)OnSourceScreenToggled, this);
@@ -1243,6 +1335,7 @@ void CastTab::OnSourceKindChanged(CaptureSourceKind kind) {
       g_signal_handlers_unblock_by_func(source_screen_btn_, (gpointer)OnSourceScreenToggled, this);
     }
     gtk_widget_set_visible(display_list_box_, FALSE);
+    gtk_widget_set_visible(disp_empty_box_, FALSE);
     if (wayland_banner_) gtk_widget_set_visible(wayland_banner_, FALSE);
     RefreshWindows();
     StartWindowRefreshTimer();
@@ -1333,6 +1426,15 @@ bool CastTab::HasSelectedSource() const {
   return has_selected_display_;
 }
 
+std::string CastTab::GetSelectedSourceName() const {
+  if (selected_source_kind_ == CaptureSourceKind::kWindow) {
+    if (!has_selected_window_) return "";
+    return selected_window_name_.empty() ? ("Window " + std::to_string(selected_window_id_))
+                                         : selected_window_name_;
+  }
+  return GetSelectedDisplayName();
+}
+
 CaptureSource CastTab::GetSelectedSource() const {
   if (selected_source_kind_ == CaptureSourceKind::kWindow && has_selected_window_) {
     // Find geometry from the cached window list.
@@ -1359,18 +1461,23 @@ void CastTab::OnPresetChanged(QualityPreset preset) {
   selected_preset_ = preset;
   auto& cfg = ConfigStore::Instance().Mutable();
   cfg.quality_preset = preset;
+  // BuildSessionOptions enforces adaptive_resolution_enabled=false for kGame
+  // without clobbering the user's global setting for other presets.
   if (preset == QualityPreset::kGame) {
     cfg.target_delay_ms = 150;
-    cfg.adaptive_resolution_enabled = false;
   } else if (preset == QualityPreset::kCinema) {
     cfg.target_delay_ms = 400;
-    cfg.adaptive_resolution_enabled = true;
   }
   SaveSelectedDeviceProfile();
   ConfigStore::Instance().Save();
   uint32_t kbps = cfg.GetPresetBitrateKbps(preset);
   SyncInlineBitrate(kbps);
-  app_->SyncBitrateSlider(kbps);
+  if (app_) {
+    app_->SyncBitrateSlider(kbps);
+    if (preset == QualityPreset::kGame || preset == QualityPreset::kCinema) {
+      app_->SyncDelaySlider(cfg.target_delay_ms);
+    }
+  }
 }
 
 void CastTab::SaveSelectedDeviceProfile() {
@@ -1490,6 +1597,7 @@ void CastTab::OnAddIpClicked() {
   app_->PushModalActionBlock();
 
   AdwDialog* dialog = adw_dialog_new();
+  app_->OwnModalDialog(dialog);
   adw_dialog_set_title(dialog, "Add Cast display by IP");
   adw_dialog_set_content_width(dialog, 560);
 
@@ -1566,17 +1674,30 @@ void CastTab::OnAddIpClicked() {
                    }),
                    err_lbl);
 
-  // Dialog closed
+  struct AddIpContext {
+    CastTab* tab;
+    LivenessToken alive;
+    AdwDialog* dialog;
+    GtkWidget* name_row;
+    GtkWidget* ip_row;
+    GtkWidget* port_spin;
+    GtkWidget* err_lbl;
+  };
+
+  auto* ctx = new AddIpContext{
+      this, app_->GetLivenessToken(), dialog, name_row, ip_row, port_spin, err_lbl};
+
+  // Dialog closed: restore focus to Add IP button if the tab is still alive.
+  // Modal action block release is owned by OwnModalDialog(dialog).
   g_signal_connect(dialog,
                    "closed",
                    G_CALLBACK(+[](AdwDialog*, gpointer user_data) {
-                     auto* self = static_cast<CastTab*>(user_data);
-                     self->app_->PopModalActionBlock();
-                     if (self->add_ip_btn_) {
-                       gtk_widget_grab_focus(self->add_ip_btn_);
+                     auto* ctx = static_cast<AddIpContext*>(user_data);
+                     if (Alive(ctx->alive) && ctx->tab && ctx->tab->add_ip_btn_) {
+                       gtk_widget_grab_focus(ctx->tab->add_ip_btn_);
                      }
                    }),
-                   this);
+                   ctx);
 
   // Cancel clicked
   g_signal_connect(cancel_btn,
@@ -1587,20 +1708,10 @@ void CastTab::OnAddIpClicked() {
                    }),
                    dialog);
 
-  struct AddIpContext {
-    CastTab* tab;
-    AdwDialog* dialog;
-    GtkWidget* name_row;
-    GtkWidget* ip_row;
-    GtkWidget* port_spin;
-    GtkWidget* err_lbl;
-  };
-
-  auto* ctx = new AddIpContext{this, dialog, name_row, ip_row, port_spin, err_lbl};
-
   auto on_add_submit = +[](gpointer, gpointer user_data) {
     auto* ctx = static_cast<AddIpContext*>(user_data);
-    std::string ip_str = gtk_editable_get_text(GTK_EDITABLE(ctx->ip_row));
+    if (!Alive(ctx->alive) || !ctx->tab) return;
+    std::string ip_str = TrimWhitespace(gtk_editable_get_text(GTK_EDITABLE(ctx->ip_row)));
     struct sockaddr_in sa{};
     if (inet_pton(AF_INET, ip_str.c_str(), &(sa.sin_addr)) <= 0) {
       gtk_label_set_text(GTK_LABEL(ctx->err_lbl),
@@ -1611,7 +1722,7 @@ void CastTab::OnAddIpClicked() {
       return;
     }
 
-    std::string name_str = gtk_editable_get_text(GTK_EDITABLE(ctx->name_row));
+    std::string name_str = TrimWhitespace(gtk_editable_get_text(GTK_EDITABLE(ctx->name_row)));
     if (name_str.empty()) {
       name_str = "Cast device (" + ip_str + ")";
     }

@@ -1,0 +1,13 @@
+2026-11-18 00:00:00.000 [INFO ] [main.cc:33] ===========================================
+2026-11-18 00:00:00.001 [INFO ] [main.cc:34]    CastMirror: PoC 0D - End-to-End Join    
+2026-11-18 00:00:00.002 [INFO ] [main.cc:35] ===========================================
+2026-11-18 00:00:00.015 [INFO ] [fake_receiver.cc:83] Fake Cast Receiver running on 127.0.0.1:29009 and UDP :54533
+2026-11-18 00:00:00.120 [INFO ] [adaptive_controller.cc:77] Initialized Adaptive Controller at Ladder Rung 0 (1920x1080 @ 60fps, 8000 kbps, target_delay=200ms)
+2026-11-18 00:00:00.250 [INFO ] [cast_session.cc:412] Cast session launched app 0F5096E8 on 127.0.0.1
+2026-11-18 00:00:01.250 [INFO ] [main.cc:164] [LIVE STATS] FPS: 60.0, Bitrate: 8000.0 kbps, RTT: 4.2 ms, Loss: 0.0%, Packets: 912, Frames: 60
+2026-11-18 00:00:02.250 [INFO ] [main.cc:164] [LIVE STATS] FPS: 59.9, Bitrate: 8020.5 kbps, RTT: 4.5 ms, Loss: 0.0%, Packets: 1824, Frames: 120
+2026-11-18 00:00:03.250 [INFO ] [main.cc:164] [LIVE STATS] FPS: 60.0, Bitrate: 7985.0 kbps, RTT: 4.1 ms, Loss: 0.0%, Packets: 2736, Frames: 180
+2026-11-18 00:00:04.250 [INFO ] [main.cc:164] [LIVE STATS] FPS: 60.0, Bitrate: 8010.0 kbps, RTT: 4.3 ms, Loss: 0.0%, Packets: 3648, Frames: 240
+2026-11-18 00:00:05.250 [INFO ] [main.cc:164] [LIVE STATS] FPS: 60.0, Bitrate: 8005.0 kbps, RTT: 4.4 ms, Loss: 0.0%, Packets: 4560, Frames: 300
+2026-11-18 00:00:05.260 [INFO ] [cast_session.cc:1042] Session stats: frames=300 nack=0 pli=1 loss=0.0% bitrate=8005kbps fps=60.0 audio_ok=yes
+2026-11-18 00:00:05.310 [INFO ] [main.cc:179] Stop completed in 42.5 ms (Budget <= 500ms: PASSED)

@@ -78,12 +78,16 @@ class CastSession {
   void ProcessAudioFrameInternal(const CapturedAudioFrame& frame, bool allow_mute_check);
 
   void AdaptationLoop();
+  void HandleFatalFailure();
   void FailSession(const std::string& reason);
   void InjectSilenceAudioFrame();
   void MaybeLogSessionStats();
   // Accumulates the difference between the most recent audio and video
   // *capture* timestamps so A/V sync can be observed in the session log.
   void SampleAvCaptureOffset();
+
+  std::shared_ptr<CastChannel> Channel() const;
+  std::shared_ptr<IDisplayCapture> DisplayCapture() const;
 
   DeviceLookupCallback device_lookup_;
   std::atomic<bool> media_stopped_for_reconnect_{false};
@@ -98,13 +102,13 @@ class CastSession {
   VideoCodec video_codec_ = VideoCodec::kH264;
   uint32_t bitrate_override_kbps_ = 0;
 
-  std::shared_ptr<CastChannel> cast_channel_;
   mutable std::mutex channel_mutex_;
+  std::shared_ptr<CastChannel> cast_channel_;
   // The send-path objects are shared_ptr so the encode/capture/adaptation
   // threads can take a snapshot under pipeline_ptr_mutex_ and keep using it
   // even if StopMediaPipeline() resets the members meanwhile.
   std::shared_ptr<CastTransport> transport_;
-  std::unique_ptr<IDisplayCapture> display_capture_;
+  std::shared_ptr<IDisplayCapture> display_capture_;
   std::unique_ptr<IAudioCapture> audio_capture_;
   std::unique_ptr<IVideoEncoder> video_encoder_;
   std::unique_ptr<IAudioEncoder> audio_encoder_;
@@ -117,7 +121,6 @@ class CastSession {
   // adaptation thread (silence keepalive) both feed them, and the UI retunes
   // the bitrate.
   std::mutex audio_mutex_;
-  std::shared_ptr<CastChannel> Channel() const;
   std::shared_ptr<CastTransport> Transport() const;
   AdaptiveController adaptive_controller_;
   SessionRecovery recovery_;
@@ -136,6 +139,10 @@ class CastSession {
   std::atomic<bool> stop_requested_{false};
   // True while Start() is on its way to Streaming; see the note in Start().
   std::atomic<bool> starting_{false};
+  std::thread::id start_thread_id_{};
+
+  std::recursive_mutex stop_mutex_;
+  bool stopped_ = false;
 
   mutable std::mutex callbacks_mutex_;
   mutable std::mutex params_mutex_;
@@ -144,7 +151,12 @@ class CastSession {
   bool answer_received_ = false;
   bool launch_received_ = false;
   bool answer_failed_ = false;  // guarded by cv_mutex_
+  bool channel_disconnected_ = false;  // guarded by cv_mutex_
   std::atomic<bool> launch_sent_{false};
+  std::condition_variable* active_probe_cv_ = nullptr;  // guarded by cv_mutex_
+
+  std::mutex adapt_mutex_;
+  std::condition_variable adapt_cv_;
 
   std::mutex video_queue_mutex_;
   std::condition_variable video_queue_cv_;
@@ -176,9 +188,10 @@ class CastSession {
   // Playout delay latched once per adaptation tick and used by both streams.
   std::atomic<int> playout_delay_ms_{0};
   std::atomic<bool> fail_requested_{false};
+  std::atomic<bool> fatal_fail_{false};
   std::atomic<bool> is_frozen_{false};
   std::atomic<bool> is_audio_muted_{false};
-  std::string fail_reason_;
+  std::string fail_reason_;  // guarded by cv_mutex_
   std::chrono::steady_clock::time_point last_session_log_{};
   std::chrono::steady_clock::time_point last_video_stall_warn_{};
   std::chrono::steady_clock::time_point last_audio_stall_warn_{};

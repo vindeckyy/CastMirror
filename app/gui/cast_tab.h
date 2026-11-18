@@ -33,6 +33,8 @@ class CastTab {
   std::string GetSelectedDisplayName() const;
   bool HasSelectedDisplay() const { return has_selected_display_; }
   bool HasSelectedSource() const;
+  CaptureSourceKind GetSelectedSourceKind() const { return selected_source_kind_; }
+  std::string GetSelectedSourceName() const;
   CaptureSource GetSelectedSource() const;
   bool IsSelectedDeviceRemovable() const;
   QualityPreset GetSelectedPreset() const { return selected_preset_; }
@@ -41,6 +43,8 @@ class CastTab {
   void OnAddIpClicked();
   void RemoveSelectedDevice();
   void SyncInlineBitrate(uint32_t kbps);
+  void RestoreSavedSource();
+  void SaveSelectedDeviceProfile();
 
  private:
   struct DeviceRowWidgets {
@@ -92,7 +96,7 @@ class CastTab {
   void OnDeviceRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnDisplayRowSelected(GtkListBox* box, GtkListBoxRow* row);
   void OnPresetChanged(QualityPreset preset);
-  void SaveSelectedDeviceProfile();
+  void ApplyDeviceProfile(const std::string& device_id);
 
   // Named (non-lambda) handlers so g_signal_handlers_block_by_func can match
   // the exact (func, data) pair that was connected.

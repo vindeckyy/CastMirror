@@ -34,6 +34,7 @@ namespace CastMirror
         // slider values and fires ValueChanged while later-named elements do not
         // exist yet, so handlers must not touch controls or save settings then.
         private bool _loading = true;
+        private bool _closed;
 
         public SettingsWindow(MainViewModel viewModel, Action desktopIntegrationChanged,
                               Func<System.Collections.Generic.IReadOnlyList<string>> applyHotkeys)
@@ -52,27 +53,58 @@ namespace CastMirror
             ThemeService.Register(Content as FrameworkElement);
             LoadFromSettings();
 
-            // The Cast surface has its own bitrate slider; keep this one in step
-            // with it (and with the engine config it writes).
+            // The Cast surface has its own bitrate/audio controls; keep these in
+            // step with it (and with the engine config it writes).
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-            Closed += (_, _) => _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            Closed += (_, _) =>
+            {
+                _closed = true;
+                _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            };
         }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName != nameof(MainViewModel.BitrateCapKbps)) return;
-            if (BitrateSlider == null) return;
-
-            _loading = true;
-            try
+            if (e.PropertyName == nameof(MainViewModel.BitrateCapKbps))
             {
-                BitrateSlider.Value = Clamp(_viewModel.BitrateCapKbps, BitrateSlider.Minimum, BitrateSlider.Maximum);
+                if (BitrateSlider == null) return;
+                _loading = true;
+                try
+                {
+                    BitrateSlider.Value = Clamp(_viewModel.BitrateCapKbps, BitrateSlider.Minimum, BitrateSlider.Maximum);
+                }
+                finally
+                {
+                    _loading = false;
+                }
+                UpdateBitrateLabel();
             }
-            finally
+            else if (e.PropertyName == nameof(MainViewModel.AudioEnabled))
             {
-                _loading = false;
+                if (AudioSwitch == null) return;
+                _loading = true;
+                try
+                {
+                    AudioSwitch.IsOn = _viewModel.Settings.AudioEnabled;
+                }
+                finally
+                {
+                    _loading = false;
+                }
             }
-            UpdateBitrateLabel();
+            else if (e.PropertyName == nameof(MainViewModel.SteadyFrameRate))
+            {
+                if (SteadySwitch == null) return;
+                _loading = true;
+                try
+                {
+                    SteadySwitch.IsOn = _viewModel.SteadyFrameRate;
+                }
+                finally
+                {
+                    _loading = false;
+                }
+            }
         }
 
         private void LoadFromSettings()
@@ -203,6 +235,12 @@ namespace CastMirror
         /// </summary>
         private void ClearError()
         {
+            if (!string.IsNullOrEmpty(_viewModel.LastSaveError))
+            {
+                SaveErrorText.Text = _viewModel.LastSaveError;
+                SaveErrorText.Visibility = Visibility.Visible;
+                return;
+            }
             SaveErrorText.Visibility = Visibility.Collapsed;
         }
 
@@ -443,6 +481,7 @@ namespace CastMirror
             try
             {
                 string json = await Task.Run(SettingsService.RunSelfTest);
+                if (_closed) return;
                 // WinUI installs a DispatcherQueue sync context, so this
                 // continuation is back on the UI thread.
                 SelfTestText.Text = DescribeSelfTest(json);
@@ -450,14 +489,15 @@ namespace CastMirror
             }
             finally
             {
-                if (sender is Button doneButton) doneButton.IsEnabled = true;
+                if (!_closed && sender is Button doneButton) doneButton.IsEnabled = true;
             }
 
+            if (_closed) return;
             var dialog = new ContentDialog
             {
                 Title = "Self-test",
                 Content = new TextBlock { Text = SelfTestText.Text, TextWrapping = TextWrapping.Wrap },
-                CloseButtonText = "Close"
+                CloseButtonText = Localizer.T("Close")
             };
             await Dialogs.ShowAsync(dialog, Content.XamlRoot);
         }

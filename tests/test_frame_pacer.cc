@@ -428,3 +428,13 @@ TEST(FramePacerTest, FrozenPresentTimeAdvancesAtWallClockRate) {
   EXPECT_GE(covered, 119 * us(33333) - us(1000)) << "the timeline only covered " << covered.count()
                                                  << " us of the 3966327 us that actually elapsed";
 }
+
+TEST(FramePacerTest, DefaultConstructedPacerHandlesZeroTimestampSafely) {
+  FramePacer pacer;
+  CapturedVideoFrame zero_ts = MakeFrame(Clock::time_point{});
+  const auto now = Clock::now();
+  pacer.Submit(std::move(zero_ts), 0, 0);
+  auto d = pacer.Tick(now);
+  ASSERT_TRUE(d.emit);
+  EXPECT_EQ(d.frame->timestamp, now);
+}

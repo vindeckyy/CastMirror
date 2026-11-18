@@ -60,60 +60,6 @@
   min-height: 48px;
 }
 
-.cm-header-title,
-.cm-header-title .title {
-  color: @cm_text;
-  font-size: 1.071rem;
-  line-height: 1.429rem;
-  font-weight: 600;
-}
-
-.cm-header-subtitle,
-.cm-header-title .subtitle {
-  color: @cm_text_secondary;
-  font-size: 0.857rem;
-  line-height: 1.214rem;
-  font-weight: 400;
-  opacity: 1;
-}
-
-.cm-view-switcher {
-  background-color: @cm_surface;
-  color: @cm_text;
-  border-radius: 12px;
-  padding: 4px;
-}
-
-.cm-view-switcher button {
-  min-height: 40px;
-  padding: 8px 16px;
-  color: @cm_text_secondary;
-  background-color: transparent;
-  background-image: none;
-  border: 1px solid transparent;
-  border-radius: 12px;
-  box-shadow: none;
-  transition-property: background-color, border-color, color, opacity;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-
-.cm-view-switcher button:hover {
-  color: @cm_text;
-  background-color: @cm_surface_high;
-}
-
-.cm-view-switcher button:active {
-  color: @cm_text;
-  background-color: @cm_surface_highest;
-}
-
-.cm-view-switcher button:checked {
-  color: @cm_primary;
-  background-color: @cm_primary_container;
-  border-color: @cm_primary;
-}
-
 .cm-page-content {
   padding: 24px;
   background-color: @cm_background;
@@ -438,8 +384,7 @@ list.cm-choice-list > row:selected:hover {
 
 /* Selectable destination and display cards (inner box, not the list row). */
 .cm-device-row,
-.cm-display-row,
-list.cm-choice-list > row.cm-sound-row {
+.cm-display-row {
   padding: 16px;
   color: @cm_text;
   background-color: @cm_surface_container;
@@ -457,8 +402,7 @@ list.cm-choice-list > row.cm-sound-row {
 list.cm-choice-list > row:hover .cm-device-row,
 list.cm-choice-list > row:hover .cm-display-row,
 .cm-device-row:hover,
-.cm-display-row:hover,
-list.cm-choice-list > row.cm-sound-row:hover {
+.cm-display-row:hover {
   background-color: @cm_surface_high;
 }
 
@@ -836,7 +780,6 @@ list.cm-choice-list > row.is-selected .cm-device-glyph {
 
 /* Focus and disabled treatment for CastMirror-owned interactive surfaces. */
 .cm-primary-action:focus-visible,
-.cm-view-switcher button:focus-visible,
 .cm-device-row:focus-visible,
 .cm-display-row:focus-visible,
 list.cm-choice-list > row:focus-visible .cm-device-row,
@@ -849,7 +792,6 @@ list.cm-choice-list > row:focus-visible .cm-display-row,
 
 .is-disabled,
 .cm-primary-action:disabled,
-.cm-view-switcher button:disabled,
 .cm-device-row:disabled,
 .cm-display-row:disabled,
 .cm-preset-card:disabled {

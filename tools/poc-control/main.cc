@@ -36,7 +36,15 @@ int main(int argc, char** argv) {
     }
   }
 
-  uint16_t target_port = (argc > 2) ? static_cast<uint16_t>(std::stoi(argv[2])) : 8009;
+  uint16_t target_port = 8009;
+  if (argc > 2) {
+    try {
+      int p = std::stoi(argv[2]);
+      if (p > 0 && p <= 65535) target_port = static_cast<uint16_t>(p);
+    } catch (...) {
+      LOG_WARN << "Invalid port argument '" << argv[2] << "', using default 8009";
+    }
+  }
   LOG_INFO << "Targeting Cast Device: " << target_ip << ":" << target_port;
 
   CastChannel channel;
@@ -51,6 +59,7 @@ int main(int argc, char** argv) {
   if (!channel.Connect(target_ip, target_port)) {
     LOG_ERROR << "Failed to connect to " << target_ip << ":" << target_port
               << " (ensure device is on or fake-receiver is running)";
+    discovery.Stop();
     return 1;
   }
 

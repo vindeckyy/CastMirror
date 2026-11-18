@@ -17,7 +17,9 @@
 #if defined(_WIN32)
 #include <conio.h>
 #include <windows.h>
+#include <ws2tcpip.h>
 #else
+#include <arpa/inet.h>
 #include <sys/select.h>
 #include <unistd.h>
 #endif
@@ -58,9 +60,19 @@ void InstallConsoleInterruptHandler() {
 #if defined(_WIN32)
   SetConsoleCtrlHandler(ConsoleCtrlHandler, TRUE);
 #else
-  std::signal(SIGINT, [](int) { g_interrupted.store(true); });
-  std::signal(SIGTERM, [](int) { g_interrupted.store(true); });
+  struct sigaction sa{};
+  sa.sa_handler = [](int) { g_interrupted.store(true); };
+  sigemptyset(&sa.sa_mask);
+  // Omit SA_RESTART so blocking stdin reads abort promptly on SIGINT/SIGTERM.
+  sa.sa_flags = 0;
+  sigaction(SIGINT, &sa, nullptr);
+  sigaction(SIGTERM, &sa, nullptr);
 #endif
+}
+
+bool IsSessionAliveState(SessionState state) {
+  return state == SessionState::kStreaming || state == SessionState::kReconnecting ||
+         state == SessionState::kConnecting || state == SessionState::kNegotiating;
 }
 
 // True once the user asked to stop, either with Ctrl+C or by pressing Enter.
@@ -87,6 +99,13 @@ bool StopRequested() {
   }
 #endif
   return false;
+}
+
+void WaitForInteractiveSessionEnd(CastEngine& engine) {
+  std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+  while (IsSessionAliveState(engine.GetState()) && !StopRequested()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 }
 
 [[noreturn]] void UsageError(const std::string& message) {
@@ -191,6 +210,7 @@ int main(int argc, char** argv) {
   bool bitrate_given = false;
   bool delay_given = false;
   bool verify_given = false;
+  bool display_given = false;
 
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
@@ -204,6 +224,9 @@ int main(int argc, char** argv) {
       return 0;
     } else if (arg == "--device") {
       target_device_arg = value_for("--device");
+      if (target_device_arg.empty()) {
+        UsageError("--device requires a non-empty IP or ID");
+      }
       interactive_mode = false;
     } else if (arg == "--display") {
       const std::string value = value_for("--display");
@@ -212,6 +235,7 @@ int main(int argc, char** argv) {
         UsageError("invalid --display value '" + value + "' (expected a non-negative display id)");
       }
       display_id_arg = static_cast<int>(parsed);
+      display_given = true;
     } else if (arg == "--window") {
       const std::string value = value_for("--window");
       long long parsed = 0;
@@ -282,11 +306,34 @@ int main(int argc, char** argv) {
       verify_given = true;
     } else if (arg == "--auth-probe") {
       auth_probe_arg = value_for("--auth-probe");
+      if (auth_probe_arg.empty()) {
+        UsageError("--auth-probe requires a non-empty IP");
+      }
       interactive_mode = false;
     } else {
       UsageError("unknown option '" + arg + "'");
     }
   }
+
+  if (!window_id_arg.empty() && !list_windows && !list_displays && auth_probe_arg.empty()) {
+    if (target_device_arg.empty()) {
+      UsageError("--window requires --device <IP or ID>");
+    }
+    if (display_given) {
+      UsageError("--display and --window cannot be used together");
+    }
+  }
+
+  auto build_cli_overrides = [&]() -> SessionOverrides {
+    SessionOverrides overrides;
+    if (preset_given) overrides.preset = preset_arg;
+    if (audio_given) overrides.enable_audio = audio_enabled_arg;
+    if (codec_given) overrides.video_codec = video_codec_arg;
+    if (bitrate_given) overrides.video_bitrate_kbps = bitrate_arg;
+    if (delay_given) overrides.target_delay_ms = target_delay_arg;
+    if (verify_given) overrides.verify_device_cert = verify_device_cert;
+    return overrides;
+  };
 
   PrintBanner();
 
@@ -304,9 +351,10 @@ int main(int argc, char** argv) {
     std::cout << (ok ? "\033[1;32mDevice authentication OK\033[0m\n"
                      : "\033[1;31mDevice authentication FAILED\033[0m (see log above)\n");
     channel.Disconnect();
-    return ok ? 0 : 2;
+    return ok ? 0 : 1;
   }
 
+  InstallConsoleInterruptHandler();
   auto& engine = CastEngine::Instance();
   engine.Initialize();
 
@@ -354,13 +402,7 @@ int main(int argc, char** argv) {
     // One assembly path for both source kinds: the CLI only overrides what the
     // user actually typed, and every other field comes from the saved
     // configuration (BuildSessionOptions, config.h).
-    SessionOverrides overrides;
-    if (preset_given) overrides.preset = preset_arg;
-    if (audio_given) overrides.enable_audio = audio_enabled_arg;
-    if (codec_given) overrides.video_codec = video_codec_arg;
-    if (bitrate_given) overrides.video_bitrate_kbps = bitrate_arg;
-    if (delay_given) overrides.target_delay_ms = target_delay_arg;
-    if (verify_given) overrides.verify_device_cert = verify_device_cert;
+    SessionOverrides overrides = build_cli_overrides();
 
     const auto& cfg = ConfigStore::Instance().Get();
     const bool cast_window = !window_id_arg.empty();
@@ -391,9 +433,10 @@ int main(int argc, char** argv) {
                 << target_device_arg << "...\n";
       started = engine.StartCasting(target_device_arg, source, BuildSessionOptions(cfg, overrides));
     } else {
+      const int target_display = display_given ? display_id_arg : cfg.last_display_id;
       std::cout << "Initiating Cast to " << target_device_arg << "...\n";
       started = engine.StartCasting(
-          target_device_arg, display_id_arg, BuildSessionOptions(cfg, overrides));
+          target_device_arg, target_display, BuildSessionOptions(cfg, overrides));
     }
 
     if (!started) {
@@ -405,15 +448,16 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "Streaming. Press Ctrl+C or Enter to stop...\n";
-    InstallConsoleInterruptHandler();
-    while (engine.GetState() == SessionState::kStreaming && !StopRequested()) {
+    while (IsSessionAliveState(engine.GetState()) && !StopRequested()) {
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      const SessionState st = engine.GetState();
       auto stats = engine.GetStats();
-      std::cout << "\r[LIVE] FPS: " << std::fixed << std::setprecision(1) << stats.current_fps
+      std::cout << "\r" << (st == SessionState::kReconnecting ? "[RECONNECTING]" : "[LIVE]")
+                << " FPS: " << std::fixed << std::setprecision(1) << stats.current_fps
                 << " | Bitrate: " << (stats.bitrate_kbps / 1000.0) << " Mbps"
                 << " | RTT: " << stats.round_trip_time_ms << " ms"
                 << " | Loss: " << (stats.packet_loss_fraction * 100.0) << "%"
-                << " | Target Delay: " << stats.target_delay_ms << "ms" << std::flush;
+                << " | Target Delay: " << stats.target_delay_ms << "ms   " << std::flush;
     }
     std::cout << "\nStopping Cast session...\n";
     const SessionState final_state = engine.GetState();
@@ -434,8 +478,9 @@ int main(int argc, char** argv) {
   // Interactive TUI / Menu Loop
   std::cout << "Scanning for Google Cast devices on your network...\n";
   engine.StartDiscovery();
-  std::this_thread::sleep_for(std::chrono::seconds(2));
-  InstallConsoleInterruptHandler();
+  for (int i = 0; i < 20 && !StopRequested(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 
   while (true) {
     if (StopRequested()) break;
@@ -527,23 +572,31 @@ int main(int argc, char** argv) {
     } else if (input == "A" || input == "a") {
       std::cout << "Enter Cast device IP address: ";
       std::string manual_ip;
-      std::cin >> manual_ip;
-      if (!manual_ip.empty()) {
-        CastDevice d;
-        d.id = manual_ip;
-        d.name = "Custom TV (" + manual_ip + ")";
-        d.model_name = "Cast Device";
-        d.ip_address = manual_ip;
-        d.port = 8009;
-        engine.GetDiscovery().AddOrUpdateDevice(d);
+      if (!(std::cin >> manual_ip)) break;
+      struct sockaddr_in sa{};
+      if (inet_pton(AF_INET, manual_ip.c_str(), &sa.sin_addr) <= 0) {
+        std::cout << "Invalid IPv4 address: " << manual_ip << "\n";
+        continue;
       }
+      CastDevice d;
+      d.id = manual_ip;
+      d.name = "Custom TV (" + manual_ip + ")";
+      d.model_name = "Custom Chromecast";
+      d.ip_address = manual_ip;
+      d.port = 8009;
+      d.capabilities = kCapVideoOut | kCapAudioOut;
+      d.status = DeviceStatus::kReady;
+      engine.GetDiscovery().AddOrUpdateDevice(d);
     } else if (input == "L" || input == "l") {
       std::cout << "\nConnecting to last device...\n";
       if (engine.StartCastingLastDevice()) {
-        std::cout << "\n\033[1;32m[LIVE] Mirroring active! Press Enter to stop casting.\033[0m\n";
-        std::cin.ignore();
-        std::cin.get();
+        std::cout << "\n\033[1;32m[LIVE] Mirroring active! Press Ctrl+C or Enter to stop "
+                     "casting.\033[0m\n";
+        WaitForInteractiveSessionEnd(engine);
         engine.StopCasting();
+      } else {
+        const std::string err = engine.GetLastError();
+        std::cout << "Failed to start casting" << (err.empty() ? "." : (": " + err)) << "\n";
       }
     } else if (input == "W" || input == "w") {
       if (!engine.WindowCaptureSupported() || windows.empty()) {
@@ -552,56 +605,63 @@ int main(int argc, char** argv) {
       }
       std::cout << "Enter window ID: ";
       std::string win_input;
-      std::cin >> win_input;
-      try {
-        int win_id = std::stoi(win_input);
-        std::string win_title;
-        for (const auto& w : windows) {
-          if (w.id == win_id) {
-            win_title = w.title;
-            break;
-          }
-        }
-        if (win_title.empty()) {
-          std::cout << "Window ID " << win_id << " not found.\n";
-          continue;
-        }
-        if (devices.empty()) {
-          std::cout << "No Cast device selected. Use [1-N] or [A] first.\n";
-          continue;
-        }
-        // Use the first device (or last device if set).
-        std::string dev_id = !cfg.last_device_id.empty() ? cfg.last_device_id : devices[0].id;
-        CaptureSource source{CaptureSourceKind::kWindow, win_id, win_title};
-        std::cout << "\nCasting window '" << win_title << "' to " << dev_id << "...\n";
-        SessionOptions opts;
-        opts.preset = cfg.quality_preset;
-        opts.enable_audio = cfg.audio_enabled;
-        if (engine.StartCasting(dev_id, source, opts)) {
-          std::cout << "\n\033[1;32m[LIVE] Mirroring window! Press Enter to stop casting.\033[0m\n";
-          std::cin.ignore();
-          std::cin.get();
-          engine.StopCasting();
-        }
-      } catch (...) {
+      if (!(std::cin >> win_input)) break;
+      long long parsed_win = 0;
+      if (!ParseInteger(win_input, 0, std::numeric_limits<int>::max(), &parsed_win)) {
         std::cout << "Invalid window ID.\n";
+        continue;
+      }
+      const int win_id = static_cast<int>(parsed_win);
+      bool win_found = false;
+      std::string win_title;
+      for (const auto& w : windows) {
+        if (w.id == win_id) {
+          win_found = true;
+          win_title = w.title;
+          break;
+        }
+      }
+      if (!win_found) {
+        std::cout << "Window ID " << win_id << " not found.\n";
+        continue;
+      }
+      if (devices.empty()) {
+        std::cout << "No Cast device selected. Use [1-N] or [A] first.\n";
+        continue;
+      }
+      // Use the first device (or last device if set).
+      std::string dev_id = !cfg.last_device_id.empty() ? cfg.last_device_id : devices[0].id;
+      CaptureSource source{CaptureSourceKind::kWindow, win_id, win_title};
+      std::cout << "\nCasting window '" << (win_title.empty() ? std::to_string(win_id) : win_title)
+                << "' to " << dev_id << "...\n";
+      SessionOverrides overrides = build_cli_overrides();
+      overrides.source = source;
+      if (engine.StartCasting(dev_id, source, BuildSessionOptions(cfg, overrides))) {
+        std::cout << "\n\033[1;32m[LIVE] Mirroring window! Press Ctrl+C or Enter to stop "
+                     "casting.\033[0m\n";
+        WaitForInteractiveSessionEnd(engine);
+        engine.StopCasting();
+      } else {
+        const std::string err = engine.GetLastError();
+        std::cout << "Failed to start casting" << (err.empty() ? "." : (": " + err)) << "\n";
       }
     } else {
-      try {
-        size_t idx = std::stoul(input);
-        if (idx >= 1 && idx <= devices.size()) {
-          const auto& dev = devices[idx - 1];
-          std::cout << "\nConnecting to " << dev.name << "...\n";
-          if (engine.StartCasting(
-                  dev.id, cfg.last_display_id, cfg.quality_preset, cfg.audio_enabled)) {
-            std::cout
-                << "\n\033[1;32m[LIVE] Mirroring active! Press Enter to stop casting.\033[0m\n";
-            std::cin.ignore();
-            std::cin.get();
-            engine.StopCasting();
-          }
+      long long parsed_idx = 0;
+      if (ParseInteger(input, 1, static_cast<long long>(devices.size()), &parsed_idx)) {
+        const auto& dev = devices[static_cast<size_t>(parsed_idx - 1)];
+        const int target_display = display_given ? display_id_arg : cfg.last_display_id;
+        std::cout << "\nConnecting to " << dev.name << "...\n";
+        SessionOverrides overrides = build_cli_overrides();
+        if (engine.StartCasting(dev.id, target_display, BuildSessionOptions(cfg, overrides))) {
+          std::cout << "\n\033[1;32m[LIVE] Mirroring active! Press Ctrl+C or Enter to stop "
+                       "casting.\033[0m\n";
+          WaitForInteractiveSessionEnd(engine);
+          engine.StopCasting();
+        } else {
+          const std::string err = engine.GetLastError();
+          std::cout << "Failed to start casting" << (err.empty() ? "." : (": " + err)) << "\n";
         }
-      } catch (...) {}
+      }
     }
   }
 

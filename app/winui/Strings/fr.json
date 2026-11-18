@@ -181,7 +181,7 @@
     "Window {0}":  "Fenêtre {0}",
     "Window":  "Fenêtre",
     "Share audio from":  "Partager l\u0027audio de",
-    "Everything your PC plays, or just one app. If that app isn\u0027t running when you start casting, no audio is shared. Applies to the next cast.":  "Tout ce que lit votre PC, ou une seule application. Si cette application n\u0027est pas lancée au démarrage de la diffusion, aucun son n\u0027est partagé. S\u0027applique  la prochaine diffusion.",
+    "Everything your PC plays, or just one app. If that app isn\u0027t running when you start casting, no audio is shared. Applies to the next cast.":  "Tout ce que lit votre PC, ou une seule application. Si cette application n\u0027est pas lancée au démarrage de la diffusion, aucun son n\u0027est partagé. S\u0027applique à la prochaine diffusion.",
     "Refresh list":  "Actualiser la liste",
     "Everything on this PC":  "Tout le PC",
     "{0} (not running)":  "{0} (non lancée)",
@@ -228,5 +228,17 @@
     "Where things live, and what to try when a cast misbehaves":  "Où se trouvent les réglages et que faire si la diffusion pose problème",
     "Your screen, anywhere":  "Votre écran, partout",
     "Choose a window":  "Choisir une fenêtre",
-    "Window to cast":  "Fenêtre à diffuser"
+    "Window to cast":  "Fenêtre à diffuser",
+    "Connected":  "Connecté",
+    "Connecting":  "Connexion",
+    "Could not save settings.":  "Impossible d\u0027enregistrer les paramètres.",
+    "Exit":  "Quitter",
+    "Negotiating with the device.":  "Négociation avec l\u0027appareil.",
+    "No devices":  "Aucun appareil",
+    "Open CastMirror":  "Ouvrir CastMirror",
+    "Pick a device to begin.":  "Choisissez un appareil pour commencer.",
+    "Ready to cast to {0}.":  "Prêt à diffuser vers {0}.",
+    "Settings could not be loaded at startup; changes were not saved.":  "Impossible de charger les paramètres au démarrage ; les modifications n\u0027ont pas été enregistrées.",
+    "{0} device":  "{0} appareil",
+    "{0} devices":  "{0} appareils"
 }

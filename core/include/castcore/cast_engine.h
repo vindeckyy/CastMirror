@@ -84,6 +84,8 @@ class CastEngine {
   std::shared_ptr<CastSession> CurrentSession() const;
   mutable std::mutex engine_mutex_;
   mutable std::mutex callbacks_mutex_;
+  mutable std::mutex start_mutex_;
+  uint64_t stop_epoch_ = 0;  // guarded by engine_mutex_
 
   DevicesChangedCallback devices_cb_;
   StateChangedCallback state_cb_;

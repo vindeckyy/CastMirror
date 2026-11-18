@@ -159,3 +159,70 @@ TEST(OfferAnswerTest, OfferMatchesChromeGoldenNetlogSchema) {
     EXPECT_EQ(actual_video[it.key()], it.value()) << "Video field mismatch on: " << it.key();
   }
 }
+
+TEST(OfferAnswerTest, HexToBytesRejectsInvalidHexAndNullBuffer) {
+  uint8_t buf[4] = {};
+  EXPECT_FALSE(MirroringNegotiator::HexToBytes("01020304", nullptr, 4));
+  EXPECT_FALSE(MirroringNegotiator::HexToBytes("zzzzzzzz", buf, 4));
+  EXPECT_FALSE(MirroringNegotiator::HexToBytes("-1020304", buf, 4));
+  EXPECT_FALSE(MirroringNegotiator::HexToBytes("0102", buf, 4));
+  EXPECT_TRUE(MirroringNegotiator::HexToBytes("0a1B2c3D", buf, 4));
+  EXPECT_EQ(buf[0], 0x0A);
+  EXPECT_EQ(buf[1], 0x1B);
+  EXPECT_EQ(buf[2], 0x2C);
+  EXPECT_EQ(buf[3], 0x3D);
+}
+
+TEST(OfferAnswerTest, ParseAnswerJsonRejectsInvalidPortsAndTypes) {
+  auto v_keys = MirroringNegotiator::GenerateRandomKeys();
+  auto a_keys = MirroringNegotiator::GenerateRandomKeys();
+  NegotiatedSessionParams params;
+
+  EXPECT_FALSE(MirroringNegotiator::ParseAnswerJson(
+      R"({"type":"ANSWER","answer":{"udpPort":0,"sendIndexes":[1],"ssrcs":[2]}})",
+      v_keys,
+      a_keys,
+      params));
+  EXPECT_FALSE(MirroringNegotiator::ParseAnswerJson(
+      R"({"type":"ANSWER","answer":{"udpPort":-1,"sendIndexes":[1],"ssrcs":[2]}})",
+      v_keys,
+      a_keys,
+      params));
+  EXPECT_FALSE(MirroringNegotiator::ParseAnswerJson(
+      R"({"type":"ANSWER","answer":{"udpPort":70000,"sendIndexes":[1],"ssrcs":[2]}})",
+      v_keys,
+      a_keys,
+      params));
+  EXPECT_FALSE(MirroringNegotiator::ParseAnswerJson(
+      R"({"type":"ANSWER","answer":{"udpPort":33533,"sendIndexes":[],"ssrcs":[]}})",
+      v_keys,
+      a_keys,
+      params));
+  EXPECT_FALSE(MirroringNegotiator::ParseAnswerJson(
+      R"({"type":"ANSWER","answer":{"udpPort":33533,"sendIndexes":[-1],"ssrcs":[2]}})",
+      v_keys,
+      a_keys,
+      params));
+  EXPECT_FALSE(MirroringNegotiator::ParseAnswerJson(
+      R"({"type":"ANSWER","answer":{"udpPort":33533,"sendIndexes":[1],"ssrcs":[-5]}})",
+      v_keys,
+      a_keys,
+      params));
+}
+
+TEST(OfferAnswerTest, CreateOfferJsonHandlesZeroFpsAndHighBitrateWithoutOverflow) {
+  StreamStats stats;
+  stats.current_resolution = {1920, 1080};
+  stats.current_framerate = 0;
+  stats.bitrate_kbps = 3000000;  // 3 Gbps > INT_MAX bps
+
+  auto v_keys = MirroringNegotiator::GenerateRandomKeys();
+  auto a_keys = MirroringNegotiator::GenerateRandomKeys();
+  auto offer_str = MirroringNegotiator::CreateOfferJson(
+      1, stats, false, v_keys, a_keys, VideoCodec::kH264, 0, 192000);
+  auto j = nlohmann::json::parse(offer_str);
+  const auto& vs = j["offer"]["supportedStreams"][0];
+  EXPECT_EQ(vs["maxFrameRate"], "60/1");
+  EXPECT_EQ(vs["targetDelay"], 200);
+  EXPECT_EQ(vs["bitRate"].get<int64_t>(), 3000000000LL);
+}

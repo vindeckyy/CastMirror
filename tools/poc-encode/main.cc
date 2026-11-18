@@ -106,6 +106,14 @@ int main(int argc, char** argv) {
   int duration_sec = 3;
   std::string json_path;
 
+  auto parse_int_arg = [](const char* s, int fallback) {
+    try {
+      return std::stoi(s);
+    } catch (...) {
+      return fallback;
+    }
+  };
+
   // Parse arguments (keep legacy: no args = 3s 1080p60)
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -113,15 +121,16 @@ int main(int argc, char** argv) {
       PrintHelp(argv[0]);
       return 0;
     } else if (arg == "--width" && i + 1 < argc) {
-      target_w = std::stoi(argv[++i]);
+      target_w = parse_int_arg(argv[++i], target_w);
     } else if (arg == "--height" && i + 1 < argc) {
-      target_h = std::stoi(argv[++i]);
+      target_h = parse_int_arg(argv[++i], target_h);
     } else if (arg == "--fps" && i + 1 < argc) {
-      target_fps = std::stoi(argv[++i]);
+      target_fps = parse_int_arg(argv[++i], target_fps);
     } else if ((arg == "--duration" || arg == "-d") && i + 1 < argc) {
       duration_sec = ParseDuration(argv[++i]);
     } else if (arg == "--bitrate" && i + 1 < argc) {
-      bitrate_kbps = static_cast<uint32_t>(std::stoi(argv[++i]));
+      int kb = parse_int_arg(argv[++i], static_cast<int>(bitrate_kbps));
+      if (kb > 0) bitrate_kbps = static_cast<uint32_t>(kb);
     } else if (arg == "--preset" && i + 1 < argc) {
       ApplyPreset(argv[++i], target_w, target_h, target_fps);
     } else if (arg == "--json" && i + 1 < argc) {
@@ -164,6 +173,10 @@ int main(int argc, char** argv) {
            << bitrate_kbps << " kbps, duration " << duration_sec << "s";
 
   auto capturer = DisplayCaptureFactory::Create();
+  if (!capturer) {
+    LOG_ERROR << "Failed to create display capture backend";
+    return 1;
+  }
   auto audio_capturer = AudioCaptureFactory::Create();
 
   VideoEncoderConfig venc_cfg;
@@ -174,7 +187,7 @@ int main(int argc, char** argv) {
   venc_cfg.codec = VideoCodec::kH264;
 
   auto video_encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
-  if (!video_encoder->Initialize(venc_cfg)) {
+  if (!video_encoder || !video_encoder->Initialize(venc_cfg)) {
     LOG_ERROR << "Failed to initialize video encoder";
     return 1;
   }
@@ -185,7 +198,7 @@ int main(int argc, char** argv) {
   aenc_cfg.bitrate_bps = 192000;
 
   auto audio_encoder = AudioEncoderFactory::Create(AudioCodec::kOpus);
-  if (!audio_encoder->Initialize(aenc_cfg)) {
+  if (!audio_encoder || !audio_encoder->Initialize(aenc_cfg)) {
     LOG_ERROR << "Failed to initialize audio encoder";
     return 1;
   }
@@ -218,21 +231,29 @@ int main(int argc, char** argv) {
     }
   });
 
-  audio_capturer->SetAudioCallback([&](const CapturedAudioFrame& af) {
-    EncodedFrame ef;
-    if (audio_encoder->Encode(af, ef)) {
-      audio_frames_encoded++;
-    }
-  });
+  if (audio_capturer) {
+    audio_capturer->SetAudioCallback([&](const CapturedAudioFrame& af) {
+      EncodedFrame ef;
+      if (audio_encoder->Encode(af, ef)) {
+        audio_frames_encoded++;
+      }
+    });
+  } else {
+    LOG_WARN << "Audio capture unavailable; benchmarking video only";
+  }
 
   capturer->Start(0, target_fps);
-  audio_capturer->Start(48000, 2);
+  if (audio_capturer) {
+    audio_capturer->Start(48000, 2);
+  }
 
   LOG_INFO << "Running pipeline benchmark for " << duration_sec << " seconds...";
   std::this_thread::sleep_for(std::chrono::seconds(duration_sec));
 
   capturer->Stop();
-  audio_capturer->Stop();
+  if (audio_capturer) {
+    audio_capturer->Stop();
+  }
 
   int v_count = video_frames_encoded.load();
   int a_count = audio_frames_encoded.load();

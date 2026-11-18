@@ -3,16 +3,36 @@
 #include "castcore/cast_engine.h"
 #include "castcore/logger.h"
 
+#include <memory>
 #include <thread>
 
 #if defined(CASTMIRROR_HAVE_TRAY)
 #include <gtk/gtk.h>
+// The AppIndicator implementations split into two API generations:
+//   * "modern" (libayatana-appindicator, gnome-appindicator): set_menu takes a
+//     GMenuModel, set_actions takes a GActionGroup, and the attention icon is
+//     passed as a GIcon via app_indicator_set_attention_icon_full.
+//   * "legacy" (ayatana-appindicator-glib, libappindicator): set_menu takes a
+//     GMenu, set_actions takes a GSimpleActionGroup, and the attention icon is
+//     passed by name via app_indicator_set_attention_icon.
+// CASTMIRROR_TRAY_LEGACY_API selects between them so this compiles against
+// either generation instead of only whichever one CI happens to provide.
 #if __has_include(<libayatana-appindicator/app-indicator.h>)
 #include <libayatana-appindicator/app-indicator.h>
+#define CASTMIRROR_TRAY_LEGACY_API 0
 #elif __has_include(<libayatana-appindicator-glib/app-indicator.h>)
 #include <libayatana-appindicator-glib/app-indicator.h>
+#define CASTMIRROR_TRAY_LEGACY_API 0
+#elif __has_include(<ayatana-appindicator.h>)
+// Debian/Ubuntu libayatana-appindicator-glib-dev puts the include directory
+// itself on the include path and names the header ayatana-appindicator.h.
+#include <ayatana-appindicator.h>
+#define CASTMIRROR_TRAY_LEGACY_API 1
 #elif __has_include(<libappindicator/app-indicator.h>)
 #include <libappindicator/app-indicator.h>
+#define CASTMIRROR_TRAY_LEGACY_API 1
+#else
+#error "No usable AppIndicator header found for the tray backend"
 #endif
 #endif
 
@@ -102,11 +122,17 @@ void TrayManager::CreateIndicator() {
     indicator_ = ai;
     created_ = true;
 
+#if CASTMIRROR_TRAY_LEGACY_API
+    app_indicator_set_attention_icon(
+        ai, "io.github.vindeckyy.CastMirror-attention-symbolic", "CastMirror is casting");
+    app_indicator_set_actions(ai, action_group_);
+    app_indicator_set_menu(ai, menu_);
+#else
     app_indicator_set_attention_icon_full(
         ai, "io.github.vindeckyy.CastMirror-attention-symbolic", "CastMirror is casting");
-
     app_indicator_set_actions(ai, G_ACTION_GROUP(action_group_));
     app_indicator_set_menu(ai, G_MENU_MODEL(menu_));
+#endif
 
     app_indicator_set_status(ai, APP_INDICATOR_STATUS_ACTIVE);
 
@@ -130,10 +156,52 @@ void TrayManager::CreateIndicator() {
 }
 
 void TrayManager::StartCastingLastDeviceAsync() {
-  // Never overlap two runs, and keep the handle so it can be joined before the
-  // engine is shut down.
+  if (cast_last_in_flight_.exchange(true)) {
+    return;
+  }
+  // Previous worker already finished (`cast_last_in_flight_` was false); join
+  // its handle before reusing `cast_last_thread_`.
   JoinCastLastThread();
-  cast_last_thread_ = std::thread([]() { CastEngine::Instance().StartCastingLastDevice(); });
+  if (action_cast_last_) {
+    g_simple_action_set_enabled(action_cast_last_, FALSE);
+  }
+  LivenessToken alive = app_ ? app_->GetLivenessToken() : LivenessToken();
+  GuiApp* app = app_;
+  TrayManager* self = this;
+  cast_last_thread_ = std::thread([this, alive, app, self]() {
+    const bool ok = CastEngine::Instance().StartCastingLastDevice();
+    cast_last_in_flight_.store(false);
+    if (ok || !Alive(alive) || !app) {
+      return;
+    }
+    std::string err = CastEngine::Instance().GetLastError();
+    if (err.empty()) {
+      err = "No previous Cast display configured or device unreachable.";
+    }
+    struct TrayFailCall {
+      LivenessToken alive;
+      GuiApp* app;
+      TrayManager* tray;
+      std::string err;
+    };
+    g_main_context_invoke(
+        nullptr,
+        +[](gpointer data) -> gboolean {
+          std::unique_ptr<TrayFailCall> call(static_cast<TrayFailCall*>(data));
+          if (Alive(call->alive) && call->app) {
+            if (call->tray && call->tray->action_cast_last_) {
+              const SessionState st = call->app->GetCurrentState();
+              const bool active =
+                  (st == SessionState::kStreaming || st == SessionState::kConnecting ||
+                   st == SessionState::kNegotiating || st == SessionState::kReconnecting);
+              g_simple_action_set_enabled(call->tray->action_cast_last_, active ? FALSE : TRUE);
+            }
+            call->app->ShowToast(call->err);
+          }
+          return G_SOURCE_REMOVE;
+        },
+        new TrayFailCall{alive, app, self, std::move(err)});
+  });
 }
 
 void TrayManager::JoinCastLastThread() {
@@ -143,11 +211,12 @@ void TrayManager::JoinCastLastThread() {
 }
 
 void TrayManager::DestroyIndicator() {
-  // Join before touching anything else: GuiApp::Shutdown calls this ahead of
-  // CastEngine::Shutdown(), so the worker cannot race engine teardown.
+  // Join before touching anything else: GuiApp::Shutdown stops casting first
+  // so any in-flight StartCastingLastDevice() unblocks promptly.
   JoinCastLastThread();
 #if defined(CASTMIRROR_HAVE_TRAY)
   if (indicator_) {
+    g_signal_handlers_disconnect_by_data(indicator_, this);
     app_indicator_set_status(static_cast<AppIndicator*>(indicator_), APP_INDICATOR_STATUS_PASSIVE);
     g_object_unref(indicator_);
     indicator_ = nullptr;

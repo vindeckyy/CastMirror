@@ -20,7 +20,6 @@
 #include <iphlpapi.h>
 #pragma comment(lib, "iphlpapi.lib")
 typedef int socklen_t;
-#define close closesocket
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -37,7 +36,6 @@ namespace castcore {
 
 namespace {
 
-constexpr const char* kCastServiceType = "_googlecast._tcp.local";
 constexpr const char* kMdnsMulticastGroup = "224.0.0.251";
 constexpr uint16_t kMdnsPort = 5353;
 
@@ -71,11 +69,14 @@ bool CheckTcpPort(const std::string& ip, uint16_t port, int timeout_ms) {
   struct sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
-  inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+  if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
+    CloseSocket(fd);
+    return false;
+  }
 
   int res = connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
   if (res == 0) {
-    close(fd);
+    CloseSocket(fd);
     return true;
   }
 
@@ -105,7 +106,7 @@ bool CheckTcpPort(const std::string& ip, uint16_t port, int timeout_ms) {
   }
 #endif
 
-  close(fd);
+  CloseSocket(fd);
   return connected;
 }
 // Helper: Query Chromecast Eureka Info (HTTP 8008)
@@ -159,7 +160,10 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     struct sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(8008);
-    inet_pton(AF_INET, ip.c_str(), &addr.sin_addr);
+    if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
+      CloseSocket(fd);
+      return false;
+    }
 
     int conn_res = connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
     bool connected = false;
@@ -209,7 +213,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
     }
 
     if (!connected) {
-      close(fd);
+      CloseSocket(fd);
       if (attempt + 1 < kMaxAttempts) {
         int jitter_ms = RetryJitterMs(20 + attempt * 15, 40);
         std::this_thread::sleep_for(std::chrono::milliseconds(jitter_ms));
@@ -231,8 +235,24 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
         "User-Agent: CastMirror\r\n"
         "Connection: close\r\n\r\n";
 
-    if (send(fd, req.data(), req.size(), 0) < 0) {
-      close(fd);
+    size_t total_sent = 0;
+    bool send_failed = false;
+    while (total_sent < req.size()) {
+      ssize_t s = send(fd, req.data() + total_sent, req.size() - total_sent, 0);
+      if (s > 0) {
+        total_sent += static_cast<size_t>(s);
+      } else {
+#if !defined(_WIN32)
+        if (errno == EINTR) continue;
+#else
+        if (WSAGetLastError() == WSAEINTR) continue;
+#endif
+        send_failed = true;
+        break;
+      }
+    }
+    if (send_failed) {
+      CloseSocket(fd);
       if (attempt + 1 < kMaxAttempts) {
         std::this_thread::sleep_for(std::chrono::milliseconds(RetryJitterMs(20, 30)));
         continue;
@@ -240,14 +260,15 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
       return false;
     }
 
+    constexpr size_t kMaxEurekaRespBytes = 65536;
     char buf[4096];
     std::string resp;
     bool recv_ok = false;
-    while (true) {
+    while (resp.size() < kMaxEurekaRespBytes) {
       int r = recv(fd, buf, sizeof(buf) - 1, 0);
       if (r > 0) {
-        buf[r] = '\0';
-        resp += buf;
+        size_t take = std::min(static_cast<size_t>(r), kMaxEurekaRespBytes - resp.size());
+        resp.append(buf, take);
         recv_ok = true;
       } else if (r == 0) {
         break;
@@ -255,6 +276,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
 #if defined(_WIN32)
         int err = WSAGetLastError();
         if (err == WSAEWOULDBLOCK || err == WSAETIMEDOUT) break;
+        if (err == WSAEINTR) continue;
 #else
         if (errno == EAGAIN || errno == EWOULDBLOCK) break;
         if (errno == EINTR) continue;
@@ -262,7 +284,7 @@ bool FetchEurekaInfo(const std::string& ip, std::string* out_name, std::string* 
         break;
       }
     }
-    close(fd);
+    CloseSocket(fd);
 
     if (!recv_ok) {
       if (attempt + 1 < kMaxAttempts) {
@@ -420,7 +442,11 @@ bool DeviceDiscovery::Start() {
 
   LOG_INFO << "Starting Cast device discovery...";
   discovery_thread_ = std::thread(&DeviceDiscovery::DiscoveryLoop, this);
-  if (ConfigStore::Instance().Get().subnet_scan_enabled) {
+  if (ConfigStore::Instance().Get().subnet_scan_enabled && !subnet_scanning_.exchange(true)) {
+    std::lock_guard<std::mutex> lock(subnet_mutex_);
+    if (subnet_thread_.joinable()) {
+      subnet_thread_.join();
+    }
     subnet_thread_ = std::thread(&DeviceDiscovery::ProbeLocalSubnets, this);
   }
   return true;
@@ -430,10 +456,11 @@ void DeviceDiscovery::Stop() {
   if (!running_.exchange(false)) return;
 
   LOG_INFO << "Stopping Cast device discovery...";
-  if (discovery_thread_.joinable()) {
+  if (discovery_thread_.joinable() && std::this_thread::get_id() != discovery_thread_.get_id()) {
     discovery_thread_.join();
   }
-  if (subnet_thread_.joinable()) {
+  std::lock_guard<std::mutex> lock(subnet_mutex_);
+  if (subnet_thread_.joinable() && std::this_thread::get_id() != subnet_thread_.get_id()) {
     subnet_thread_.join();
   }
 }
@@ -444,9 +471,21 @@ bool DeviceDiscovery::IsRunning() const {
 
 void DeviceDiscovery::TriggerScan() {
   force_mdns_query_ = true;
-  if (ConfigStore::Instance().Get().subnet_scan_enabled) {
-    std::thread([this]() { ProbeLocalSubnets(); }).detach();
+  if (!running_.load() || !ConfigStore::Instance().Get().subnet_scan_enabled) {
+    return;
   }
+  if (subnet_scanning_.exchange(true)) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(subnet_mutex_);
+  if (!running_.load()) {
+    subnet_scanning_ = false;
+    return;
+  }
+  if (subnet_thread_.joinable() && std::this_thread::get_id() != subnet_thread_.get_id()) {
+    subnet_thread_.join();
+  }
+  subnet_thread_ = std::thread(&DeviceDiscovery::ProbeLocalSubnets, this);
 }
 
 std::vector<CastDevice> DeviceDiscovery::GetDevices() const {
@@ -497,6 +536,7 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device, bool from_mdns
              (d.ip_address == normalized.ip_address);
     });
 
+    std::string stored_id;
     if (it != devices_.end()) {
       // I keep the id I already have unless I have a good reason to change
       // it. The same TV announces under different ids: the mDNS TXT id, its
@@ -521,13 +561,16 @@ void DeviceDiscovery::AddOrUpdateDevice(const CastDevice& device, bool from_mdns
       it->status = normalized.status;
       it->capabilities = normalized.capabilities;
       it->last_seen = std::chrono::steady_clock::now();
-      if (from_mdns) mdns_ids_.insert(it->id);
+      stored_id = it->id;
     } else {
       devices_.push_back(normalized);
       devices_.back().last_seen = std::chrono::steady_clock::now();
-      if (from_mdns) mdns_ids_.insert(devices_.back().id);
+      stored_id = devices_.back().id;
       LOG_INFO << "Discovered Cast Device: " << normalized.name << " (" << normalized.model_name
                << ") at " << normalized.ip_address << ":" << normalized.port;
+    }
+    if (from_mdns && !stored_id.empty()) {
+      mdns_ids_.insert(stored_id);
     }
 
     // I sort by IP so the list order does not depend on which device
@@ -586,6 +629,7 @@ void DeviceDiscovery::RemoveDevice(const std::string& device_id) {
         devices_.begin(), devices_.end(), [&](const CastDevice& d) { return d.id == device_id; });
     if (it != devices_.end()) {
       devices_.erase(it, devices_.end());
+      mdns_ids_.erase(device_id);
       current = devices_;
       cb = callback_;
     }
@@ -785,7 +829,13 @@ size_t SkipDnsName(const uint8_t* buf, size_t len, size_t offset) {
       return offset + 1;
     }
     if ((l & 0xC0) == 0xC0) {
-      return offset + 2;
+      return (offset + 2 <= len) ? (offset + 2) : len;
+    }
+    if ((l & 0xC0) != 0) {
+      return len;
+    }
+    if (offset + 1 + l > len) {
+      return len;
     }
     offset += 1 + l;
     jumped++;
@@ -798,12 +848,13 @@ size_t SkipDnsName(const uint8_t* buf, size_t len, size_t offset) {
 
 void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length,
                                           const std::string& sender_ip) {
-  if (length < 12) return;
+  if (!buffer || length < 12) return;
   // Only responses describe devices. Other hosts' queries can carry known-answer
   // records, and our own multicast queries loop back to this socket.
   if ((buffer[2] & 0x80) == 0) return;
 
   std::vector<std::string> txt_entries;
+  bool saw_txt_rr = false;
   uint16_t parsed_port = 8009;
   std::string parsed_name;
   // The device's own address when the response carries an A record; the packet
@@ -836,11 +887,15 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length,
     if (offset + rdlength > length) break;
 
     if (rtype == 16) {  // TXT Record
+      saw_txt_rr = true;
       size_t txt_pos = offset;
       size_t txt_end = offset + rdlength;
       while (txt_pos < txt_end) {
         uint8_t tlen = buffer[txt_pos++];
-        if (tlen > 0 && txt_pos + tlen <= txt_end) {
+        if (txt_pos + tlen > txt_end) {
+          break;
+        }
+        if (tlen > 0) {
           std::string entry(reinterpret_cast<const char*>(&buffer[txt_pos]), tlen);
           txt_entries.push_back(entry);
           txt_pos += tlen;
@@ -860,8 +915,8 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length,
     offset += rdlength;
   }
 
-  // Fallback sliding-window scan if structured parser didn't find any TXT record
-  if (txt_entries.empty()) {
+  // Fallback sliding-window scan only when the packet had no structured TXT RR.
+  if (txt_entries.empty() && !saw_txt_rr) {
     const char* const kKnownKeys[] = {"fn=", "id=", "md=", "ca=", "st=", "ve=", "rs=", "bs="};
     std::set<std::string> seen_keys;
     for (size_t i = 0; i < length; ++i) {
@@ -897,7 +952,7 @@ void DeviceDiscovery::ProcessMdnsResponse(const uint8_t* buffer, size_t length,
         parsed_name, parsed_ip.empty() ? sender_ip : parsed_ip, parsed_port, txt_entries);
     // I pass from_mdns so the TXT id wins over a cloud id from the probe.
     // AddOrUpdateDevice records the stored id for expiry tracking.
-    AddOrUpdateDevice(dev, true);
+    AddOrUpdateDevice(dev, /*from_mdns=*/true);
   }
 }
 
@@ -921,7 +976,7 @@ void DeviceDiscovery::DiscoveryLoop() {
     if (bind(fd, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
       LOG_WARN << "mDNS bind to port " << kMdnsPort << " failed: " << SocketErrorString()
                << " — discovery will rely on unicast replies and subnet probing";
-      close(fd);
+      CloseSocket(fd);
       fd = socket(AF_INET, SOCK_DGRAM, 0);
       if (fd < 0) {
         LOG_ERROR << "Failed to recreate discovery socket: " << SocketErrorString();
@@ -958,12 +1013,12 @@ void DeviceDiscovery::DiscoveryLoop() {
           fd, IPPROTO_IP, IP_MULTICAST_LOOP, reinterpret_cast<const char*>(&loop), sizeof(loop));
 
 #if defined(_WIN32)
-      DWORD timeout_ms = 1000;
+      DWORD timeout_ms = 250;
       setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 #else
       struct timeval tv{};
-      tv.tv_sec = 1;
-      tv.tv_usec = 0;
+      tv.tv_sec = 0;
+      tv.tv_usec = 250000;
       setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #endif
     }
@@ -1025,6 +1080,15 @@ void DeviceDiscovery::DiscoveryLoop() {
     }
 
     if (fd >= 0) {
+#if !defined(_WIN32)
+      struct pollfd pfd{};
+      pfd.fd = fd;
+      pfd.events = POLLIN;
+      int pr = poll(&pfd, 1, 250);
+      if (pr <= 0 || !(pfd.revents & POLLIN)) {
+        continue;
+      }
+#endif
       uint8_t buffer[4096];
       struct sockaddr_in src_addr{};
       socklen_t addr_len = sizeof(src_addr);
@@ -1042,16 +1106,20 @@ void DeviceDiscovery::DiscoveryLoop() {
         ProcessMdnsResponse(buffer, static_cast<size_t>(bytes_read), std::string(ip_str));
       }
     } else {
-      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
   }
 
   if (fd >= 0) {
-    close(fd);
+    CloseSocket(fd);
   }
 }
 
 void DeviceDiscovery::ProbeLocalSubnets() {
+  struct ScanGuard {
+    std::atomic<bool>& flag;
+    ~ScanGuard() { flag = false; }
+  } scan_guard{subnet_scanning_};
   std::vector<std::string> target_subnets;
 
   // Probe the /24 containing each active non-loopback interface. This is the

@@ -19,10 +19,14 @@ if command -v ufw >/dev/null 2>&1; then
     echo "[+] UFW rules added successfully."
 elif command -v iptables >/dev/null 2>&1; then
     echo "[*] Configuring iptables rules..."
-    sudo iptables -A OUTPUT -p tcp --dport 8009 -j ACCEPT
-    sudo iptables -A INPUT -p udp --dport 5353 -j ACCEPT
-    sudo iptables -A INPUT -p udp --dport 30000:60000 -j ACCEPT
-    sudo iptables -A OUTPUT -p udp --dport 30000:60000 -j ACCEPT
+    sudo iptables -C OUTPUT -p tcp --dport 8009 -j ACCEPT 2>/dev/null || \
+        sudo iptables -A OUTPUT -p tcp --dport 8009 -j ACCEPT
+    sudo iptables -C INPUT -p udp --dport 5353 -j ACCEPT 2>/dev/null || \
+        sudo iptables -A INPUT -p udp --dport 5353 -j ACCEPT
+    sudo iptables -C INPUT -p udp --dport 30000:60000 -j ACCEPT 2>/dev/null || \
+        sudo iptables -A INPUT -p udp --dport 30000:60000 -j ACCEPT
+    sudo iptables -C OUTPUT -p udp --dport 30000:60000 -j ACCEPT 2>/dev/null || \
+        sudo iptables -A OUTPUT -p udp --dport 30000:60000 -j ACCEPT
     echo "[+] iptables rules added successfully."
 else
     echo "[!] Neither ufw nor iptables found. Please ensure port 8009/TCP and UDP media ports are open."

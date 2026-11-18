@@ -1,4 +1,5 @@
 #include "castcore/cast_engine.h"
+#include "castcore/config.h"
 #include "castcore/logger.h"
 #include <iostream>
 #include <thread>
@@ -19,6 +20,7 @@ static void PrintHelp(const char* prog) {
             << "  --ip IP            same as positional ip\n"
             << "  --port PORT        same as positional port\n"
             << "  --duration SEC     same as positional duration\n"
+            << "  --no-verify        disable receiver TLS/device-auth cert verification\n"
             << "  --json PATH        write JSON metrics to PATH\n"
             << "  --help, -h         show this help\n"
             << "\nExamples:\n"
@@ -45,6 +47,7 @@ int main(int argc, char** argv) {
   uint16_t target_device_port = 8009;
   int duration_sec = 5;
   std::string json_path;
+  bool no_verify = false;
   bool ip_set = false;
   bool port_set = false;
   bool duration_set = false;
@@ -66,6 +69,8 @@ int main(int argc, char** argv) {
         duration_sec = std::stoi(argv[++i]);
         duration_set = true;
       } catch (...) {}
+    } else if (arg == "--no-verify") {
+      no_verify = true;
     } else if (arg == "--json" && i + 1 < argc) {
       json_path = argv[++i];
     } else if (arg.rfind("--", 0) == 0) {
@@ -134,11 +139,20 @@ int main(int argc, char** argv) {
 
   LOG_INFO << "Initiating End-to-End Display Cast to " << target_device_ip << ":"
            << target_device_port << "...";
-  bool started = engine.StartCasting(target_device_ip, 0, QualityPreset::kBalanced, true);
+  SessionOverrides overrides;
+  overrides.preset = QualityPreset::kBalanced;
+  overrides.enable_audio = true;
+  if (no_verify || target_device_ip == "127.0.0.1") {
+    // fake-receiver runs on loopback with a self-signed cert and no deviceauth responder.
+    overrides.verify_device_cert = false;
+  }
+  bool started = engine.StartCasting(
+      target_device_ip, 0, BuildSessionOptions(ConfigStore::Instance().Get(), overrides));
 
   int effective_duration = duration_sec;
 
   double stop_ms = 0.0;
+  StreamStats final_stats{};
   if (started) {
     LOG_INFO << "Cast Session Active! Streaming live display for " << effective_duration
              << " seconds...";
@@ -154,6 +168,9 @@ int main(int argc, char** argv) {
                << ", Packets: " << stats.packets_sent << ", Frames: " << stats.frames_sent;
     }
 
+    // Snapshot stats before StopCasting() detaches the active session.
+    final_stats = engine.GetStats();
+
     LOG_INFO << "Stopping Cast Session (hard 500ms budget)...";
     auto t0 = std::chrono::steady_clock::now();
     engine.StopCasting();
@@ -166,8 +183,6 @@ int main(int argc, char** argv) {
   }
 
   // Gather final stats for bench harness
-  StreamStats final_stats = engine.GetStats();
-  // If we failed, try to get transport stats if available else zeros
   double udp_pps = 0.0;
   if (effective_duration > 0) {
     udp_pps = final_stats.packets_sent / static_cast<double>(effective_duration);

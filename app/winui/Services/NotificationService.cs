@@ -50,6 +50,10 @@ namespace CastMirror.Services
             {
                 LogService.Log(ex.ToString());
             }
+            finally
+            {
+                IsSupported = false;
+            }
         }
 
         /// <summary>Shows a toast when the user has notifications enabled.</summary>

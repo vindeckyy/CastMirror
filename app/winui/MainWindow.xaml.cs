@@ -101,7 +101,7 @@ namespace CastMirror
         private async void OnAboutClicked(object sender, RoutedEventArgs e)
         {
             string version = System.Reflection.Assembly.GetExecutingAssembly()
-                .GetName().Version?.ToString(3) ?? "1.0.3";
+                .GetName().Version?.ToString(3) ?? "1.0.4";
             var dialog = new ContentDialog
             {
                 Title = $"CastMirror {version}",
@@ -150,6 +150,8 @@ namespace CastMirror
             }
         }
 
+        private bool _closed;
+
         /// <summary>Runs only on request; CastMirror never checks for updates by itself.</summary>
         private async System.Threading.Tasks.Task CheckForUpdatesAsync()
         {
@@ -178,6 +180,8 @@ namespace CastMirror
                 body = Localizer.T("GitHub didn't answer. Check your connection and try again.");
             }
 
+            if (_closed) return;
+
             var result = new ContentDialog
             {
                 Title = title,
@@ -205,6 +209,7 @@ namespace CastMirror
             // Only devices typed in by address can be removed; discovered ones come
             // back on the next scan.
             if (sender is not MenuFlyout flyout) return;
+            UiTranslator.Apply(flyout);
             var item = flyout.Items.Count > 0 ? flyout.Items[0] as MenuFlyoutItem : null;
             var device = (flyout.Target as FrameworkElement)?.DataContext as DeviceItem;
             if (item != null) item.IsEnabled = device != null && ViewModel.IsManualDevice(device);
@@ -399,13 +404,28 @@ namespace CastMirror
             if (e.ClickedItem is DeviceItem device) ViewModel.SelectedDevice = device;
         }
 
-        private void OnCastToDeviceClicked(object sender, RoutedEventArgs e)
+        private void OnDeviceCardContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            if (!args.InRecycleQueue && args.Phase == 0 && args.ItemContainer?.ContentTemplateRoot is DependencyObject root)
+            {
+                UiTranslator.Apply(root);
+            }
+        }
+
+        private void OnDeviceListSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count > 0 && e.AddedItems[0] is DeviceItem device)
+            {
+                ViewModel.SelectedDevice = device;
+            }
+        }
+
+        private async void OnCastToDeviceClicked(object sender, RoutedEventArgs e)
         {
             // The button lives in the card, so the clicked item is the button's
             // DataContext rather than the sender.
             if ((sender as FrameworkElement)?.DataContext is not DeviceItem device) return;
-            ViewModel.SelectedDevice = device;
-            ViewModel.ToggleCast();
+            await ViewModel.CastToDeviceAsync(device);
         }
 
         private void OnCastModeChecked(object sender, RoutedEventArgs e)
@@ -528,16 +548,21 @@ namespace CastMirror
                 // touches the window hops back to the UI thread.
                 DispatcherQueue.TryEnqueue(() =>
                 {
+                    if (_closed) return;
                     if (started)
                     {
                         UpdateTrayTooltip();
                         return;
                     }
+                    if (!AppWindow.IsVisible)
+                    {
+                        RestoreWindow();
+                    }
                     NotificationService.Notify(
                         ViewModel.Settings.NotifyOnEvents,
                         "CastMirror",
                         Localizer.T("The tray icon could not be created. Start CastMirror again to bring the window back."),
-                        "tag=tray-unavailable");
+                        "tray-unavailable");
                 });
             })
             {
@@ -575,6 +600,7 @@ namespace CastMirror
 
         private void RestoreWindow()
         {
+            if (_closed) return;
             try
             {
                 AppWindow.Show();
@@ -594,8 +620,9 @@ namespace CastMirror
         private void UpdateTrayTooltip()
         {
             if (_tray == null) return;
+            string deviceName = (ViewModel.ActiveDevice ?? ViewModel.SelectedDevice)?.Name ?? Localizer.T("TV");
             _tray.SetTooltip(ViewModel.IsStreaming
-                ? Localizer.Format("CastMirror - casting to {0}", ViewModel.SelectedDevice?.Name ?? Localizer.T("TV"))
+                ? Localizer.Format("CastMirror - casting to {0}", deviceName)
                 : "CastMirror");
         }
 
@@ -660,24 +687,29 @@ namespace CastMirror
 
         private async void ConfirmExitAndCloseAsync()
         {
+            if (_closed) return;
+            string deviceName = (ViewModel.ActiveDevice ?? ViewModel.SelectedDevice)?.Name ?? Localizer.T("a TV");
             var dialog = new ContentDialog
             {
                 Title = Localizer.T("Stop casting and quit?"),
-                Content = Localizer.Format("You're casting to {0}. Quitting ends the cast.", ViewModel.SelectedDevice?.Name ?? Localizer.T("a TV")),
+                Content = Localizer.Format("You're casting to {0}. Quitting ends the cast.", deviceName),
                 PrimaryButtonText = Localizer.T("Quit"),
                 CloseButtonText = Localizer.T("Keep casting"),
                 DefaultButton = ContentDialogButton.Close
             };
 
             ContentDialogResult result = await Dialogs.ShowAsync(dialog, Content.XamlRoot);
-            if (result != ContentDialogResult.Primary) return;
+            if (_closed || result != ContentDialogResult.Primary) return;
             _exiting = true;
             Close();
         }
 
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
+            _closed = true;
             NotificationService.Activated -= OnNotificationActivated;
+            ViewModel.StateChanged -= OnSessionStateChanged;
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             // Close the auxiliary windows too. They are independent AppWindows,
             // so they survive this one closing and are left floating over an app
             // whose engine has already been shut down — controls bound to a dead

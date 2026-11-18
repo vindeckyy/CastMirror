@@ -13,7 +13,6 @@
 #if defined(_WIN32)
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#define close closesocket
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -51,11 +50,12 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   receiver_ip_ = receiver_ip;
   receiver_port_ = receiver_udp_port;
   session_start_time_ = std::chrono::steady_clock::now();
-  fps_sample_time_ = session_start_time_;
-  fps_sample_frames_ = 0;
-  current_video_fps_ = 0.0;
+  last_drop_warn_ = {};
   {
     std::lock_guard<std::mutex> lock(stats_mutex_);
+    fps_sample_time_ = session_start_time_;
+    fps_sample_frames_ = 0;
+    current_video_fps_ = 0.0;
     total_packets_sent_ = 0;
     total_frames_sent_ = 0;
     total_nacks_received_ = 0;
@@ -63,15 +63,17 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
     last_rtt_ms_ = 0.0;
     last_jitter_ms_ = 0.0;
     last_loss_fraction_ = 0.0;
+    ewma_rtt_ms_ = 0.0;
+    ewma_jitter_ms_ = 0.0;
+    ewma_initialized_ = false;
   }
-  // Phase 2: reset pacing token bucket and EWMA
+  // Phase 2: reset pacing token bucket and drop log state
   {
     std::lock_guard<std::mutex> lock(send_mutex_);
     pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
     pacing_last_refill_ = std::chrono::steady_clock::now();
-    ewma_rtt_ms_ = 0.0;
-    ewma_jitter_ms_ = 0.0;
-    ewma_initialized_ = false;
+    last_udp_drop_log_ = {};
+    udp_drops_since_log_ = 0;
   }
 
   LOG_INFO << "Starting Cast Media Transport to UDP " << receiver_ip << ":" << receiver_udp_port
@@ -105,7 +107,7 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
   dest_addr_.sin_port = htons(receiver_udp_port);
   if (inet_pton(AF_INET, receiver_ip.c_str(), &dest_addr_.sin_addr) <= 0) {
     LOG_ERROR << "Invalid UDP destination IP: " << receiver_ip;
-    close(socket_fd_);
+    CloseSocket(socket_fd_);
     socket_fd_ = -1;
     return false;
   }
@@ -138,7 +140,7 @@ bool CastTransport::Start(const std::string& receiver_ip, uint16_t receiver_udp_
                  sizeof(dscp_af41)) != 0) {
     LOG_DEBUG << "Could not set IP_TOS (AF41) on the media socket; "
                  "packets will use the default queue: "
-              << std::strerror(errno);
+              << SocketErrorString();
   }
 
 #if defined(_WIN32)
@@ -174,9 +176,15 @@ void CastTransport::Stop() {
   if (receive_thread_.joinable()) {
     receive_thread_.join();
   }
-  if (socket_fd_ >= 0) {
-    close(socket_fd_);
-    socket_fd_ = -1;
+  {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    if (socket_fd_ >= 0) {
+      CloseSocket(socket_fd_);
+      socket_fd_ = -1;
+    }
+    pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
+    pacing_last_refill_ = std::chrono::steady_clock::time_point{};
+    sr_state_.clear();
   }
 
   {
@@ -192,16 +200,6 @@ void CastTransport::Stop() {
     ewma_jitter_ms_ = 0.0;
     last_jitter_ms_ = 0.0;
   }
-  {
-    std::lock_guard<std::mutex> lock(send_mutex_);
-    pacing_tokens_ = static_cast<double>(kPacingMaxBurst);
-    pacing_last_refill_ = std::chrono::steady_clock::time_point{};
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(send_mutex_);
-    sr_state_.clear();
-  }
 }
 
 bool CastTransport::IsRunning() const {
@@ -209,10 +207,12 @@ bool CastTransport::IsRunning() const {
 }
 
 void CastTransport::SetPliCallback(PliCallback callback) {
+  std::lock_guard<std::mutex> lock(callback_mutex_);
   pli_callback_ = std::move(callback);
 }
 
 void CastTransport::SetFeedbackCallback(FeedbackCallback callback) {
+  std::lock_guard<std::mutex> lock(callback_mutex_);
   feedback_callback_ = std::move(callback);
 }
 
@@ -248,8 +248,13 @@ bool CastTransport::SendPackets(const std::vector<RtpPacket>& packets) {
     // exceeds 500 ms of video (30 frames @ 60fps) or 50 audio frames (500ms @ 10ms/frame).
     // This prevents unbounded memory growth during persistent receiver stalls.
     const size_t max_frames = is_video_frame ? 30 : 50;
+    auto rtime_ssrc = last_retransmit_time_.find(ssrc);
     while (frame_cache.size() > max_frames) {
+      const uint32_t evicted_fid = frame_cache.begin()->first;
       frame_cache.erase(frame_cache.begin());
+      if (rtime_ssrc != last_retransmit_time_.end()) {
+        rtime_ssrc->second.erase(evicted_fid);
+      }
     }
   }
 
@@ -614,13 +619,13 @@ void CastTransport::ReceiveLoop() {
 
     // Drop RTCP packets not originating from the target receiver IP.
     if (src_addr.sin_addr.s_addr != dest_addr_.sin_addr.s_addr) {
-      static std::chrono::steady_clock::time_point last_drop_warn{};
       auto now = std::chrono::steady_clock::now();
-      if (now - last_drop_warn >= std::chrono::seconds(5)) {
+      if (last_drop_warn_.time_since_epoch().count() == 0 ||
+          now - last_drop_warn_ >= std::chrono::seconds(5)) {
         char foreign_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &src_addr.sin_addr, foreign_ip, sizeof(foreign_ip));
         LOG_WARN << "Dropped foreign RTCP packet from " << foreign_ip;
-        last_drop_warn = now;
+        last_drop_warn_ = now;
       }
       continue;
     }
@@ -661,16 +666,22 @@ void CastTransport::ReceiveLoop() {
         if (erase_to > 0) {
           auto sit = packet_cache_.find(feedback.sender_ssrc);
           if (sit != packet_cache_.end()) {
-            auto it = sit->second.begin();
-            while (it != sit->second.end() && it->first <= erase_to) {
-              it = sit->second.erase(it);
+            for (auto it = sit->second.begin(); it != sit->second.end();) {
+              if (static_cast<int32_t>(it->first - erase_to) <= 0) {
+                it = sit->second.erase(it);
+              } else {
+                ++it;
+              }
             }
           }
           auto rit = last_retransmit_time_.find(feedback.sender_ssrc);
           if (rit != last_retransmit_time_.end()) {
-            auto it = rit->second.begin();
-            while (it != rit->second.end() && it->first <= erase_to) {
-              it = rit->second.erase(it);
+            for (auto it = rit->second.begin(); it != rit->second.end();) {
+              if (static_cast<int32_t>(it->first - erase_to) <= 0) {
+                it = rit->second.erase(it);
+              } else {
+                ++it;
+              }
             }
           }
         }
@@ -681,14 +692,22 @@ void CastTransport::ReceiveLoop() {
         RetransmitPacket(feedback.sender_ssrc, nack.frame_id, nack.packet_id);
       }
 
-      // Picture Loss Indicator: request new keyframe
-      if (feedback.picture_loss_indicator && pli_callback_) {
-        LOG_INFO << "Received RTCP Picture Loss Indicator (PLI) -> requesting keyframe";
-        pli_callback_();
+      PliCallback pli_cb;
+      FeedbackCallback fb_cb;
+      {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        pli_cb = pli_callback_;
+        fb_cb = feedback_callback_;
       }
 
-      if (feedback_callback_) {
-        feedback_callback_(feedback);
+      // Picture Loss Indicator: request new keyframe
+      if (feedback.picture_loss_indicator && pli_cb) {
+        LOG_INFO << "Received RTCP Picture Loss Indicator (PLI) -> requesting keyframe";
+        pli_cb();
+      }
+
+      if (fb_cb) {
+        fb_cb(feedback);
       }
     }
   }

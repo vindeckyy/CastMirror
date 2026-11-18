@@ -273,12 +273,12 @@
                             <Border CornerRadius="16" Padding="28,26" Background="{ThemeResource HeroGradientBrush}">
                                 <StackPanel Spacing="14" MaxWidth="520" VerticalAlignment="Center">
                                         <TextBlock Text="Mirror your screen" FontSize="30" FontWeight="Bold"
-                                                   Foreground="White" TextWrapping="Wrap"/>
+                                                   Foreground="{ThemeResource HeroTextPrimaryBrush}" TextWrapping="Wrap"/>
                                         <TextBlock Text="Effortlessly" FontSize="30" FontWeight="Bold"
                                                    Foreground="{ThemeResource AccentGradientBrush}"/>
                                         <TextBlock Text="Send this PC's screen and sound to any Cast device on your network, in high quality and with low latency."
                                                    FontSize="13" TextWrapping="Wrap" MaxWidth="460"
-                                                   Foreground="#FFD7DEEA" HorizontalAlignment="Left"/>
+                                                   Foreground="{ThemeResource HeroTextSecondaryBrush}" HorizontalAlignment="Left"/>
                                         <!-- Two feature chips share the row evenly, so a
                                              narrow window ellipsises a label instead
                                              of clipping it mid-word. -->
@@ -289,22 +289,22 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Orientation="Horizontal" Spacing="10">
                                                 <Border Style="{StaticResource IconTileStyle}">
-                                                    <FontIcon Glyph="&#xE7F4;" FontSize="15" Foreground="White"/>
+                                                    <FontIcon Glyph="&#xE7F4;" FontSize="15" Foreground="{ThemeResource HeroTextPrimaryBrush}"/>
                                                 </Border>
                                                 <StackPanel VerticalAlignment="Center">
                                                     <TextBlock Text="HD and above" FontSize="12" FontWeight="SemiBold"
-                                                               Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="Up to 4K" FontSize="11" Foreground="#FFAEBAD0"/>
+                                                               Foreground="{ThemeResource HeroTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="Up to 4K" FontSize="11" Foreground="{ThemeResource HeroTextTertiaryBrush}"/>
                                                 </StackPanel>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" Margin="10,0,0,0">
                                                 <Border Style="{StaticResource IconTileStyle}">
-                                                    <FontIcon Glyph="&#xE945;" FontSize="15" Foreground="White"/>
+                                                    <FontIcon Glyph="&#xE945;" FontSize="15" Foreground="{ThemeResource HeroTextPrimaryBrush}"/>
                                                 </Border>
                                                 <StackPanel VerticalAlignment="Center">
                                                     <TextBlock Text="Low latency" FontSize="12" FontWeight="SemiBold"
-                                                               Foreground="White" TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="Real time" FontSize="11" Foreground="#FFAEBAD0"/>
+                                                               Foreground="{ThemeResource HeroTextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="Real time" FontSize="11" Foreground="{ThemeResource HeroTextTertiaryBrush}"/>
                                                 </StackPanel>
                                             </StackPanel>
                                         </Grid>
@@ -378,6 +378,7 @@
                                           SelectionMode="None"
                                           IsItemClickEnabled="True"
                                           ItemClick="OnDeviceCardClicked"
+                                          ContainerContentChanging="OnDeviceCardContainerContentChanging"
                                           AutomationProperties.Name="Cast devices">
                                     <GridView.ItemsPanel>
                                         <ItemsPanelTemplate>
@@ -467,7 +468,8 @@
                             </StackPanel>
                             <Border Style="{StaticResource ShellCardStyle}" Padding="8">
                                 <ListView ItemsSource="{x:Bind ViewModel.VisibleDevices, Mode=OneWay}"
-                                          SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}"
+                                          SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=OneWay}"
+                                          SelectionChanged="OnDeviceListSelectionChanged"
                                           SelectionMode="Single"
                                           ItemContainerStyle="{StaticResource FlushListItemStyle}"
                                           AutomationProperties.Name="Cast devices">
@@ -568,13 +570,33 @@
 
                             <Border Style="{StaticResource ShellCardStyle}" Padding="18"
                                     Visibility="{x:Bind ViewModel.IsLiveVisible, Mode=OneWay}">
-                                <StackPanel Spacing="10">
+                                <StackPanel Spacing="12">
                                     <TextBlock Text="Live session" FontSize="14" FontWeight="Medium"
                                                Foreground="{ThemeResource ShellTextPrimaryBrush}"/>
                                     <StackPanel Orientation="Horizontal" Spacing="20">
                                         <ToggleSwitch Header="Freeze" IsOn="{x:Bind ViewModel.FreezeStream, Mode=TwoWay}"/>
                                         <ToggleSwitch Header="Mute TV audio" IsOn="{x:Bind ViewModel.MuteTvAudio, Mode=TwoWay}"/>
                                     </StackPanel>
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" HorizontalScrollMode="Auto">
+                                        <StackPanel Orientation="Horizontal" Spacing="24">
+                                            <StackPanel Spacing="2">
+                                                <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.FpsSeries, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw"/>
+                                                <TextBlock Text="{x:Bind ViewModel.StatsFpsText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="2">
+                                                <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.BitrateSeries, Mode=OneWay}" Stroke="#FF198754" AutomationProperties.AccessibilityView="Raw"/>
+                                                <TextBlock Text="{x:Bind ViewModel.StatsBitrateText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="2">
+                                                <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.RttSeries, Mode=OneWay}" Stroke="#FFFD7E14" AutomationProperties.AccessibilityView="Raw"/>
+                                                <TextBlock Text="{x:Bind ViewModel.StatsLatencyText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Spacing="2">
+                                                <controls:Sparkline Width="90" Height="22" Samples="{x:Bind ViewModel.LossSeries, Mode=OneWay}" Stroke="#FFDC3545" AutomationProperties.AccessibilityView="Raw"/>
+                                                <TextBlock Text="{x:Bind ViewModel.StatsLossText, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource ShellTextSecondaryBrush}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ScrollViewer>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -674,6 +696,7 @@
                             <Button Content="Disconnect" Click="OnActionButtonClicked"
                                     Style="{StaticResource GhostButtonStyle}"
                                     HorizontalAlignment="Stretch"
+                                    IsEnabled="{x:Bind ViewModel.CanToggleCast, Mode=OneWay}"
                                     Visibility="{x:Bind ViewModel.IsSessionActive, Mode=OneWay}"/>
                             <Button Content="Start casting" Click="OnActionButtonClicked"
                                     Style="{StaticResource PrimaryActionButtonStyle}"
@@ -713,7 +736,8 @@
                                 </Border>
                             </Grid>
                             <ListView ItemsSource="{x:Bind ViewModel.VisibleDevices, Mode=OneWay}"
-                                      SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=TwoWay}"
+                                      SelectedItem="{x:Bind ViewModel.SelectedDevice, Mode=OneWay}"
+                                      SelectionChanged="OnDeviceListSelectionChanged"
                                       SelectionMode="Single"
                                       MaxHeight="260"
                                       ItemContainerStyle="{StaticResource FlushListItemStyle}"

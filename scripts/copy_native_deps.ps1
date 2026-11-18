@@ -57,7 +57,6 @@ $system32 = Join-Path $env:SystemRoot 'System32'
 # absent from PATH, which would look exactly like castcore having no imports.
 # Put the toolchain first for the duration of this script.
 $env:PATH = "$ToolchainBin;$env:PATH"
-$system32 = Join-Path $env:SystemRoot 'System32'
 
 if (-not (Test-Path $CoreDll)) {
     Write-Verbose "castcore.dll not built yet at $CoreDll; nothing to resolve."

@@ -29,11 +29,11 @@ body:
     attributes:
       label: OS
       options:
+        - Windows 10 / 11
         - Debian / Ubuntu / Kali
         - Fedora / RHEL
         - Arch
         - Other Linux
-        - Windows (blueprint / not shipping)
     validations:
       required: true
   - type: input
@@ -50,6 +50,8 @@ body:
         - High
         - Balanced
         - Smooth
+        - Game
+        - Cinema
         - Not applicable
   - type: textarea
     id: logs

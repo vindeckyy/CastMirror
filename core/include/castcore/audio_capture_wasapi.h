@@ -43,6 +43,9 @@ struct ResamplerCarry {
 template <typename SampleAt>
 int ResamplePacket(int src_rate, int out_rate, int frames, ResamplerCarry& carry,
                    SampleAt&& sample_at, std::vector<int16_t>& out) {
+  if (src_rate <= 0 || out_rate <= 0 || frames <= 0) {
+    return 0;
+  }
   const double step = static_cast<double>(src_rate) / out_rate;
   double pos = carry.pos;
   // -1.0 is a valid carry: it means a whole output sample still needs the
@@ -163,18 +166,19 @@ class WasapiAudioCapture : public IAudioCapture {
   int output_rate_ = 48000;
   int output_channels_ = 2;
   std::atomic<bool> running_{false};
-  std::atomic<bool> init_done_{false};
-  bool init_ok_ = false;
   std::thread worker_thread_;
   std::mutex mutex_;
   AudioCallback callback_;
 
 #if defined(_WIN32)
+  std::atomic<bool> init_done_{false};
+  bool init_ok_ = false;
   // Owned by the worker thread; never touched from other threads.
   Microsoft::WRL::ComPtr<IAudioClient> audio_client_;
   Microsoft::WRL::ComPtr<IAudioCaptureClient> capture_client_;
 
   HANDLE capture_event_ = nullptr;
+  HANDLE stop_event_ = nullptr;
 
   // Device mix format (owned by the worker thread).
   enum class SrcFormat { kFloat32, kInt16, kInt24, kInt32 };

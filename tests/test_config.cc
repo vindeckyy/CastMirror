@@ -196,3 +196,50 @@ TEST(ConfigTest, PerDeviceProfilesPersistenceAndPresets) {
 
   std::filesystem::remove(temp_path);
 }
+
+TEST(ConfigTest, PreferredVideoCodecAndCaseInsensitivePresetsRoundTrip) {
+  ConfigGuard guard;
+  std::string temp_path = "/tmp/castmirror_test_codec_config.json";
+  if (std::filesystem::exists(temp_path)) {
+    std::filesystem::remove(temp_path);
+  }
+
+  EXPECT_EQ(QualityPresetFromString("high"), QualityPreset::kHigh);
+  EXPECT_EQ(QualityPresetFromString("GAME"), QualityPreset::kGame);
+  EXPECT_EQ(QualityPresetFromString("  cinema  "), QualityPreset::kCinema);
+  EXPECT_EQ(VideoCodecFromString("vp8"), VideoCodec::kVP8);
+  EXPECT_EQ(VideoCodecFromString("VP8"), VideoCodec::kVP8);
+  EXPECT_EQ(VideoCodecFromString("unknown"), VideoCodec::kH264);
+
+  auto& store = ConfigStore::Instance();
+  auto& cfg = store.Mutable();
+  cfg.preferred_video_codec = VideoCodec::kVP8;
+  DeviceProfile prof;
+  prof.preset = QualityPreset::kBalanced;
+  prof.preferred_video_codec = VideoCodec::kVP8;
+  cfg.SetDeviceProfile("dev-vp8", prof);
+
+  const uint64_t rev_before_save = store.Revision();
+  ASSERT_TRUE(store.Save(temp_path));
+  EXPECT_GT(store.Revision(), rev_before_save);
+
+  cfg.preferred_video_codec = VideoCodec::kH264;
+  cfg.device_profiles.clear();
+  const uint64_t rev_before_load = store.Revision();
+  ASSERT_TRUE(store.Load(temp_path));
+  EXPECT_GT(store.Revision(), rev_before_load);
+  EXPECT_EQ(cfg.preferred_video_codec, VideoCodec::kVP8);
+
+  auto loaded_prof = cfg.GetDeviceProfile("dev-vp8");
+  ASSERT_TRUE(loaded_prof.has_value());
+  EXPECT_EQ(loaded_prof->preferred_video_codec, VideoCodec::kVP8);
+
+  // Non-object root JSON must be rejected cleanly.
+  {
+    std::ofstream bad(temp_path, std::ios::out | std::ios::trunc);
+    bad << "[1, 2, 3]";
+  }
+  EXPECT_FALSE(store.Load(temp_path));
+
+  std::filesystem::remove(temp_path);
+}

@@ -213,6 +213,7 @@ std::string ConfigStore::GetDefaultConfigPath() {
 }
 
 bool ConfigStore::Load(const std::string& custom_path) {
+  std::lock_guard<std::mutex> io_lock(io_mutex_);
   std::string path_to_load = custom_path.empty() ? config_path_ : custom_path;
   if (!fs::exists(path_to_load)) {
     LOG_INFO << "Config file does not exist at " << path_to_load << ", using defaults.";
@@ -225,6 +226,11 @@ bool ConfigStore::Load(const std::string& custom_path) {
 
     nlohmann::json j;
     file >> j;
+    if (!j.is_object()) {
+      LOG_ERROR << "Failed to parse config file: root JSON value is not an object";
+      config_.Validate();
+      return false;
+    }
 
     if (j.contains("last_device_id"))
       ConfigReadString(j, "last_device_id", &config_.last_device_id);
@@ -242,6 +248,10 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("audio_enabled")) ConfigReadBool(j, "audio_enabled", &config_.audio_enabled);
     if (j.contains("quality_preset") && j["quality_preset"].is_string()) {
       config_.quality_preset = QualityPresetFromString(j["quality_preset"].get<std::string>());
+    }
+    if (j.contains("preferred_video_codec") && j["preferred_video_codec"].is_string()) {
+      config_.preferred_video_codec =
+          VideoCodecFromString(j["preferred_video_codec"].get<std::string>());
     }
     if (j.contains("target_delay_ms"))
       ConfigReadInt(j, "target_delay_ms", &config_.target_delay_ms);
@@ -280,6 +290,11 @@ bool ConfigStore::Load(const std::string& custom_path) {
         if (prof_j.contains("preset") && prof_j["preset"].is_string()) {
           prof.preset = QualityPresetFromString(prof_j["preset"].get<std::string>());
         }
+        if (prof_j.contains("preferred_video_codec") &&
+            prof_j["preferred_video_codec"].is_string()) {
+          prof.preferred_video_codec =
+              VideoCodecFromString(prof_j["preferred_video_codec"].get<std::string>());
+        }
         config_.device_profiles[dev_id] = prof;
       }
     }
@@ -287,8 +302,6 @@ bool ConfigStore::Load(const std::string& custom_path) {
       ConfigReadBool(j, "enable_tray_on_startup", &config_.enable_tray_on_startup);
     if (j.contains("low_latency_mode"))
       ConfigReadBool(j, "low_latency_mode", &config_.low_latency_mode);
-    if (j.contains("capture_border_hint"))
-      ConfigReadBool(j, "capture_border_hint", &config_.capture_border_hint);
     if (j.contains("capture_fps")) ConfigReadInt(j, "capture_fps", &config_.capture_fps);
     if (j.contains("audio_bitrate_bps"))
       ConfigReadU32(j, "audio_bitrate_bps", &config_.audio_bitrate_bps);
@@ -359,6 +372,7 @@ bool ConfigStore::Load(const std::string& custom_path) {
     if (j.contains("ui_theme")) ConfigReadString(j, "ui_theme", &config_.ui_theme);
 
     config_.Validate();
+    BumpRevision();
     LOG_INFO << "Loaded configuration from " << path_to_load;
     return true;
   } catch (const std::exception& e) {
@@ -370,10 +384,9 @@ bool ConfigStore::Load(const std::string& custom_path) {
 }
 
 bool ConfigStore::Save(const std::string& custom_path) {
-  // Saves come from the UI, C API, engine and session threads; two writers
-  // sharing one .tmp file would interleave and corrupt it.
-  static std::mutex save_mutex;
-  std::lock_guard<std::mutex> save_lock(save_mutex);
+  // Saves and loads share io_mutex_ so concurrent readers/writers never
+  // interleave on config_.tmp or partially written files.
+  std::lock_guard<std::mutex> save_lock(io_mutex_);
   std::string path_to_save = custom_path.empty() ? config_path_ : custom_path;
 
   try {
@@ -394,6 +407,7 @@ bool ConfigStore::Save(const std::string& custom_path) {
     j["last_source_name"] = config_.last_source_name;
     j["audio_enabled"] = config_.audio_enabled;
     j["quality_preset"] = QualityPresetToString(config_.quality_preset);
+    j["preferred_video_codec"] = VideoCodecToString(config_.preferred_video_codec);
     j["target_delay_ms"] = config_.target_delay_ms;
     j["max_bitrate_kbps"] = config_.max_bitrate_kbps;
     j["bitrate_kbps_auto"] = config_.bitrate_kbps_auto;
@@ -412,12 +426,12 @@ bool ConfigStore::Save(const std::string& custom_path) {
       p["bitrate_kbps"] = prof.bitrate_kbps;
       p["target_delay_ms"] = prof.target_delay_ms;
       p["preset"] = QualityPresetToString(prof.preset);
+      p["preferred_video_codec"] = VideoCodecToString(prof.preferred_video_codec);
       profiles_j[dev_id] = p;
     }
     j["device_profiles"] = profiles_j;
     j["enable_tray_on_startup"] = config_.enable_tray_on_startup;
     j["low_latency_mode"] = config_.low_latency_mode;
-    j["capture_border_hint"] = config_.capture_border_hint;
     j["capture_fps"] = config_.capture_fps;
     j["audio_bitrate_bps"] = config_.audio_bitrate_bps;
     j["silence_host_speakers"] = config_.silence_host_speakers;
@@ -468,13 +482,15 @@ bool ConfigStore::Save(const std::string& custom_path) {
       if (ec) {
         // Fallback to copy if rename across FS
         fs::copy_file(tmp_path, path_to_save, fs::copy_options::overwrite_existing, ec);
-        fs::remove(tmp_path, ec);
+        std::error_code remove_ec;
+        fs::remove(tmp_path, remove_ec);
         if (ec) return false;
       }
     } catch (const std::exception& e) {
       LOG_ERROR << "Atomic save failed: " << e.what();
       return false;
     }
+    BumpRevision();
     LOG_INFO << "Saved configuration to " << path_to_save;
     return true;
   } catch (const std::exception& e) {

@@ -18,8 +18,28 @@ namespace {
 
 std::string GetLogDirectory() {
   const char* home = std::getenv("HOME");
-  std::string dir = (home ? std::string(home) : "/tmp") + "/.config/castmirror";
-  return dir;
+  std::string default_dir = (home ? std::string(home) : "/tmp") + "/.config/castmirror";
+  const char* override_dir = std::getenv("CASTMIRROR_CONFIG_DIR");
+  if (override_dir && override_dir[0] != '\0') {
+    std::error_code ec;
+    std::string dir(override_dir);
+    if (std::filesystem::exists(dir + "/castmirror.log", ec) ||
+        std::filesystem::exists(dir + "/castmirror-session.log", ec) ||
+        std::filesystem::exists(dir + "/castmirror.ndjson", ec)) {
+      return dir;
+    }
+  }
+  return default_dir;
+}
+
+std::string MakeValidUtf8(const std::string& text) {
+  if (g_utf8_validate(text.data(), static_cast<gssize>(text.size()), nullptr)) {
+    return text;
+  }
+  char* sanitized = g_utf8_make_valid(text.data(), static_cast<gssize>(text.size()));
+  std::string out = sanitized ? std::string(sanitized) : std::string();
+  g_free(sanitized);
+  return out;
 }
 
 std::string ToLower(const std::string& s) {
@@ -37,6 +57,13 @@ LogsTab::LogsTab(GuiApp* app) : app_(app) {
 }
 
 LogsTab::~LogsTab() {
+  if (theme_notify_id_ != 0) {
+    AdwStyleManager* sm = adw_style_manager_get_default();
+    if (sm && g_signal_handler_is_connected(sm, theme_notify_id_)) {
+      g_signal_handler_disconnect(sm, theme_notify_id_);
+    }
+    theme_notify_id_ = 0;
+  }
   // The pending idle holds a raw `this`; Logger::SetCallback(nullptr) does not
   // cancel an already-scheduled source, so it must be removed here.
   if (idle_source_id_ != 0) {
@@ -185,7 +212,7 @@ void LogsTab::BuildUi() {
   path_info_label_ = gtk_label_new(
       "Live view of process logs. Session log: ~/.config/castmirror/castmirror-session.log  •  "
       "History: ~/.config/castmirror/castmirror.log  •  JSON sidecar: "
-      "~/.config/castmirror/castmirror.ndjson (when verbose_json enabled)");
+      "~/.config/castmirror/castmirror.ndjson (when verbose_json_logging enabled)");
   gtk_widget_set_halign(path_info_label_, GTK_ALIGN_START);
   gtk_label_set_selectable(GTK_LABEL(path_info_label_), TRUE);
   gtk_label_set_wrap(GTK_LABEL(path_info_label_), TRUE);
@@ -209,11 +236,20 @@ void LogsTab::BuildUi() {
 
   text_buffer_ = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view_));
 
-  // Severity color tags matching palette tokens
+  // Severity color tags matching palette tokens (updated dynamically on theme change)
   gtk_text_buffer_create_tag(text_buffer_, "tag_debug", "foreground", "#AEB8BF", nullptr);
   gtk_text_buffer_create_tag(text_buffer_, "tag_info", "foreground", "#E3E8EB", nullptr);
   gtk_text_buffer_create_tag(text_buffer_, "tag_warn", "foreground", "#F2C66D", nullptr);
   gtk_text_buffer_create_tag(text_buffer_, "tag_error", "foreground", "#FFB4AB", nullptr);
+  SyncTagThemeColors();
+  if (AdwStyleManager* sm = adw_style_manager_get_default()) {
+    theme_notify_id_ = g_signal_connect(sm,
+                                        "notify::dark",
+                                        G_CALLBACK(+[](GObject*, GParamSpec*, gpointer user_data) {
+                                          static_cast<LogsTab*>(user_data)->SyncTagThemeColors();
+                                        }),
+                                        this);
+  }
 
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled_window_), text_view_);
 
@@ -321,7 +357,7 @@ void LogsTab::ApplyFilter() {
     } else if (item.level == LogLevel::kError || item.level == LogLevel::kFatal) {
       tag_name = "tag_error";
     }
-    std::string text_with_nl = item.text + "\n";
+    std::string text_with_nl = MakeValidUtf8(item.text) + "\n";
     gtk_text_buffer_insert_with_tags_by_name(
         text_buffer_, &end_iter, text_with_nl.c_str(), -1, tag_name, nullptr);
   }
@@ -333,6 +369,30 @@ void LogsTab::ApplyFilter() {
   gtk_text_buffer_place_cursor(text_buffer_, &end_iter);
   if (text_view_) {
     gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(text_view_), &end_iter, 0.0, FALSE, 0.0, 0.0);
+  }
+}
+
+void LogsTab::SyncTagThemeColors() {
+  if (!text_buffer_) return;
+  AdwStyleManager* sm = adw_style_manager_get_default();
+  const bool dark = !sm || adw_style_manager_get_dark(sm);
+  GtkTextTagTable* table = gtk_text_buffer_get_tag_table(text_buffer_);
+  if (!table) return;
+  auto set_fg = [table](const char* name, const char* hex) {
+    if (GtkTextTag* tag = gtk_text_tag_table_lookup(table, name)) {
+      g_object_set(tag, "foreground", hex, nullptr);
+    }
+  };
+  if (dark) {
+    set_fg("tag_debug", "#AEB8BF");
+    set_fg("tag_info", "#E3E8EB");
+    set_fg("tag_warn", "#F2C66D");
+    set_fg("tag_error", "#FFB4AB");
+  } else {
+    set_fg("tag_debug", "#4A5965");
+    set_fg("tag_info", "#11181F");
+    set_fg("tag_warn", "#9A6700");
+    set_fg("tag_error", "#B3261E");
   }
 }
 
@@ -497,32 +557,29 @@ void LogsTab::SeedInitialLogs() {
     }
 
     if (!buffer.empty()) {
-      gtk_text_buffer_set_text(text_buffer_, buffer.c_str(), -1);
-
-      // Populate history_ from seeded buffer for filtering
+      buffer = MakeValidUtf8(buffer);
+      // Populate history_ from seeded buffer so ApplyFilter() renders with
+      // severity color tags and consistent filtering.
       {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         std::istringstream iss(buffer);
         std::string line;
         while (std::getline(iss, line)) {
           if (line.empty()) continue;
-          // Determine level heuristically from tags if possible, default Info
           LogLevel lvl = LogLevel::kInfo;
           if (line.find("[DEBUG") != std::string::npos)
             lvl = LogLevel::kDebug;
           else if (line.find("[WARN") != std::string::npos)
             lvl = LogLevel::kWarn;
-          else if (line.find("[ERROR") != std::string::npos)
+          else if (line.find("[ERROR") != std::string::npos ||
+                   line.find("[FATAL") != std::string::npos)
             lvl = LogLevel::kError;
           history_.push_back({lvl, line});
           if (history_.size() > kMaxHistory) history_.pop_front();
         }
       }
-
-      GtkTextIter end_iter;
-      gtk_text_buffer_get_end_iter(text_buffer_, &end_iter);
-      gtk_text_buffer_place_cursor(text_buffer_, &end_iter);
-      gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(text_view_), &end_iter, 0.0, FALSE, 0.0, 0.0);
+      ApplyFilter();
+      return;
     }
   }
 
@@ -604,7 +661,7 @@ void LogsTab::FlushPendingLogs() {
       tag_name = "tag_error";
     }
 
-    std::string text_with_nl = item.text + "\n";
+    std::string text_with_nl = MakeValidUtf8(item.text) + "\n";
     gtk_text_buffer_insert_with_tags_by_name(
         text_buffer_, &end_iter, text_with_nl.c_str(), -1, tag_name, nullptr);
   }

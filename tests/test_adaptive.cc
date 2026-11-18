@@ -799,3 +799,99 @@ TEST(AdaptiveTest, CongestionCeilingLiftsAndBitrateReturnsToFullTarget) {
   EXPECT_EQ(ctrl.GetCurrentBitrateKbps(), full_target)
       << "bitrate must recover all the way to its target once the link is clean";
 }
+
+TEST(AdaptiveTest, UpshiftSkipsIntermediateHigherFpsRung) {
+  AdaptiveController adaptive;
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 30;
+  initial.bitrate_kbps = 5000;
+  initial.target_delay_ms = 200;
+  adaptive.Initialize(initial, QualityPreset::kAuto);
+  adaptive.SetEvaluationIntervalMsForTest(10);
+  ASSERT_EQ(adaptive.GetCurrentLadderIndex(), 4);  // 1080p30
+
+  // Downshift twice past rung 5 (720p60) to rung 6 (720p30).
+  RtcpFeedback lossy;
+  lossy.fraction_lost = 0.20;
+  lossy.has_report_block = true;
+  for (uint16_t i = 0; i < 60; ++i) {
+    lossy.nacks.push_back(PacketNack{10, i});
+  }
+  StreamStats updated;
+  for (int i = 0; i < 2; ++i) {
+    adaptive.ResetEvalTimeForTest();
+    adaptive.OnFeedback(lossy);
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    ASSERT_TRUE(adaptive.CheckAdaptation(updated));
+  }
+  ASSERT_EQ(adaptive.GetCurrentLadderIndex(), 6);  // 720p30
+
+  // Recover on clean feedback; rung 5 has fps=60 > initial 30, so upshift must
+  // skip rung 5 and return to rung 4 (1080p30).
+  RtcpFeedback clean;
+  clean.fraction_lost = 0.0;
+  clean.has_report_block = true;
+  clean.rtt_ms = 10.0;
+  clean.has_rtt = true;
+  clean.jitter = 2;
+  for (int i = 0; i < 60; ++i) {
+    adaptive.ResetEvalTimeForTest();
+    adaptive.OnFeedback(clean);
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    adaptive.CheckAdaptation(updated);
+  }
+  EXPECT_EQ(adaptive.GetCurrentLadderIndex(), 4);
+  EXPECT_EQ(adaptive.GetCurrentResolution().width, 1920);
+  EXPECT_EQ(adaptive.GetCurrentFramerate(), 30);
+  EXPECT_EQ(adaptive.GetCurrentBitrateKbps(), 5000u);
+}
+
+TEST(AdaptiveTest, UpshiftPreservesCustomTargetBitrateAboveRungDefault) {
+  AdaptiveController adaptive;
+  StreamStats initial;
+  initial.current_resolution = {1920, 1080};
+  initial.current_framerate = 60;
+  initial.bitrate_kbps = 12000;
+  initial.target_delay_ms = 200;
+  adaptive.Initialize(initial, QualityPreset::kHigh);
+  adaptive.SetEvaluationIntervalMsForTest(10);
+  ASSERT_EQ(adaptive.GetCurrentLadderIndex(), 3);  // 1080p60 (8000 nominal)
+
+  RtcpFeedback lossy;
+  lossy.fraction_lost = 0.20;
+  lossy.has_report_block = true;
+  StreamStats updated;
+  adaptive.OnFeedback(lossy);
+  std::this_thread::sleep_for(std::chrono::milliseconds(15));
+  ASSERT_TRUE(adaptive.CheckAdaptation(updated));
+  ASSERT_EQ(adaptive.GetCurrentLadderIndex(), 4);
+
+  RtcpFeedback clean;
+  clean.fraction_lost = 0.0;
+  clean.has_report_block = true;
+  clean.rtt_ms = 10.0;
+  clean.has_rtt = true;
+  clean.jitter = 2;
+  for (int i = 0; i < 60; ++i) {
+    adaptive.ResetEvalTimeForTest();
+    adaptive.OnFeedback(clean);
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    adaptive.CheckAdaptation(updated);
+  }
+  EXPECT_EQ(adaptive.GetCurrentLadderIndex(), 3);
+  EXPECT_EQ(adaptive.GetCurrentBitrateKbps(), 12000u);
+}
+
+TEST(AdaptiveTest, InitializeHandlesZeroDimensionsAndZeroBitrateSafely) {
+  AdaptiveController adaptive;
+  StreamStats zero_stats;
+  zero_stats.current_resolution = {0, 0};
+  zero_stats.current_framerate = 0;
+  zero_stats.bitrate_kbps = 0;
+  adaptive.Initialize(zero_stats, QualityPreset::kBalanced);
+  EXPECT_GT(adaptive.GetCurrentResolution().width, 0);
+  EXPECT_GT(adaptive.GetCurrentResolution().height, 0);
+  EXPECT_GT(adaptive.GetCurrentFramerate(), 0);
+  EXPECT_GT(adaptive.GetCurrentBitrateKbps(), 0u);
+}

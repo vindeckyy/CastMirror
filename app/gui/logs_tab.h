@@ -34,6 +34,7 @@ class LogsTab {
   void OnFilterChanged();
   void OnCopyLast100Clicked();
   void ApplyFilter();
+  void SyncTagThemeColors();
   bool IsJsonSidecarPresent() const;
   void UpdateCopyLast100Sensitivity();
 
@@ -62,6 +63,7 @@ class LogsTab {
   std::string filter_text_;
   bool idle_scheduled_ = false;
   guint idle_source_id_ = 0;
+  gulong theme_notify_id_ = 0;
   static constexpr size_t kMaxHistory = 5000;
 };
 

@@ -3,6 +3,10 @@
 #include "castcore/logger.h"
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
+#include <cctype>
+#include <cstdint>
+#include <limits>
+#include <random>
 #include <sstream>
 #include <iomanip>
 
@@ -17,7 +21,10 @@ std::string MirroringNegotiator::BytesToHex(const uint8_t* data, size_t len) {
 }
 
 bool MirroringNegotiator::HexToBytes(const std::string& hex, uint8_t* out, size_t max_len) {
-  if (hex.length() != max_len * 2) return false;
+  if (!out || hex.length() != max_len * 2) return false;
+  for (unsigned char c : hex) {
+    if (!std::isxdigit(c)) return false;
+  }
   for (size_t i = 0; i < max_len; ++i) {
     std::string byteString = hex.substr(i * 2, 2);
     out[i] = static_cast<uint8_t>(std::strtoul(byteString.c_str(), nullptr, 16));
@@ -27,8 +34,19 @@ bool MirroringNegotiator::HexToBytes(const std::string& hex, uint8_t* out, size_
 
 StreamEncryptionKeys MirroringNegotiator::GenerateRandomKeys() {
   StreamEncryptionKeys keys;
-  RAND_bytes(keys.aes_key.data(), static_cast<int>(keys.aes_key.size()));
-  RAND_bytes(keys.aes_iv_mask.data(), static_cast<int>(keys.aes_iv_mask.size()));
+  auto fill_random = [](std::array<uint8_t, 16>& buf) {
+    if (RAND_bytes(buf.data(), static_cast<int>(buf.size())) != 1) {
+      LOG_WARN << "RAND_bytes failed in GenerateRandomKeys; using std::random_device fallback";
+      std::random_device rd;
+      std::mt19937 gen(rd());
+      std::uniform_int_distribution<int> dist(0, 255);
+      for (auto& b : buf) {
+        b = static_cast<uint8_t>(dist(gen));
+      }
+    }
+  };
+  fill_random(keys.aes_key);
+  fill_random(keys.aes_iv_mask);
   keys.aes_key_hex = BytesToHex(keys.aes_key.data(), keys.aes_key.size());
   keys.aes_iv_mask_hex = BytesToHex(keys.aes_iv_mask.data(), keys.aes_iv_mask.size());
   return keys;
@@ -51,6 +69,7 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num, const StreamStats&
   nlohmann::json supported_streams = nlohmann::json::array();
   int stream_idx = 0;
 
+  const int delay_ms = target_delay_ms > 0 ? target_delay_ms : 200;
   if (include_audio) {
     nlohmann::json audio_stream;
     audio_stream["index"] = stream_idx++;
@@ -63,12 +82,14 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num, const StreamStats&
     audio_stream["timeBase"] = "1/48000";
     audio_stream["channels"] = 2;
     audio_stream["samplingRate"] = 48000;
-    audio_stream["targetDelay"] = target_delay_ms;
+    audio_stream["targetDelay"] = delay_ms;
     audio_stream["aesKey"] = audio_keys.aes_key_hex;
     audio_stream["aesIvMask"] = audio_keys.aes_iv_mask_hex;
     supported_streams.push_back(audio_stream);
   }
 
+  const int fps = video_settings.current_framerate > 0 ? video_settings.current_framerate : 60;
+  const int64_t video_bps = static_cast<int64_t>(video_settings.bitrate_kbps) * 1000LL;
   nlohmann::json video_stream;
   video_stream["index"] = stream_idx++;
   video_stream["type"] = "video_source";
@@ -76,12 +97,12 @@ std::string MirroringNegotiator::CreateOfferJson(int seq_num, const StreamStats&
   video_stream["rtpProfile"] = "cast";
   video_stream["rtpPayloadType"] = 96;
   video_stream["ssrc"] = 2;
-  video_stream["bitRate"] = static_cast<int>(video_settings.bitrate_kbps * 1000);
+  video_stream["bitRate"] = video_bps;
   video_stream["timeBase"] = "1/90000";
-  video_stream["maxFrameRate"] = std::to_string(video_settings.current_framerate) + "/1";
+  video_stream["maxFrameRate"] = std::to_string(fps) + "/1";
   // Cast's maxBitRate is in bits per second, the same unit as bitRate above.
-  video_stream["maxBitRate"] = static_cast<int>(video_settings.bitrate_kbps * 1000);
-  video_stream["targetDelay"] = target_delay_ms;
+  video_stream["maxBitRate"] = video_bps;
+  video_stream["targetDelay"] = delay_ms;
   video_stream["aesKey"] = video_keys.aes_key_hex;
   video_stream["aesIvMask"] = video_keys.aes_iv_mask_hex;
   if (video_codec == VideoCodec::kH264) {
@@ -127,7 +148,7 @@ std::string MirroringNegotiator::CreateStatusJson(int seq_num, const StreamStats
   video["ssrc"] = 2;
   video["type"] = "video";
   video["fps"] = stats.current_fps > 0 ? stats.current_fps : stats.current_framerate;
-  video["bitRate"] = static_cast<int>(stats.bitrate_kbps * 1000);
+  video["bitRate"] = static_cast<int64_t>(stats.bitrate_kbps) * 1000LL;
   video["rtt"] = stats.round_trip_time_ms;
   video["loss"] = stats.packet_loss_fraction;
   video["width"] = stats.current_resolution.width;
@@ -159,22 +180,65 @@ bool MirroringNegotiator::ParseAnswerJson(const std::string& answer_json,
     }
 
     const auto& ans = j["answer"];
-    if (!ans.contains("udpPort") || !ans.contains("sendIndexes") || !ans.contains("ssrcs")) {
+    if (!ans.is_object() || !ans.contains("udpPort") || !ans.contains("sendIndexes") ||
+        !ans.contains("ssrcs")) {
       LOG_ERROR << "Incomplete answer object in ANSWER message";
       return false;
     }
 
-    out_params.receiver_udp_port = ans["udpPort"].get<uint16_t>();
-    std::vector<int> send_indexes = ans["sendIndexes"].get<std::vector<int>>();
-    std::vector<uint32_t> ssrcs = ans["ssrcs"].get<std::vector<uint32_t>>();
-
-    if (send_indexes.size() != ssrcs.size()) {
-      LOG_ERROR << "Mismatch between sendIndexes size and ssrcs size";
+    if (!ans["udpPort"].is_number_integer()) {
+      LOG_ERROR << "Invalid udpPort type in ANSWER message";
+      return false;
+    }
+    const int64_t udp_port = ans["udpPort"].get<int64_t>();
+    if (udp_port <= 0 || udp_port > 65535) {
+      LOG_ERROR << "Out-of-range udpPort in ANSWER message: " << udp_port;
       return false;
     }
 
-    out_params.has_audio = false;
-    out_params.has_video = false;
+    if (!ans["sendIndexes"].is_array() || !ans["ssrcs"].is_array()) {
+      LOG_ERROR << "sendIndexes and ssrcs must be arrays in ANSWER message";
+      return false;
+    }
+
+    std::vector<int> send_indexes;
+    std::vector<uint32_t> ssrcs;
+    send_indexes.reserve(ans["sendIndexes"].size());
+    ssrcs.reserve(ans["ssrcs"].size());
+
+    for (const auto& idx_val : ans["sendIndexes"]) {
+      if (!idx_val.is_number_integer()) {
+        LOG_ERROR << "Non-integer element in sendIndexes";
+        return false;
+      }
+      const int64_t idx = idx_val.get<int64_t>();
+      if (idx < 0 || idx > std::numeric_limits<int>::max()) {
+        LOG_ERROR << "Out-of-range index in sendIndexes: " << idx;
+        return false;
+      }
+      send_indexes.push_back(static_cast<int>(idx));
+    }
+
+    for (const auto& ssrc_val : ans["ssrcs"]) {
+      if (!ssrc_val.is_number_integer()) {
+        LOG_ERROR << "Non-integer element in ssrcs";
+        return false;
+      }
+      const int64_t ssrc = ssrc_val.get<int64_t>();
+      if (ssrc < 0 || ssrc > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
+        LOG_ERROR << "Out-of-range ssrc in ANSWER: " << ssrc;
+        return false;
+      }
+      ssrcs.push_back(static_cast<uint32_t>(ssrc));
+    }
+
+    if (send_indexes.empty() || send_indexes.size() != ssrcs.size()) {
+      LOG_ERROR << "Invalid or mismatched sendIndexes / ssrcs sizes in ANSWER";
+      return false;
+    }
+
+    out_params = NegotiatedSessionParams{};
+    out_params.receiver_udp_port = static_cast<uint16_t>(udp_port);
 
     for (size_t i = 0; i < send_indexes.size(); ++i) {
       int idx = send_indexes[i];

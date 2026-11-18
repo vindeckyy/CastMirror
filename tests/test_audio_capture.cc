@@ -303,3 +303,26 @@ TEST(ResamplerTest, InterpolationIsContinuousAcrossThePacketBoundary) {
     EXPECT_LE(v, 1.0f) << "interpolation overshot above the source range";
   }
 }
+
+TEST(ResamplerTest, RejectsInvalidRatesAndZeroFrames) {
+  ResamplerCarry carry;
+  std::vector<int16_t> out;
+  auto sample_at = [](int, float& l, float& r) { l = r = 0.0f; };
+  EXPECT_EQ(ResamplePacket(0, 48000, 480, carry, sample_at, out), 0);
+  EXPECT_EQ(ResamplePacket(48000, 0, 480, carry, sample_at, out), 0);
+  EXPECT_EQ(ResamplePacket(48000, 48000, 0, carry, sample_at, out), 0);
+  EXPECT_TRUE(out.empty());
+}
+
+TEST(AudioCaptureTest, SyntheticClampsTinySampleRateSafely) {
+  auto capture = AudioCaptureFactory::CreateSynthetic();
+  FrameCollector collector;
+  capture->SetAudioCallback([&](const CapturedAudioFrame& f) { collector(f); });
+  ASSERT_TRUE(capture->Start(10, 1));
+  ASSERT_TRUE(collector.WaitFor(1, std::chrono::seconds(5)));
+  capture->Stop();
+  const auto frames = collector.Snapshot();
+  ASSERT_FALSE(frames.empty());
+  EXPECT_GE(frames.front().sample_rate, 100);
+  EXPECT_GE(frames.front().samples_per_channel, 1);
+}

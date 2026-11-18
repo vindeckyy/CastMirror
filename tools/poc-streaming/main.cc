@@ -16,7 +16,15 @@ int main(int argc, char** argv) {
   LOG_INFO << "===========================================";
 
   std::string target_ip = (argc > 1) ? argv[1] : "127.0.0.1";
-  uint16_t udp_port = (argc > 2) ? static_cast<uint16_t>(std::stoi(argv[2])) : 33533;
+  uint16_t udp_port = 33533;
+  if (argc > 2) {
+    try {
+      int p = std::stoi(argv[2]);
+      if (p > 0 && p <= 65535) udp_port = static_cast<uint16_t>(p);
+    } catch (...) {
+      LOG_WARN << "Invalid UDP port argument '" << argv[2] << "', using default 33533";
+    }
+  }
 
   LOG_INFO << "Setting up Cast RTP/RTCP transport to " << target_ip << ":" << udp_port;
 

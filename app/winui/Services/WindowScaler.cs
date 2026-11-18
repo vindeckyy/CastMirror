@@ -69,12 +69,13 @@ namespace CastMirror.Services
             {
                 if (msg == WmGetMinMaxInfo)
                 {
+                    IntPtr result = DefSubclassProc(h, msg, wParam, lParam);
                     double scale = ScaleOf(window);
                     var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
                     info.MinTrackSize.X = (int)Math.Round(minWidthDip * scale);
                     info.MinTrackSize.Y = (int)Math.Round(minHeightDip * scale);
                     Marshal.StructureToPtr(info, lParam, false);
-                    return IntPtr.Zero;
+                    return result;
                 }
                 return DefSubclassProc(h, msg, wParam, lParam);
             };
@@ -125,18 +126,6 @@ namespace CastMirror.Services
                 LogService.Log($"[dpi] GetDpiForWindow failed: {ex.Message}");
                 return 1.0;
             }
-        }
-
-        /// <summary>
-        /// Converts a logical (DIP) size to the physical pixels this window's
-        /// monitor expects, without applying the work-area clamp.
-        /// </summary>
-        public static SizeInt32 ToPhysical(AppWindow? window, int widthDip, int heightDip)
-        {
-            double scale = ScaleOf(window);
-            return new SizeInt32(
-                Math.Max(1, (int)Math.Round(widthDip * scale)),
-                Math.Max(1, (int)Math.Round(heightDip * scale)));
         }
 
         /// <summary>

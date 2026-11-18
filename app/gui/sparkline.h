@@ -18,8 +18,6 @@ class Sparkline {
   GtkWidget* GetWidget() const { return drawing_area_; }
 
   void PushValue(float val);
-  void SetRange(float min_val, float max_val);
-  void SetColor(double r, double g, double b);
   void Reset();
 
  private:

@@ -43,8 +43,8 @@ struct WinRt {
   CreateD3DDeviceFn create_d3d_device = nullptr;
 
   bool Load() {
-    HMODULE combase = LoadLibraryW(L"combase.dll");
-    HMODULE d3d11 = LoadLibraryW(L"d3d11.dll");
+    static HMODULE combase = LoadLibraryW(L"combase.dll");
+    static HMODULE d3d11 = LoadLibraryW(L"d3d11.dll");
     if (!combase || !d3d11) return false;
     get_factory = reinterpret_cast<RoGetActivationFactoryFn>(
         GetProcAddress(combase, "RoGetActivationFactory"));

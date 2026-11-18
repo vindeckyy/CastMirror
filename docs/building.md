@@ -38,7 +38,7 @@ ctest --test-dir build --output-on-failure
 dotnet test tests\winui\CastMirror.Tests.csproj
 ```
 
-The native suite has about 200 cases. Cases that need an interactive desktop skip themselves on a runner that has none. The .NET tests cover the client's pure logic (update check, diagnostics bundle, crash-file handling) and run anywhere.
+The native suite has over 250 cases. Cases that need an interactive desktop skip themselves on a runner that has none. The .NET tests cover the client's pure logic (update check, diagnostics bundle, crash-file handling) and run anywhere.
 
 `CASTMIRROR_ALLOW_SYNTHETIC_CAPTURE=1` lets a session use generated video and audio when real capture is unavailable. The test binary sets it. Real sessions never fall back to it.
 
@@ -60,10 +60,10 @@ It builds, runs the whole native suite, publishes a self-contained x64 build to 
 Build the installer from that folder:
 
 ```bat
-iscc installer\CastMirror.iss /DAppVersion=1.0.3
+iscc installer\CastMirror.iss /DAppVersion=1.0.4
 ```
 
-The result is `dist\CastMirror-Setup-1.0.3-x64.exe`. Release builds run the same steps in `.github/workflows/release-windows.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
+The result is `dist\CastMirror-Setup-1.0.4-x64.exe`. Release builds run the same steps in `.github/workflows/release-windows.yml`, and sign `CastMirror.exe`, `castcore.dll` and the installer when the `SIGN_CERT_BASE64` and `SIGN_CERT_PASSWORD` repository secrets exist. Without them the artifacts are unsigned and SmartScreen will warn.
 
 ### Cutting a release
 
@@ -99,13 +99,13 @@ sudo apt update
 sudo apt install -y build-essential cmake ninja-build pkg-config protobuf-compiler libprotobuf-dev \
     libssl-dev libopus-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev libxfixes-dev \
     libxcomposite-dev libxdamage-dev \
-    libva-dev libdrm-dev libavcodec-dev libswscale-dev libavutil-dev nlohmann-json3-dev libgtest-dev \
-    libgtk-4-dev libadwaita-1-dev
+    libva-dev libdrm-dev libpipewire-0.3-dev libglib2.0-dev libavcodec-dev libswscale-dev libavutil-dev \
+    nlohmann-json3-dev libgtest-dev libgtk-4-dev libadwaita-1-dev
 ```
 
 `libgtk-4-dev` and `libadwaita-1-dev` are required for `castmirror-gui`. The CLI (`castmirror`) links only `castcore`.
 
-`libxcomposite-dev` and `libxdamage-dev` are optional but recommended — they enable occluded-window capture and efficient damage tracking for X11 window sharing. The build succeeds without them (window capture degrades gracefully).
+`libpipewire-0.3-dev` and `libglib2.0-dev` enable Wayland capture via the `xdg-desktop-portal` ScreenCast API over PipeWire. `libxcomposite-dev` and `libxdamage-dev` are optional but recommended — they enable occluded-window capture and efficient damage tracking for X11 window sharing. `libayatana-appindicator-glib-dev` (available on Debian Testing / Ubuntu 25.04+) is optional and enables the system tray icon; pass `-DCASTMIRROR_REQUIRE_TRAY=ON` to fail configuration if it is missing. The build succeeds without optional packages.
 
 ## Configure and build
 
@@ -149,6 +149,7 @@ Config and logs: `~/.config/castmirror/config.json` and `~/.config/castmirror/ca
 ## Environment variables
 
 - `CASTMIRROR_FORCE_SOFTWARE_ENCODE=1`: Force FFmpeg `libx264` software encoding even on systems where VAAPI hardware encoding is available.
+- `CASTMIRROR_VAAPI_DEVICE=/dev/dri/renderD129`: Use one specific VAAPI render node instead of probing. Without it, CastMirror tries libva's autodetected device and then every `/dev/dri/renderD*` until one can open an H.264 encoder.
 - `CASTMIRROR_FORCE_X11=1`: Force X11 display capture instead of the PipeWire portal when running under a Wayland compositor via XWayland.
 - `CASTMIRROR_CONFIG_DIR=/path/to/dir`: Read and write `config.json` in this directory instead of the default per-user location (used by the test binary to keep test runs off your real settings).
 

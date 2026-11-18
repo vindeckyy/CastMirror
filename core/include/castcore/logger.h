@@ -49,7 +49,7 @@ class Logger {
   Logger();
   ~Logger();
 
-  LogLevel min_level_ = LogLevel::kInfo;
+  std::atomic<LogLevel> min_level_{LogLevel::kInfo};
   mutable std::mutex mutex_;
   std::ofstream file_stream_;
   std::ofstream session_stream_;

@@ -7,17 +7,19 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_DIR="$ROOT_DIR/build"
+BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build}"
 TLS_PORT=28009
 UDP_PORT=53533
 ENCODE_DURATION=60
 JOIN_DURATION=10
 DRY_RUN=0
 OUT_CSV="$ROOT_DIR/docs/bench/baseline.csv"
-ENCODE_LOG="/tmp/bench_encode.log"
-JOIN_LOG="/tmp/bench_join.log"
-RECEIVER_LOG="/tmp/bench_receiver.log"
+WORK_DIR="$(mktemp -d)"
+ENCODE_LOG="${WORK_DIR}/bench_encode.log"
+JOIN_LOG="${WORK_DIR}/bench_join.log"
+RECEIVER_LOG="${WORK_DIR}/bench_receiver.log"
 RECEIVER_PID=""
+ORIG_ARGS=("$@")
 
 # Colors for pretty output (disabled if not tty)
 if [[ -t 1 ]]; then
@@ -54,15 +56,23 @@ Outputs:
 EOF
 }
 
+need_val() {
+  if [[ $1 -lt 2 ]]; then
+    echo "Error: $2 requires a value." >&2
+    usage >&2
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run|--quick) DRY_RUN=1; shift ;;
-    --encode-duration) ENCODE_DURATION="$2"; shift 2 ;;
-    --join-duration) JOIN_DURATION="$2"; shift 2 ;;
-    --tls-port) TLS_PORT="$2"; shift 2 ;;
-    --udp-port) UDP_PORT="$2"; shift 2 ;;
-    --out) OUT_CSV="$2"; shift 2 ;;
-    --build-dir) BUILD_DIR="$2"; shift 2 ;;
+    --encode-duration) need_val $# "$1"; ENCODE_DURATION="$2"; shift 2 ;;
+    --join-duration) need_val $# "$1"; JOIN_DURATION="$2"; shift 2 ;;
+    --tls-port) need_val $# "$1"; TLS_PORT="$2"; shift 2 ;;
+    --udp-port) need_val $# "$1"; UDP_PORT="$2"; shift 2 ;;
+    --out) need_val $# "$1"; OUT_CSV="$2"; shift 2 ;;
+    --build-dir) need_val $# "$1"; BUILD_DIR="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -80,7 +90,9 @@ find_binary() {
   local name="$1"
   # Prefer explicit BUILD_DIR
   if [[ -x "$BUILD_DIR/tools/$name" ]]; then echo "$BUILD_DIR/tools/$name"; return 0; fi
+  if [[ -x "$ROOT_DIR/$BUILD_DIR/tools/$name" ]]; then echo "$ROOT_DIR/$BUILD_DIR/tools/$name"; return 0; fi
   if [[ -x "$ROOT_DIR/build/tools/$name" ]]; then echo "$ROOT_DIR/build/tools/$name"; return 0; fi
+  if [[ -x "$ROOT_DIR/build-swarm/tools/$name" ]]; then echo "$ROOT_DIR/build-swarm/tools/$name"; return 0; fi
   if [[ -x "$ROOT_DIR/build-asan/tools/$name" ]]; then echo "$ROOT_DIR/build-asan/tools/$name"; return 0; fi
   if command -v "$name" >/dev/null 2>&1; then command -v "$name"; return 0; fi
   return 1
@@ -119,8 +131,7 @@ cleanup() {
     kill -9 "$RECEIVER_PID" 2>/dev/null || true
     wait "$RECEIVER_PID" 2>/dev/null || true
   fi
-  # kill any leftover fake-receiver on bench ports
-  pkill -f "fake-receiver.*$TLS_PORT" 2>/dev/null || true
+  rm -rf "${WORK_DIR}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -130,7 +141,7 @@ ensure_build
 if [[ -z "${DISPLAY:-}" ]]; then
   if command -v xvfb-run >/dev/null 2>&1; then
     echo -e "${YELLOW}[bench] No DISPLAY, but xvfb-run available. If capture fails, re-run as:${RESET}"
-    echo "  xvfb-run -a bash scripts/bench_baseline.sh $@"
+    echo "  xvfb-run -a bash scripts/bench_baseline.sh ${ORIG_ARGS[*]:-}"
   else
     echo -e "${YELLOW}[bench] No DISPLAY and no xvfb-run - using Synthetic capture fallback${RESET}"
   fi
@@ -154,7 +165,7 @@ echo "[bench] [1/2] Running poc-encode ${ENCODE_DURATION}s 1080p60..."
 set +e
 if "$POC_ENCODE_BIN" --help 2>&1 | grep -q -- "--duration"; then
   # New CLI supports --preset and --duration and --json
-  ENCODE_JSON="/tmp/bench_encode.json"
+  ENCODE_JSON="${WORK_DIR}/bench_encode.json"
   timeout $((ENCODE_DURATION+20)) "$POC_ENCODE_BIN" --preset 1080p60 --duration "$ENCODE_DURATION" --json "$ENCODE_JSON" 2>&1 | tee "$ENCODE_LOG"
   ENC_EXIT=${PIPESTATUS[0]}
   # If --json failed, try without json
@@ -184,21 +195,15 @@ fi
 ENCODE_P50=""
 ENCODE_P95=""
 ENCODE_FPS=""
-ENCODE_AVG=""
 FRAMES=""
-BITRATE=""
-ENCODER=""
-BACKEND=""
 
 if [[ -n "${ENCODE_JSON:-}" && -f "$ENCODE_JSON" ]]; then
-  # Parse JSON via python or jq or grep
+  # Parse JSON via python
   if command -v python3 >/dev/null 2>&1; then
-    ENCODE_P50=$(python3 -c "import json; d=json.load(open('$ENCODE_JSON')); print(d.get('encode_ms_p50',0))" 2>/dev/null || echo "")
-    ENCODE_P95=$(python3 -c "import json; d=json.load(open('$ENCODE_JSON')); print(d.get('encode_ms_p95',0))" 2>/dev/null || echo "")
-    ENCODE_FPS=$(python3 -c "import json; d=json.load(open('$ENCODE_JSON')); print(d.get('fps_measured',0))" 2>/dev/null || echo "")
-    ENCODE_AVG=$(python3 -c "import json; d=json.load(open('$ENCODE_JSON')); print(d.get('encode_ms_avg',0))" 2>/dev/null || echo "")
-    FRAMES=$(python3 -c "import json; d=json.load(open('$ENCODE_JSON')); print(d.get('frames',0))" 2>/dev/null || echo "")
-    BITRATE=$(python3 -c "import json; d=json.load(open('$ENCODE_JSON')); print(d.get('bitrate_mbps',0))" 2>/dev/null || echo "")
+    ENCODE_P50=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('encode_ms_p50',0))" "$ENCODE_JSON" 2>/dev/null || echo "")
+    ENCODE_P95=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('encode_ms_p95',0))" "$ENCODE_JSON" 2>/dev/null || echo "")
+    ENCODE_FPS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('fps_measured',0))" "$ENCODE_JSON" 2>/dev/null || echo "")
+    FRAMES=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('frames',0))" "$ENCODE_JSON" 2>/dev/null || echo "")
   fi
 fi
 
@@ -240,9 +245,7 @@ fi
 ENCODE_P50=${ENCODE_P50:-0}
 ENCODE_P95=${ENCODE_P95:-0}
 ENCODE_FPS=${ENCODE_FPS:-0}
-ENCODE_AVG=${ENCODE_AVG:-$ENCODE_P50}
 FRAMES=${FRAMES:-0}
-BITRATE=${BITRATE:-0}
 
 # Ensure numeric
 if ! [[ "$ENCODE_P50" =~ ^[0-9.]+$ ]]; then ENCODE_P50=0; fi
@@ -289,7 +292,7 @@ echo "[bench] Fake receiver PID $RECEIVER_PID ready"
 # Run poc-join
 echo "[bench] Running poc-join against 127.0.0.1:$TLS_PORT for ${JOIN_DURATION}s..."
 set +e
-JOIN_JSON="/tmp/bench_join.json"
+JOIN_JSON="${WORK_DIR}/bench_join.json"
 if "$POC_JOIN_BIN" --help 2>&1 | grep -q -- "--duration"; then
   timeout $((JOIN_DURATION+15)) "$POC_JOIN_BIN" --ip 127.0.0.1 --port "$TLS_PORT" --duration "$JOIN_DURATION" --json "$JOIN_JSON" 2>&1 | tee "$JOIN_LOG"
   JOIN_EXIT=${PIPESTATUS[0]}
@@ -324,17 +327,15 @@ LOSS=""
 STOP_MS=""
 JOIN_FPS=""
 PACKETS=""
-JOIN_FRAMES=""
 
 if [[ -f "$JOIN_JSON" ]]; then
   if command -v python3 >/dev/null 2>&1; then
-    UDP_PPS=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('udp_pps',0))" 2>/dev/null || echo "")
-    RTT_MS=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('rtt_ms',0))" 2>/dev/null || echo "")
-    LOSS=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('loss_fraction',0))" 2>/dev/null || echo "")
-    STOP_MS=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('stop_ms',0))" 2>/dev/null || echo "")
-    JOIN_FPS=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('fps',0))" 2>/dev/null || echo "")
-    PACKETS=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('packets_sent',0))" 2>/dev/null || echo "")
-    JOIN_FRAMES=$(python3 -c "import json; d=json.load(open('$JOIN_JSON')); print(d.get('frames_sent',0))" 2>/dev/null || echo "")
+    UDP_PPS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('udp_pps',0))" "$JOIN_JSON" 2>/dev/null || echo "")
+    RTT_MS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('rtt_ms',0))" "$JOIN_JSON" 2>/dev/null || echo "")
+    LOSS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('loss_fraction',0))" "$JOIN_JSON" 2>/dev/null || echo "")
+    STOP_MS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('stop_ms',0))" "$JOIN_JSON" 2>/dev/null || echo "")
+    JOIN_FPS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('fps',0))" "$JOIN_JSON" 2>/dev/null || echo "")
+    PACKETS=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('packets_sent',0))" "$JOIN_JSON" 2>/dev/null || echo "")
   fi
 fi
 
@@ -399,24 +400,22 @@ LOSS=${LOSS:-0}
 STOP_MS=${STOP_MS:-0}
 JOIN_FPS=${JOIN_FPS:-0}
 PACKETS=${PACKETS:-0}
-JOIN_FRAMES=${JOIN_FRAMES:-0}
 
 # Sanitize numeric
 for v in UDP_PPS RTT_MS LOSS STOP_MS JOIN_FPS; do
-  val=$(eval echo \$$v)
+  val="${!v}"
   if ! [[ "$val" =~ ^[0-9.]+$ ]]; then
-    # allow 0.0 scientific? fallback 0
-    eval $v=0
+    printf -v "$v" 0
   fi
 done
 
 # If UDP_PPS still 0 but we have packets and duration, compute
 if [[ "$UDP_PPS" == "0" && "$PACKETS" != "0" && "$JOIN_DURATION" -gt 0 ]]; then
-  UDP_PPS=$(python3 -c "print(float('$PACKETS')/float('$JOIN_DURATION'))" 2>/dev/null || echo "0")
+  UDP_PPS=$(python3 -c "import sys; print(float(sys.argv[1])/float(sys.argv[2]))" "$PACKETS" "$JOIN_DURATION" 2>/dev/null || echo "0")
 fi
 if [[ "$UDP_PPS" == "0" && "$JOIN_FPS" != "0" ]]; then
   # Fallback approx: fps * ~2 packets per frame avg
-  UDP_PPS=$(python3 -c "print(float('$JOIN_FPS')*2)" 2>/dev/null || echo "0")
+  UDP_PPS=$(python3 -c "import sys; print(float(sys.argv[1])*2)" "$JOIN_FPS" 2>/dev/null || echo "0")
 fi
 
 echo "[bench] Join metrics: udp_pps=${UDP_PPS} rtt_ms=${RTT_MS} loss=${LOSS} stop_ms=${STOP_MS} fps=${JOIN_FPS} packets=${PACKETS}"
@@ -426,14 +425,12 @@ GIT_REV=$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 HOSTNAME=$(hostname 2>/dev/null || echo "unknown")
 # Encoder name from encode log
-ENCODER=$(echo "$CLEAN_ENCODE" | grep -oP 'Initialized Video Encoder:\s*\K[^\s(]+' | tail -n1 || echo "unknown")
-if [[ "$ENCODER" == "" ]]; then ENCODER=$(echo "$CLEAN_ENCODE" | grep -oP 'Video encoder:\s*\K[^\s]+' | tail -n1 || echo "unknown"); fi
-if [[ "$ENCODER" == "" ]]; then ENCODER="libx264"; fi
-BACKEND=$(echo "$CLEAN_ENCODE" | grep -oP 'Started .* Display Capture \(\K[^)]+' | tail -n1 || echo "$CLEAN_ENCODE" | grep -oP 'BackendName.*\K Synthetic|X11' | tail -n1 || echo "Synthetic")
+ENCODER=$(echo "$CLEAN_ENCODE" | grep -oP 'Initialized Video Encoder:\s*\K[^\s(]+' | tail -n1 || echo "")
+if [[ -z "$ENCODER" ]]; then ENCODER=$(echo "$CLEAN_ENCODE" | grep -oP 'Video encoder:\s*\K[^\s]+' | tail -n1 || echo ""); fi
+if [[ -z "$ENCODER" ]]; then ENCODER="libx264"; fi
+BACKEND=$(echo "$CLEAN_ENCODE" | grep -oP 'Started \K\S+(?= Display Capture)' | tail -n1 || echo "$CLEAN_ENCODE" | grep -oP 'BackendName.*\K(Synthetic|X11|Wayland)' | tail -n1 || echo "Synthetic")
 # Normalize backend
-if echo "$BACKEND" | grep -qi "Synthetic"; then BACKEND="Synthetic"; elif echo "$BACKEND" | grep -qi "X11"; then BACKEND="X11"; else BACKEND="Synthetic"; fi
-# Also try to get from encode log "Backend"
-if [[ "$BACKEND" == "" ]]; then BACKEND="Synthetic"; fi
+if echo "$BACKEND" | grep -qi "Wayland"; then BACKEND="Wayland"; elif echo "$BACKEND" | grep -qi "X11"; then BACKEND="X11"; else BACKEND="Synthetic"; fi
 
 # Decide fps to record: prefer encode fps, else join fps
 FPS_FINAL="$ENCODE_FPS"
@@ -457,13 +454,13 @@ else
     if echo "$EXISTING_HEADER" | grep -q "encode_ms_p50"; then
       echo -e "${YELLOW}[bench] Existing CSV has legacy header, updating to extended header (preserving rows)${RESET}"
       # Prepend extended columns with best guess
-      TMP_MIGRATE="/tmp/bench_migrate.csv"
+      TMP_MIGRATE="${WORK_DIR}/bench_migrate.csv"
       echo "$HEADER" > "$TMP_MIGRATE"
       tail -n +2 "$OUT_CSV" >> "$TMP_MIGRATE" 2>/dev/null || true
       # Note: legacy rows will be missing columns, but we keep them
       mv "$TMP_MIGRATE" "$OUT_CSV"
     else
-      echo "$HEADER" | cat - "$OUT_CSV" > "/tmp/bench_new.csv" && mv "/tmp/bench_new.csv" "$OUT_CSV" || echo "$HEADER" > "$OUT_CSV"
+      echo "$HEADER" | cat - "$OUT_CSV" > "${WORK_DIR}/bench_new.csv" && mv "${WORK_DIR}/bench_new.csv" "$OUT_CSV" || echo "$HEADER" > "$OUT_CSV"
     fi
   fi
 fi
@@ -482,9 +479,9 @@ echo "  $ROW"
 # Keep only last 100 rows to avoid unbounded growth (plus header)
 LINES=$(wc -l < "$OUT_CSV")
 if [[ "$LINES" -gt 101 ]]; then
-  head -n1 "$OUT_CSV" > "/tmp/bench_trim.csv"
-  tail -n 100 "$OUT_CSV" >> "/tmp/bench_trim.csv"
-  mv "/tmp/bench_trim.csv" "$OUT_CSV"
+  head -n1 "$OUT_CSV" > "${WORK_DIR}/bench_trim.csv"
+  tail -n 100 "$OUT_CSV" >> "${WORK_DIR}/bench_trim.csv"
+  mv "${WORK_DIR}/bench_trim.csv" "$OUT_CSV"
 fi
 
 # Also emit summary to stdout

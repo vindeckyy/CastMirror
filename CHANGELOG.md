@@ -3,6 +3,15 @@
 All notable changes to CastMirror. Versions follow [Semantic Versioning](https://semver.org/).
 
 
+## 1.0.4 - 2026-11-18
+
+### Fixed
+- Hybrid-graphics Linux VAAPI encoding no longer falls back to libx264 when a decode-only GPU node opens first. CastMirror now probes `/dev/dri/renderD*` through a full H.264 encoder open, and `CASTMIRROR_VAAPI_DEVICE` pins a specific node when needed.
+- Hardened networking, Cast protocol, discovery, and session lifecycle: thread-safe `GenerateNonce`, truncated mDNS TXT record bounds and `Stop()` thread joining (`subnet_thread_`), `CastChannel` socket/redaction fixes, and `CastEngine`/`CastSession` start-vs-stop cancellation (`stop_epoch_`, `channel_mutex_`, `stop_requested_`).
+- Fixed Linux and Windows media capture/encoder bugs: PulseAudio idle spin, adaptive bitrate ceiling and trend-margin accounting, encoder bitrate-only updates without teardown, Wayland stride bounds, and WASAPI/WGC capture error handling.
+- Fixed Linux GTK 4 GUI & CLI wiring (`BuildSessionOptions`, tray lifecycle, `--window` CLI handling, theme/layout polish) and WinUI 3 bugs (`TrayIconService` per-instance window class, `LogsViewModel` callback lifetime, `HotkeyService` 64-bit `wParam`, `DeviceItem.Monogram` char math, Light/HighContrast hero & radio brushes, OneWay `ListView` selection + `_activeDevice` tracking, live sparklines, and debounced delay persistence).
+- Fixed CMake (`BUILD_TESTING`, `LICENSE`/`NOTICE` install), packaging/CI scripts (`count_tests.py --check`, `render_device_matrix.sh --check`, `check_license_surface.sh --build-dir`, `run_soak_test.sh --fixture`), and added `ubuntu-tray` CI verification.
+
 ## 1.0.3 - 2026-11-17
 
 ### Fixed

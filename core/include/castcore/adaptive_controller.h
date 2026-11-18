@@ -92,6 +92,7 @@ class AdaptiveController {
   // Test helpers for fast simulation without long sleep
   void SetEvaluationIntervalMsForTest(int ms) { eval_interval_ms_ = ms; }
   void ResetEvalTimeForTest() {
+    std::lock_guard<std::recursive_mutex> state_lock(state_mutex_);
     last_eval_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(10);
     last_downshift_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(20);
   }

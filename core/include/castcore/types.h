@@ -10,6 +10,8 @@
 #include <memory>
 #include <functional>
 #include <cassert>
+#include <algorithm>
+#include <cctype>
 
 namespace castcore {
 
@@ -36,11 +38,18 @@ inline const char* QualityPresetToString(QualityPreset preset) {
 }
 
 inline QualityPreset QualityPresetFromString(const std::string& str) {
-  if (str == "High") return QualityPreset::kHigh;
-  if (str == "Balanced") return QualityPreset::kBalanced;
-  if (str == "Smooth") return QualityPreset::kSmooth;
-  if (str == "Game") return QualityPreset::kGame;
-  if (str == "Cinema") return QualityPreset::kCinema;
+  std::string lower;
+  lower.reserve(str.size());
+  for (unsigned char c : str) {
+    if (!std::isspace(c)) {
+      lower.push_back(static_cast<char>(std::tolower(c)));
+    }
+  }
+  if (lower == "high") return QualityPreset::kHigh;
+  if (lower == "balanced") return QualityPreset::kBalanced;
+  if (lower == "smooth") return QualityPreset::kSmooth;
+  if (lower == "game") return QualityPreset::kGame;
+  if (lower == "cinema") return QualityPreset::kCinema;
   return QualityPreset::kAuto;
 }
 
@@ -151,6 +160,21 @@ inline const char* VideoCodecToString(VideoCodec codec) {
     case VideoCodec::kAV1: return "av1";
   }
   return "h264";
+}
+
+inline VideoCodec VideoCodecFromString(const std::string& str) {
+  std::string lower;
+  lower.reserve(str.size());
+  for (unsigned char c : str) {
+    if (!std::isspace(c)) {
+      lower.push_back(static_cast<char>(std::tolower(c)));
+    }
+  }
+  if (lower == "vp8") return VideoCodec::kVP8;
+  if (lower == "vp9") return VideoCodec::kVP9;
+  if (lower == "hevc" || lower == "h265") return VideoCodec::kHEVC;
+  if (lower == "av1") return VideoCodec::kAV1;
+  return VideoCodec::kH264;
 }
 
 // Audio Codecs

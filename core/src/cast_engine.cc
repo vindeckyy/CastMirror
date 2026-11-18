@@ -15,6 +15,10 @@ namespace castcore {
 namespace {
 
 std::string CastmirrorConfigDir() {
+  const char* override_dir = std::getenv("CASTMIRROR_CONFIG_DIR");
+  if (override_dir && override_dir[0] != '\0') {
+    return override_dir;
+  }
 #if defined(_WIN32)
   const char* appdata = std::getenv("APPDATA");
   std::string home_dir = appdata ? appdata : "C:\\ProgramData";
@@ -135,9 +139,14 @@ bool CastEngine::Initialize() {
 }
 
 void CastEngine::Shutdown() {
+  std::lock_guard<std::mutex> init_lock(init_mutex_);
   if (!is_initialized_.exchange(false)) return;
 
   LOG_INFO << "Shutting down CastEngine...";
+  {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    ++stop_epoch_;
+  }
   StopCasting();
   discovery_.Stop();
   ConfigStore::Instance().Save();
@@ -157,16 +166,19 @@ std::vector<CastDevice> CastEngine::GetDevices() const {
 
 std::vector<DisplayInfo> CastEngine::GetDisplays() const {
   auto capturer = DisplayCaptureFactory::Create();
+  if (!capturer) return {};
   return capturer->EnumerateDisplays();
 }
 
 std::vector<WindowInfo> CastEngine::GetWindows() const {
   auto capturer = DisplayCaptureFactory::Create();
+  if (!capturer) return {};
   return capturer->EnumerateWindows();
 }
 
 bool CastEngine::WindowCaptureSupported() const {
   auto capturer = DisplayCaptureFactory::Create();
+  if (!capturer) return false;
   return capturer->SupportsWindowCapture();
 }
 
@@ -182,6 +194,12 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id, Qual
 
 bool CastEngine::StartCasting(const std::string& device_id, int display_id,
                               const SessionOptions& options) {
+  uint64_t entry_stop_epoch = 0;
+  {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    entry_stop_epoch = stop_epoch_;
+  }
+
   auto dev_opt = discovery_.FindDeviceById(device_id);
   if (!dev_opt.has_value()) {
     dev_opt = discovery_.FindDeviceByIp(device_id);
@@ -219,9 +237,13 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id,
   }
 
   if (!dev_opt.has_value()) {
-    last_error_ =
+    const std::string err =
         "Target device not found: " + device_id + ". Please verify the TV is online or add by IP.";
-    LOG_ERROR << last_error_;
+    {
+      std::lock_guard<std::mutex> lock(callbacks_mutex_);
+      last_error_ = err;
+    }
+    LOG_ERROR << err;
     return false;
   }
   CastDevice dev = dev_opt.value();
@@ -232,6 +254,28 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id,
              << dev.ip_address;
     dev.port = 8009;
     discovery_.AddOrUpdateDevice(dev);
+  }
+
+  // Cancel any in-flight start or active session outside start_mutex_ and
+  // engine_mutex_ (Stop() fires state callbacks and unblocks Start()), then
+  // serialize session construction/start so two concurrent StartCasting() calls
+  // never race on StateMachine or session logging.
+  {
+    std::shared_ptr<CastSession> previous;
+    {
+      std::lock_guard<std::mutex> lock(engine_mutex_);
+      previous = std::move(active_session_);
+    }
+    if (previous) previous->Stop();
+  }
+  std::lock_guard<std::mutex> start_lock(start_mutex_);
+  {
+    std::shared_ptr<CastSession> previous;
+    {
+      std::lock_guard<std::mutex> lock(engine_mutex_);
+      previous = std::move(active_session_);
+    }
+    if (previous) previous->Stop();
   }
 
   auto& cfg = ConfigStore::Instance().Mutable();
@@ -262,16 +306,6 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id,
   }
   ConfigStore::Instance().Save();
 
-  // Retire any session still registered (a Failed one lingers until the next
-  // start), outside engine_mutex_ because Stop() fires state callbacks.
-  std::shared_ptr<CastSession> previous;
-  {
-    std::lock_guard<std::mutex> lock(engine_mutex_);
-    previous = std::move(active_session_);
-  }
-  if (previous) previous->Stop();
-  previous.reset();
-
   EnterSessionLogging();
   auto session = std::make_shared<CastSession>(state_machine_);
   session->SetDeviceLookup([this](const std::string& id, const std::string& ip) {
@@ -289,6 +323,12 @@ bool CastEngine::StartCasting(const std::string& device_id, int display_id,
   }
   {
     std::lock_guard<std::mutex> lock(engine_mutex_);
+    if (stop_epoch_ != entry_stop_epoch) {
+      LOG_INFO
+          << "StartCasting cancelled by concurrent StopCasting/Shutdown before session publish";
+      LeaveSessionLogging();
+      return false;
+    }
     active_session_ = session;
   }
 
@@ -318,24 +358,17 @@ bool CastEngine::StartCasting(const std::string& device_id, const CaptureSource&
 bool CastEngine::StartCastingLastDevice() {
   const auto& cfg = ConfigStore::Instance().Get();
   if (cfg.last_device_id.empty() && cfg.last_device_ip.empty()) {
-    LOG_WARN << "No previous Cast device found in config.";
+    const std::string err = "No previous Cast device found in config.";
+    {
+      std::lock_guard<std::mutex> lock(callbacks_mutex_);
+      last_error_ = err;
+    }
+    LOG_WARN << err;
     return false;
   }
 
   std::string target = !cfg.last_device_id.empty() ? cfg.last_device_id : cfg.last_device_ip;
-  SessionOptions options;
-  options.preset = cfg.quality_preset;
-  options.enable_audio = cfg.audio_enabled;
-  options.video_bitrate_kbps = cfg.GetPresetBitrateKbps(cfg.quality_preset);
-  options.audio_bitrate_bps = cfg.audio_bitrate_bps;
-  options.capture_fps = cfg.capture_fps;
-  options.target_delay_ms = cfg.target_delay_ms;
-  options.silence_host_speakers = cfg.silence_host_speakers;
-  options.show_cursor = cfg.show_cursor;
-  options.audio_process_name = cfg.audio_process_name;
-  options.reconnect_window_s = cfg.reconnect_window_s;
-  options.adaptive_resolution_enabled = cfg.adaptive_resolution_enabled;
-  options.adaptive_enabled = cfg.adaptive_enabled;
+  SessionOptions options = BuildSessionOptions(cfg);
 
   // Rebuild the last capture source. For windows the persisted id is not
   // stable across restarts, so try to re-resolve by name; if not found, fall
@@ -376,6 +409,7 @@ void CastEngine::StopCasting() {
   std::shared_ptr<CastSession> session;
   {
     std::lock_guard<std::mutex> lock(engine_mutex_);
+    ++stop_epoch_;
     session = std::move(active_session_);
   }
   if (session) {

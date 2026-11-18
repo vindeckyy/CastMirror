@@ -16,7 +16,6 @@ namespace CastMirror.ViewModels
         private string _name = string.Empty;
         private string _modelName = string.Empty;
         private string _statusText = "Ready";
-        private bool _isSelected;
 
         public string Id { get; set; } = string.Empty;
 
@@ -71,13 +70,6 @@ namespace CastMirror.ViewModels
             set { if (_modelName == value) return; _modelName = value; OnPropertyChanged(); }
         }
 
-        /// <summary>True while this row is the one the primary action will cast to.</summary>
-        public bool IsSelected
-        {
-            get => _isSelected;
-            set { if (_isSelected == value) return; _isSelected = value; OnPropertyChanged(); }
-        }
-
         public string StatusText
         {
             get => _statusText;
@@ -91,7 +83,7 @@ namespace CastMirror.ViewModels
             {
                 var words = (Name ?? string.Empty)
                     .Split(new[] { ' ', '-', '_' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Where(w => char.IsLetterOrDigit(w[0]))
+                    .Where(w => w.Length > 0 && char.IsLetterOrDigit(w[0]))
                     .ToList();
                 if (words.Count == 0) return "?";
                 if (words.Count == 1)
@@ -99,9 +91,9 @@ namespace CastMirror.ViewModels
                     string only = words[0];
                     return only.Length == 1
                         ? only.ToUpperInvariant()
-                        : (char.ToUpperInvariant(only[0]) + only[1]).ToString();
+                        : string.Concat(char.ToUpperInvariant(only[0]), char.ToUpperInvariant(only[1]));
                 }
-                return (char.ToUpperInvariant(words[0][0]) + char.ToUpperInvariant(words[1][0])).ToString();
+                return string.Concat(char.ToUpperInvariant(words[0][0]), char.ToUpperInvariant(words[1][0]));
             }
         }
 
@@ -176,11 +168,7 @@ namespace CastMirror.ViewModels
             set
             {
                 if (ReferenceEquals(_selectedDevice, value)) return;
-                // The card ring is driven by the row, so the old and new rows
-                // both have to hear about it.
-                if (_selectedDevice != null) _selectedDevice.IsSelected = false;
                 _selectedDevice = value;
-                if (value != null) value.IsSelected = true;
                 // I remember the IP of the device I picked. A null pick does
                 // not clear it: that is how I find the same TV again after
                 // it drops out and comes back.
@@ -194,6 +182,10 @@ namespace CastMirror.ViewModels
                 OnPropertyChanged(nameof(SessionSubtitle));
             }
         }
+
+        private DeviceItem? _activeDevice;
+        /// <summary>The device currently being cast to, or null when idle.</summary>
+        public DeviceItem? ActiveDevice => _activeDevice;
 
         private SourceItem? _selectedSource;
         public SourceItem? SelectedSource
@@ -373,7 +365,7 @@ namespace CastMirror.ViewModels
         }
 
         /// <summary>True when a search is active and nothing matched, so the grid shows its empty state.</summary>
-        public bool HasNoSearchResults => _searchText.Trim().Length > 0 && !VisibleDevices.Any();
+        public bool HasNoSearchResults => Devices.Count > 0 && _searchText.Trim().Length > 0 && !VisibleDevices.Any();
 
         /// <summary>What the user picked in Casting Options: a whole display or one window.</summary>
         public enum CastMode
@@ -446,23 +438,10 @@ namespace CastMirror.ViewModels
         {
             get
             {
-                if (IsStreaming) return Localizer.Format("Streaming to {0}.", TargetDeviceName);
+                if (IsStreaming) return Localizer.Format("Streaming to {0}.", _activeDevice?.Name ?? TargetDeviceName);
                 if (IsSessionActive) return Localizer.T("Negotiating with the device.");
                 if (SelectedDevice == null) return Localizer.T("Pick a device to begin.");
                 return Localizer.Format("Ready to cast to {0}.", TargetDeviceName);
-            }
-        }
-
-        /// <summary>Greets the signed-in user in the title bar, e.g. "Hello, HB".</summary>
-        public string GreetingText
-        {
-            get
-            {
-                string name = Environment.UserName ?? string.Empty;
-                string first = name.Split('\\', ' ').FirstOrDefault() ?? string.Empty;
-                if (first.Length == 0) return Localizer.T("Hello");
-                if (first.Length > 1) first = (char.ToUpperInvariant(first[0]) + first.Substring(1)).ToString();
-                return Localizer.Format("Hello, {0}", first);
             }
         }
 
@@ -486,7 +465,7 @@ namespace CastMirror.ViewModels
         {
             get
             {
-                string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.3";
+                string version = typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "1.0.4";
                 return "v" + version;
             }
         }
@@ -803,6 +782,25 @@ namespace CastMirror.ViewModels
             }
         }
 
+        public async Task CastToDeviceAsync(DeviceItem device)
+        {
+            if (!_nativeAvailable || CastPending || device == null) return;
+            if (IsSessionActive)
+            {
+                if (_activeDevice != null && _activeDevice.Id == device.Id)
+                {
+                    await StopCastAsync();
+                    return;
+                }
+                SelectedDevice = device;
+                await StopCastAsync();
+                await StartCastAsync();
+                return;
+            }
+            SelectedDevice = device;
+            await StartCastAsync();
+        }
+
         private async Task StartCastAsync()
         {
             DeviceItem? device = SelectedDevice;
@@ -818,6 +816,7 @@ namespace CastMirror.ViewModels
                 return;
             }
 
+            _activeDevice = device;
             CastPending = true;
             ErrorMessage = string.Empty;
             StatusMessage = Localizer.Format("Connecting to {0}...", device.Name);
@@ -852,6 +851,7 @@ namespace CastMirror.ViewModels
 
             if (!ok)
             {
+                _activeDevice = null;
                 ErrorMessage = error;
                 StatusMessage = Localizer.T("Could not start casting.");
             }
@@ -958,6 +958,8 @@ namespace CastMirror.ViewModels
         {
             _bitrateCommitTimer?.Stop();
             CommitBitrate();
+            _delayCommitTimer?.Stop();
+            CommitTargetDelay();
             _disposed = true;
             try
             {
@@ -1027,14 +1029,16 @@ namespace CastMirror.ViewModels
                 ResetLiveToggles();
             }
 
+            string deviceName = _activeDevice?.Name ?? SelectedDevice?.Name ?? Localizer.T("the TV");
             if (state == CastMirrorState.Reconnecting && previous != CastMirrorState.Reconnecting)
             {
                 NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Connection lost"),
-                    Localizer.Format("Reconnecting to {0}.", SelectedDevice?.Name ?? Localizer.T("the TV")));
+                    Localizer.Format("Reconnecting to {0}.", deviceName));
             }
 
             if (state == CastMirrorState.Failed)
             {
+                _activeDevice = null;
                 ErrorMessage = ReadLastError() ?? Localizer.T("The cast session failed.");
                 StatusMessage = Localizer.T("Connection failed. Check the TV and try again.");
                 NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Casting failed"), ErrorMessage, "cast-failed");
@@ -1042,7 +1046,7 @@ namespace CastMirror.ViewModels
             else if (state == CastMirrorState.Streaming)
             {
                 if (!string.IsNullOrEmpty(message)) StatusMessage = message;
-                else StatusMessage = Localizer.Format("Streaming to {0}.", SelectedDevice?.Name ?? Localizer.T("the TV"));
+                else StatusMessage = Localizer.Format("Streaming to {0}.", deviceName);
                 if (!wasStreaming)
                 {
                     NotificationService.Notify(Settings.NotifyOnEvents, Localizer.T("Casting started"), StatusMessage);
@@ -1050,6 +1054,7 @@ namespace CastMirror.ViewModels
             }
             else if (state == CastMirrorState.Idle)
             {
+                _activeDevice = null;
                 ResetStats();
                 if (!HasError) StatusMessage = Localizer.T("Ready when you are.");
                 if (wasActive)
@@ -1120,6 +1125,7 @@ namespace CastMirror.ViewModels
             incoming.AddRange(_manualDevices);
 
             bool changed = false;
+            bool metadataChanged = false;
             for (int i = Devices.Count - 1; i >= 0; --i)
             {
                 if (!incoming.Any(d => d.Id == Devices[i].Id))
@@ -1138,6 +1144,12 @@ namespace CastMirror.ViewModels
                 }
                 else
                 {
+                    if (existing.Name != device.Name ||
+                        existing.ModelName != device.ModelName ||
+                        existing.IpAddress != device.IpAddress)
+                    {
+                        metadataChanged = true;
+                    }
                     existing.Name = device.Name;
                     existing.ModelName = device.ModelName;
                     existing.IpAddress = device.IpAddress;
@@ -1196,6 +1208,11 @@ namespace CastMirror.ViewModels
             {
                 NoDevicesFound = false;
                 NotifyDeviceListChanged();
+            }
+            else if (metadataChanged && _searchText.Trim().Length > 0)
+            {
+                OnPropertyChanged(nameof(VisibleDevices));
+                OnPropertyChanged(nameof(HasNoSearchResults));
             }
         }
 
@@ -1403,12 +1420,40 @@ namespace CastMirror.ViewModels
             }
         }
 
+        private DispatcherQueueTimer? _delayCommitTimer;
+        private int _pendingDelayMs;
+        private bool _delayCommitPending;
+
         public void ApplyTargetDelay(int delayMs)
         {
             Settings.TargetDelayMs = delayMs;
+            _pendingDelayMs = delayMs;
+            _delayCommitPending = true;
+
+            if (_dispatcher == null)
+            {
+                CommitTargetDelay();
+                return;
+            }
+            if (_delayCommitTimer == null)
+            {
+                _delayCommitTimer = _dispatcher.CreateTimer();
+                _delayCommitTimer.Interval = TimeSpan.FromMilliseconds(250);
+                _delayCommitTimer.IsRepeating = false;
+                _delayCommitTimer.Tick += (_, _) => CommitTargetDelay();
+            }
+            _delayCommitTimer.Stop();
+            _delayCommitTimer.Start();
+        }
+
+        private void CommitTargetDelay()
+        {
+            if (!_delayCommitPending) return;
+            _delayCommitPending = false;
             PersistSettings();
             if (_nativeAvailable && IsSessionActive)
             {
+                int delayMs = _pendingDelayMs;
                 TryNative(() => CastCoreBridge.castmirror_set_playout_delay(delayMs));
             }
         }
@@ -1628,8 +1673,10 @@ namespace CastMirror.ViewModels
                 LogError(ex);
                 return;
             }
-            PresetIndex = PresetIndexOf(Settings.QualityPreset);
-            AudioEnabled = Settings.AudioEnabled;
+            _presetIndex = PresetIndexOf(Settings.QualityPreset);
+            OnPropertyChanged(nameof(PresetIndex));
+            _audioEnabled = Settings.AudioEnabled;
+            OnPropertyChanged(nameof(AudioEnabled));
             OnPropertyChanged(nameof(SteadyFrameRate));
             OnPropertyChanged(nameof(BitrateCapKbps));
             OnPropertyChanged(nameof(BitrateCapText));
@@ -1666,8 +1713,8 @@ namespace CastMirror.ViewModels
                 ShowFirstRun = true;
             }
 
-            PresetIndex = PresetIndexOf(Settings.QualityPreset);
-            AudioEnabled = Settings.AudioEnabled;
+            _presetIndex = PresetIndexOf(Settings.QualityPreset);
+            _audioEnabled = Settings.AudioEnabled;
             _pendingLastDeviceId = Settings.LastDeviceId ?? string.Empty;
             _pendingLastSourceKind = Settings.LastSourceKind ?? string.Empty;
             _pendingLastSourceId = Settings.LastSourceId;
@@ -1680,16 +1727,31 @@ namespace CastMirror.ViewModels
                 : (int)CastMirrorQualityPreset.Auto;
         }
 
+        /// <summary>Last persistence error message, or null when the last save succeeded.</summary>
+        public string? LastSaveError { get; private set; }
+
         private void PersistSettings()
         {
             // Never persist a fallback DTO: after a failed Load the in-memory
             // settings are defaults, and saving them would wipe the user's
             // engine configuration. Unblocked by the next successful Load.
-            if (!_nativeAvailable || !_settingsLoaded) return;
+            if (!_nativeAvailable)
+            {
+                LastSaveError = null;
+                return;
+            }
+            if (!_settingsLoaded)
+            {
+                LastSaveError = Localizer.T("Settings could not be loaded at startup; changes were not saved.");
+                return;
+            }
             if (!SettingsService.Save(Settings))
             {
-                ErrorMessage = "Could not save settings.";
+                LastSaveError = Localizer.T("Could not save settings.");
+                ErrorMessage = LastSaveError;
+                return;
             }
+            LastSaveError = null;
         }
 
         private void TryNative(Action action)

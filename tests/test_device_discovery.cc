@@ -7,9 +7,12 @@
 
 #include <gtest/gtest.h>
 #include "castcore/device_discovery.h"
+#include "castcore/config.h"
 
+#include <chrono>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace castcore;
@@ -475,4 +478,70 @@ TEST(DeviceDiscoveryTest, ShouldSettleDiscoveryNeedsStabilityAndDevices) {
   EXPECT_TRUE(DeviceDiscovery::ShouldSettleDiscovery(10, 1u));
   EXPECT_TRUE(DeviceDiscovery::ShouldSettleDiscovery(11, 2u));
   EXPECT_EQ(DeviceDiscovery::kSettleUnchangedRounds, 10);
+}
+
+TEST(DeviceDiscoveryTest, ProcessMdnsResponseHandlesNullAndTruncatedTxtLength) {
+  DeviceDiscovery discovery;
+  discovery.ProcessMdnsResponse(nullptr, 128, "10.0.0.1");
+  EXPECT_TRUE(discovery.GetDevices().empty());
+
+  // TXT RR with an entry length (50) exceeding the remaining RDLENGTH (6):
+  // must break out of TXT parsing cleanly without reading garbage bytes as lengths.
+  std::vector<uint8_t> pkt = MdnsHeader(0, 1, 0, 0);
+  AppendName(pkt, kInstance);
+  AppendU16(pkt, 16);  // TXT
+  AppendU16(pkt, 0x8001);
+  AppendU32(pkt, 120);
+  AppendU16(pkt, 6);  // RDLENGTH = 6
+  pkt.push_back(50);  // truncated entry length > remaining 5 bytes
+  pkt.push_back('i');
+  pkt.push_back('d');
+  pkt.push_back('=');
+  pkt.push_back('a');
+  pkt.push_back('b');
+
+  discovery.ProcessMdnsResponse(pkt.data(), pkt.size(), "192.168.7.99");
+  EXPECT_TRUE(discovery.GetDevices().empty());
+}
+
+TEST(DeviceDiscoveryTest, RemoveDeviceClearsMdnsTracking) {
+  DeviceDiscovery discovery;
+  std::vector<uint8_t> pkt = MdnsHeader(0, 2, 0, 0);
+  AppendSrvRecord(pkt, kInstance, 8009);
+  AppendTxtRecord(pkt, kInstance, {"id=shared-id", "fn=TV"});
+  discovery.ProcessMdnsResponse(pkt.data(), pkt.size(), "192.168.7.77");
+  ASSERT_EQ(discovery.GetDevices().size(), 1u);
+
+  discovery.RemoveDevice("shared-id");
+  ASSERT_TRUE(discovery.GetDevices().empty());
+
+  CastDevice manual;
+  manual.id = "shared-id";
+  manual.name = "Manual TV";
+  manual.ip_address = "192.168.7.77";
+  manual.port = 8009;
+  discovery.AddOrUpdateDevice(manual);
+
+  const auto now = std::chrono::steady_clock::now();
+  EXPECT_EQ(discovery.ExpireStaleDevices(now + std::chrono::minutes(11), std::chrono::minutes(10)),
+            0u);
+  EXPECT_EQ(discovery.GetDevices().size(), 1u);
+}
+
+TEST(DeviceDiscoveryTest, TriggerScanAndStopJoinThreadsCleanly) {
+  auto& cfg = ConfigStore::Instance().Mutable();
+  const bool prev_subnet = cfg.subnet_scan_enabled;
+  cfg.subnet_scan_enabled = true;
+  struct RestoreCfg {
+    bool prev;
+    ~RestoreCfg() { ConfigStore::Instance().Mutable().subnet_scan_enabled = prev; }
+  } restore{prev_subnet};
+
+  DeviceDiscovery discovery;
+  ASSERT_TRUE(discovery.Start());
+  discovery.TriggerScan();
+  discovery.TriggerScan();
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  discovery.Stop();
+  EXPECT_FALSE(discovery.IsRunning());
 }

@@ -48,6 +48,7 @@ class GuiApp {
   void SyncFreeze(bool frozen);
   void SyncMute(bool muted);
   void SyncBitrateSlider(uint32_t kbps);
+  void SyncDelaySlider(int delay_ms);
 
   bool IsFreezeActive() const { return freeze_active_; }
   bool IsMuteActive() const { return mute_active_; }
@@ -80,8 +81,7 @@ class GuiApp {
   void SaveWindowGeometry();
   void UpdateViewLiveVisibility();
   void SetFooterStatus(const std::string& text);
-  void ApplyPrimaryAction(const char* label, const char* icon_name, bool destructive,
-                          bool sensitive);
+  void ApplyPrimaryAction(const char* label, const char* icon_name, bool destructive);
   void PresentAlert(const char* heading, const char* body);
   void ShowAboutDialog();
   void OpenConfigFolder();

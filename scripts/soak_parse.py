@@ -80,7 +80,7 @@ STATS_RE = re.compile(
 )
 RUNG_INIT_RE = re.compile(
     r"Initialized Adaptive Controller at Ladder Rung (\d+)"
-    r"\s*\((\d+)x(\d+)@([\d.]+)fps,\s*(\d+)\s*kbps,\s*target_delay=(\d+)ms\)"
+    r"\s*\((\d+)x(\d+)\s*@\s*([\d.]+)fps,\s*(\d+)\s*kbps,\s*target_delay=(\d+)ms\)"
 )
 RUNG_DOWN_RE = re.compile(r"Adaptive bitrate downshift -> (\d+) kbps \(rung (\d+)\)(.*)")
 RUNG_EMERG_RE = re.compile(r"Emergency bitrate downshift -> (\d+) kbps \(rung (\d+)\)(.*)")
@@ -198,6 +198,8 @@ def parse_log(path: str):
         rel_ms = None
         if base_ms is not None and first_ts is not None:
             rel_ms = base_ms - ts_to_ms(first_ts)
+            if rel_ms < 0:
+                rel_ms += 86_400_000
 
         m = LIVE_RE.search(body)
         if m:
@@ -400,7 +402,7 @@ def build_record(args):
     if not app_id and events["app_ids"]:
         # Only trust an 8-hex token that looks like a Cast mirroring app id.
         for cand in events["app_ids"]:
-            if cand.upper().startswith("0F5096E8") or cand.upper() == "0F5096E8":
+            if cand.upper() in ("0F5096E8", "85CDB22F"):
                 app_id = cand.upper()
                 break
 
@@ -560,10 +562,16 @@ def main(argv):
     args = ap.parse_args(argv)
     record = build_record(args)
 
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(record, fh, indent=2, sort_keys=False)
         fh.write("\n")
     if args.summary:
+        sum_dir = os.path.dirname(os.path.abspath(args.summary))
+        if sum_dir:
+            os.makedirs(sum_dir, exist_ok=True)
         with open(args.summary, "w", encoding="utf-8") as fh:
             fh.write(render_summary(record))
     sys.stderr.write("[soak_parse] wrote %s (synthetic=%s, not_measured=%d)\n" % (

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(CastMirror VERSION 1.0.3 LANGUAGES CXX C)
+project(CastMirror VERSION 1.0.4 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,7 +12,10 @@ else()
     add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 endif()
 
-enable_testing()
+option(BUILD_TESTING "Build the test suite" ON)
+if(BUILD_TESTING)
+    enable_testing()
+endif()
 include(GNUInstallDirs)
 
 # The GTK desktop application is the Linux UI. Windows ships the WinUI 3 client
@@ -148,12 +151,16 @@ file(WRITE "${CASTMIRROR_CHANGELOG_FILE}" "${CASTMIRROR_CHANGELOG_TEXT}")
 install(FILES "${CASTMIRROR_CHANGELOG_FILE}"
         DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/${CPACK_PACKAGE_NAME}"
         RENAME changelog)
+install(FILES "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_SOURCE_DIR}/NOTICE"
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/${CPACK_PACKAGE_NAME}")
 
 # Subdirectories
 add_subdirectory(core)
 add_subdirectory(tools)
 add_subdirectory(app)
-add_subdirectory(tests)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 
 # The GTK/adwaita and AppIndicator sonames are part of the shipped binaries, so
 # dpkg-shlibdeps resolves their packages (CPACK_DEBIAN_PACKAGE_SHLIBDEPS above).

@@ -9,16 +9,6 @@ struct SwsContext;
 
 namespace castcore {
 
-struct ProcessedVideoFrame {
-  int width = 0;
-  int height = 0;
-  std::vector<uint8_t> y_plane;
-  std::vector<uint8_t> uv_plane;  // NV12 or U+V for YUV420p
-  int y_stride = 0;
-  int uv_stride = 0;
-  std::chrono::steady_clock::time_point timestamp;
-};
-
 // CPU color conversion (libswscale) from BGRA capture to encoder input.
 // Despite the historical name this stays on libswscale until a real GPU
 // backend exists. Conversion letterboxes the source inside the destination:

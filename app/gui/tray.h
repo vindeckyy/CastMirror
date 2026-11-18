@@ -2,6 +2,7 @@
 #define CASTMIRROR_GUI_TRAY_H_
 
 #include <gio/gio.h>
+#include <atomic>
 #include <string>
 #include <thread>
 #include "castcore/types.h"
@@ -16,8 +17,6 @@ class TrayManager {
   ~TrayManager();
 
   bool IsAvailable() const;
-  bool IsCreated() const { return created_; }
-  bool IsConnected() const { return connected_; }
   bool CanHideToTray() const { return created_ && connected_; }
 
   void CreateIndicator();
@@ -43,6 +42,7 @@ class TrayManager {
   bool connected_ = false;
   std::string current_stop_label_;
   std::thread cast_last_thread_;
+  std::atomic<bool> cast_last_in_flight_{false};
 };
 
 }  // namespace castcore::gui

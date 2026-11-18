@@ -16,7 +16,6 @@ bool SessionRecovery::StartRecovery(const std::string& reason) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (is_recovering_.load()) return false;
   is_recovering_ = true;
-  reason_ = reason;
   attempt_count_ = 0;
   recovery_start_time_ = std::chrono::steady_clock::now();
   LOG_WARN << "Starting Session Recovery (Max Timeout: " << max_timeout_seconds_

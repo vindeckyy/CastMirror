@@ -3,10 +3,13 @@
 
 #include "castcore/types.h"
 #include <nlohmann/json_fwd.hpp>
-#include <string>
-#include <memory>
+#include <atomic>
+#include <cstdint>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
 
 namespace castcore {
 
@@ -45,7 +48,6 @@ struct AppConfig {
   uint32_t bitrate_kbps_cinema = 0;
   bool enable_tray_on_startup = false;
   bool low_latency_mode = false;
-  bool capture_border_hint = true;
   int capture_fps = 0;  // 0 = auto from display
   uint32_t audio_bitrate_bps = 192000;
   bool silence_host_speakers = true;
@@ -138,12 +140,17 @@ class ConfigStore {
   bool Load(const std::string& custom_path = "");
   bool Save(const std::string& custom_path = "");
 
+  uint64_t Revision() const { return revision_.load(std::memory_order_acquire); }
+  void BumpRevision() { revision_.fetch_add(1, std::memory_order_release); }
+
   static std::string GetDefaultConfigPath();
 
  private:
   ConfigStore();
   AppConfig config_;
   std::string config_path_;
+  mutable std::mutex io_mutex_;
+  std::atomic<uint64_t> revision_{0};
 };
 
 }  // namespace castcore

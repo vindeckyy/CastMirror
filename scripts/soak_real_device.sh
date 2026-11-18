@@ -59,6 +59,7 @@ Glass-to-glass latency (EXTERNAL CAMERA ONLY -- not measured by this tool):
 
 Output:
   --out-dir <dir>          Run record directory (default docs/bench/device_runs)
+  --build-dir <dir>        Build directory to locate castmirror binary
   --meta <file.json>       Metadata sidecar; overrides the flags above
 
 Control:
@@ -84,29 +85,38 @@ G2G_MS=""
 G2G_METHOD=""
 G2G_UNCERTAINTY_MS=""
 OUT_DIR="${REPO_ROOT}/docs/bench/device_runs"
+BUILD_DIR="${BUILD_DIR:-}"
 META=""
 SKIP_APPID_CHECK=0
 DRY_RUN=0
 
+need_val() {
+  if [[ $1 -lt 2 ]]; then
+    echo "Error: $2 requires a value." >&2
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --device) TARGET_DEVICE="$2"; shift 2 ;;
-    --preset) PRESET="$2"; shift 2 ;;
-    --bitrate) BITRATE="$2"; shift 2 ;;
-    --delay) DELAY="$2"; shift 2 ;;
-    --window) WINDOW_ID="$2"; shift 2 ;;
-    --duration) DURATION_MIN="$2"; shift 2 ;;
-    --model) MODEL="$2"; shift 2 ;;
-    --md) MD="$2"; shift 2 ;;
-    --firmware) FIRMWARE="$2"; shift 2 ;;
-    --band) BAND="$2"; shift 2 ;;
-    --distance) DISTANCE="$2"; shift 2 ;;
-    --app-id) APP_ID="$2"; shift 2 ;;
-    --g2g-ms) G2G_MS="$2"; shift 2 ;;
-    --g2g-method) G2G_METHOD="$2"; shift 2 ;;
-    --g2g-uncertainty-ms) G2G_UNCERTAINTY_MS="$2"; shift 2 ;;
-    --out-dir) OUT_DIR="$2"; shift 2 ;;
-    --meta) META="$2"; shift 2 ;;
+    --device) need_val $# "$1"; TARGET_DEVICE="$2"; shift 2 ;;
+    --preset) need_val $# "$1"; PRESET="$2"; shift 2 ;;
+    --bitrate) need_val $# "$1"; BITRATE="$2"; shift 2 ;;
+    --delay) need_val $# "$1"; DELAY="$2"; shift 2 ;;
+    --window) need_val $# "$1"; WINDOW_ID="$2"; shift 2 ;;
+    --duration) need_val $# "$1"; DURATION_MIN="$2"; shift 2 ;;
+    --model) need_val $# "$1"; MODEL="$2"; shift 2 ;;
+    --md) need_val $# "$1"; MD="$2"; shift 2 ;;
+    --firmware) need_val $# "$1"; FIRMWARE="$2"; shift 2 ;;
+    --band) need_val $# "$1"; BAND="$2"; shift 2 ;;
+    --distance) need_val $# "$1"; DISTANCE="$2"; shift 2 ;;
+    --app-id) need_val $# "$1"; APP_ID="$2"; shift 2 ;;
+    --g2g-ms) need_val $# "$1"; G2G_MS="$2"; shift 2 ;;
+    --g2g-method) need_val $# "$1"; G2G_METHOD="$2"; shift 2 ;;
+    --g2g-uncertainty-ms) need_val $# "$1"; G2G_UNCERTAINTY_MS="$2"; shift 2 ;;
+    --out-dir) need_val $# "$1"; OUT_DIR="$2"; shift 2 ;;
+    --build-dir) need_val $# "$1"; BUILD_DIR="$2"; shift 2 ;;
+    --meta) need_val $# "$1"; META="$2"; shift 2 ;;
     --skip-appid-check) SKIP_APPID_CHECK=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -137,12 +147,24 @@ fi
 
 find_binary() {
   local name="$1"
-  for cand in \
-      "${CASTMIRROR_BIN:-}" \
-      "${REPO_ROOT}/build/app/${name}" \
-      "${REPO_ROOT}/build/app/${name}.exe" \
-      "${REPO_ROOT}/build-asan/app/${name}" \
-      "${REPO_ROOT}/build-asan/app/${name}.exe"; do
+  local cands=( "${CASTMIRROR_BIN:-}" )
+  if [[ -n "${BUILD_DIR}" ]]; then
+    cands+=(
+      "${BUILD_DIR}/app/${name}"
+      "${BUILD_DIR}/app/${name}.exe"
+      "${REPO_ROOT}/${BUILD_DIR}/app/${name}"
+      "${REPO_ROOT}/${BUILD_DIR}/app/${name}.exe"
+    )
+  fi
+  cands+=(
+    "${REPO_ROOT}/build/app/${name}"
+    "${REPO_ROOT}/build/app/${name}.exe"
+    "${REPO_ROOT}/build-swarm/app/${name}"
+    "${REPO_ROOT}/build-swarm/app/${name}.exe"
+    "${REPO_ROOT}/build-asan/app/${name}"
+    "${REPO_ROOT}/build-asan/app/${name}.exe"
+  )
+  for cand in "${cands[@]}"; do
     if [[ -n "${cand}" && -x "${cand}" ]]; then echo "${cand}"; return 0; fi
   done
   return 1
@@ -217,7 +239,7 @@ LAUNCH_ARGS=( --device "${TARGET_DEVICE}" --preset "${PRESET}" )
 echo "[soak] launching: ${BIN} ${LAUNCH_ARGS[*]}"
 echo "[soak] log: ${LOG}"
 
-"${BIN}" "${LAUNCH_ARGS[@]}" > "${LOG}" 2>&1 &
+"${BIN}" "${LAUNCH_ARGS[@]}" < /dev/null > "${LOG}" 2>&1 &
 CAST_PID=$!
 
 cleanup() {
@@ -240,7 +262,7 @@ while kill -0 "${CAST_PID}" 2>/dev/null; do
     echo "[soak] duration of ${DURATION_MIN}m reached."
     break
   fi
-  LAST_LINE="$(tr '\r' '\n' < "${LOG}" 2>/dev/null | awk '/\[LIVE\]/{l=$0} END{if(l!="")print l}' || true)"
+  LAST_LINE="$(tr '\r' '\n' < "${LOG}" 2>/dev/null | awk '/\[LIVE\] FPS:/{l=$0} END{if(l!="")print l}' || true)"
   if [[ -n "${LAST_LINE}" ]]; then
     FPS="$(printf '%s' "${LAST_LINE}" | grep -oP 'FPS:\s*\K[0-9.]+' || true)"
     MBPS="$(printf '%s' "${LAST_LINE}" | grep -oP 'Bitrate:\s*\K[0-9.]+' || true)"
@@ -248,7 +270,7 @@ while kill -0 "${CAST_PID}" 2>/dev/null; do
     LOSS="$(printf '%s' "${LAST_LINE}" | grep -oP 'Loss:\s*\K[0-9.]+' || true)"
     DELAY_OBS="$(printf '%s' "${LAST_LINE}" | grep -oP 'Target Delay:\s*\K[0-9]+' || true)"
     if [[ -n "${MBPS}" ]]; then
-      KBPS="$("${PYTHON[@]}" -c "print(int(float('${MBPS}')*1000))" 2>/dev/null || echo "")"
+      KBPS="$("${PYTHON[@]}" -c "import sys; print(int(round(float(sys.argv[1])*1000)))" "${MBPS}" 2>/dev/null || echo "")"
     else
       KBPS=""
     fi

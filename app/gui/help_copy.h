@@ -37,27 +37,13 @@ inline constexpr const char* kSectionQualityHelp =
 inline constexpr const char* kQualityPopover = N_(
     "Chromecast mirroring is designed for desktop productivity, presentations, and video playback "
     "(~200–400 ms playout delay). It is not a low-latency game streamer like Sunshine/Moonlight.");
-inline constexpr const char* kSectionSound = N_("Sound");
-inline constexpr const char* kSectionSoundHelp =
-    N_("System audio (the default PulseAudio / PipeWire monitor sink), not a microphone.");
 inline constexpr const char* kComputerSoundTitle = N_("Computer sound");
 inline constexpr const char* kComputerSoundHelp = N_("Play system audio on the TV while casting");
-inline constexpr const char* kSoundPopover =
-    N_("Sends desktop audio using low-latency Opus. Turn on 'Mute sound while streaming' if you "
-       "only want sound from the television.");
 
 // Device List & Empty State
 inline constexpr const char* kEmptyDevicesDetail =
     N_("CastMirror uses mDNS to find video-capable Cast devices. If your router blocks mDNS, use "
        "Add by IP or enable LAN scanning in Settings. Audio-only speakers are hidden.");
-inline constexpr const char* kEmptyDevicesTitle = N_("No TVs found yet");
-inline constexpr const char* kEmptyDevicesBody =
-    N_("1. Make sure your TV or Chromecast is powered on.\n"
-       "2. Ensure this PC and the TV are on the exact same Wi-Fi or wired network.\n"
-       "3. Wait a few seconds or click Rescan.\n"
-       "4. If mDNS is blocked by your router, use 'Add by IP' or enable LAN scan in Settings.\n\n"
-       "Note: Audio-only Cast speakers (like Google Home Mini) are hidden because they cannot show "
-       "video.");
 inline constexpr const char* kRescanTooltip = N_("Rescan LAN for Google Cast devices via mDNS");
 inline constexpr const char* kAddIpTooltip =
     N_("Add a custom Cast device by IPv4 address and port");
@@ -66,25 +52,11 @@ inline constexpr const char* kRemoveDeviceTooltip =
 
 // Presets
 inline constexpr const char* kPresetAutoTitle = N_("Auto");
-inline constexpr const char* kPresetAutoDesc =
-    N_("Lets CastMirror pick the starting quality from this TV's model, then adapt if Wi-Fi "
-       "struggles.");
 inline constexpr const char* kPresetHighTitle = N_("High");
-inline constexpr const char* kPresetHighDesc =
-    N_("Sharpest picture this TV allows (up to 1080p60, or 4K30 on Ultra / Google TV). Uses more "
-       "Wi-Fi.");
 inline constexpr const char* kPresetBalancedTitle = N_("Balanced");
-inline constexpr const char* kPresetBalancedDesc =
-    N_("1080p-class picture at a moderate bitrate. Best default if Auto feels wasteful.");
 inline constexpr const char* kPresetSmoothTitle = N_("Smooth");
-inline constexpr const char* kPresetSmoothDesc =
-    N_("720p and a lower bitrate so motion stays fluid on busy Wi-Fi.");
 
 // Live Session Tab
-inline constexpr const char* kLiveEmptyTitle = N_("Nothing is being sent");
-inline constexpr const char* kLiveEmptyBody =
-    N_("Start from the Cast tab. Capture does not run until a session is live, so your screen is "
-       "never shared in the background.");
 inline constexpr const char* kHealthHealthy = N_("Stream looks healthy.");
 inline constexpr const char* kLadderCaption =
     N_("Adaptive steps down this ladder when Wi-Fi is lossy, then ramps your bitrate back to the "

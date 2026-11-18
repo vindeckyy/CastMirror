@@ -664,3 +664,62 @@ TEST(EncoderTest, HEVCRequestFallsBackToH264) {
   ASSERT_TRUE(encoder->Initialize(cfg));
   EXPECT_EQ(encoder->GetConfig().codec, VideoCodec::kH264);
 }
+
+TEST(EncoderTest, AudioEncoderRejectsMalformedAndUndersizedFrames) {
+  AudioEncoderConfig bad_cfg;
+  bad_cfg.sample_rate = 0;
+  auto encoder = AudioEncoderFactory::Create(AudioCodec::kOpus);
+  EXPECT_FALSE(encoder->Initialize(bad_cfg));
+
+  AudioEncoderConfig cfg;
+  cfg.sample_rate = 48000;
+  cfg.channels = 2;
+  ASSERT_TRUE(encoder->Initialize(cfg));
+
+  CapturedAudioFrame f;
+  f.sample_rate = 48000;
+  f.channels = 2;
+  f.samples_per_channel = 480;
+  f.pcm_data.resize(100, 0);  // too small for 480 stereo int16 samples
+  EncodedFrame ef;
+  EXPECT_FALSE(encoder->Encode(f, ef));
+
+  f.pcm_data.resize(480 * 2 * sizeof(int16_t), 0);
+  f.channels = 1;  // mismatch
+  EXPECT_FALSE(encoder->Encode(f, ef));
+
+  f.channels = 2;
+  f.sample_rate = 44100;  // mismatch
+  EXPECT_FALSE(encoder->Encode(f, ef));
+}
+
+TEST(EncoderTest, VideoEncoderClampsPreOriginTimestampAndFirstRefId) {
+  setenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE", "1", 1);
+
+  VideoEncoderConfig cfg;
+  cfg.width = 320;
+  cfg.height = 240;
+  cfg.framerate = 30;
+  cfg.bitrate_kbps = 1000;
+  cfg.codec = VideoCodec::kH264;
+
+  auto encoder = VideoEncoderFactory::Create(VideoCodec::kH264);
+  ASSERT_TRUE(encoder->Initialize(cfg));
+  const auto origin = std::chrono::steady_clock::now();
+  encoder->SetClockOrigin(origin);
+
+  CapturedVideoFrame frame;
+  frame.width = 320;
+  frame.height = 240;
+  frame.stride = 320 * 4;
+  frame.data.resize(320 * 240 * 4, 0x40);
+  frame.timestamp = origin - std::chrono::milliseconds(50);
+
+  EncodedFrame ef;
+  ASSERT_TRUE(encoder->Encode(frame, ef));
+  EXPECT_EQ(ef.rtp_timestamp, 0u);
+  EXPECT_EQ(ef.frame_id, 0u);
+  EXPECT_EQ(ef.referenced_frame_id, 0u);
+
+  unsetenv("CASTMIRROR_FORCE_SOFTWARE_ENCODE");
+}

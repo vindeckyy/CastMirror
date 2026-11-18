@@ -12,8 +12,6 @@ namespace CastMirror.Services
     /// </summary>
     public sealed class CastMirrorSettings
     {
-        public const string AutoPresetKey = "auto";
-
         // The single name↔ordinal mapping for the engine's QualityPreset
         // (castcore's preset list order); index 0 is Auto. These are the
         // canonical spellings castcore's QualityPresetToString emits.
@@ -57,7 +55,7 @@ namespace CastMirror.Services
         // Load() ever fails, the values this DTO would persist must not silently
         // change engine behaviour. 0 for the per-preset bitrates means "use the
         // profile default", exactly as the engine reads them.
-        [JsonPropertyName("quality_preset")] public string QualityPreset { get; set; } = "auto";
+        [JsonPropertyName("quality_preset")] public string QualityPreset { get; set; } = "Auto";
         [JsonPropertyName("max_bitrate_kbps")] public uint MaxBitrateKbps { get; set; } = 8000;
         [JsonPropertyName("bitrate_kbps_auto")] public uint BitrateKbpsAuto { get; set; }
         [JsonPropertyName("bitrate_kbps_high")] public uint BitrateKbpsHigh { get; set; }
@@ -207,6 +205,10 @@ namespace CastMirror.Services
             {
                 throw new InvalidOperationException($"The engine did not report a {what} size.");
             }
+            // Exact-size queries (e.g. castmirror_get_audio_apps) return size + 1;
+            // adding 1 byte of headroom lets attempt 0 pass the written < Length - 1
+            // truncation guard in a single fill call.
+            needed = Math.Max(needed + 1, 256);
 
             for (int attempt = 0; attempt < 4; ++attempt)
             {
@@ -260,7 +262,7 @@ namespace CastMirror.Services
             }
             catch (Exception ex)
             {
-                ViewModels.MainViewModel.LogError(ex);
+                LogService.Log(ex.ToString());
             }
             return apps;
         }
@@ -278,7 +280,7 @@ namespace CastMirror.Services
             }
             catch (Exception ex)
             {
-                ViewModels.MainViewModel.LogError(ex);
+                LogService.Log(ex.ToString());
                 return false;
             }
         }
@@ -295,7 +297,7 @@ namespace CastMirror.Services
             }
             catch (Exception ex)
             {
-                ViewModels.MainViewModel.LogError(ex);
+                LogService.Log(ex.ToString());
                 return string.Empty;
             }
         }

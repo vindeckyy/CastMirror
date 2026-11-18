@@ -160,5 +160,54 @@ namespace CastMirror.Tests
                 }
             }
         }
+
+        [Fact]
+        public void EveryLocalizerCallInCodeHasATranslationInEveryLanguage()
+        {
+            var keys = new HashSet<string>();
+            var callPattern = new Regex(@"Localizer\.(?:T|Format)\(\s*""((?:[^""\\]|\\.)*)""");
+            foreach (string file in Directory.GetFiles(Path.Combine(Root, "app", "winui"), "*.cs", SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") ||
+                    file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")) continue;
+                string src = File.ReadAllText(file, Encoding.UTF8);
+                src = Regex.Replace(src, "\"\\s*\\+\\s*\\r?\\n?\\s*\\$?\"", string.Empty);
+                foreach (Match m in callPattern.Matches(src))
+                {
+                    string key = m.Groups[1].Value.Replace("\\n", "\n").Replace("\\\"", "\"").Replace("\\'", "'");
+                    keys.Add(key);
+                }
+            }
+            Assert.NotEmpty(keys);
+            foreach (string language in Languages)
+            {
+                var table = Load(language);
+                var missing = keys.Where(k => !table.ContainsKey(k)).OrderBy(k => k).ToList();
+                Assert.True(missing.Count == 0, $"{language}.json is missing code keys: {string.Join(" | ", missing)}");
+            }
+        }
+
+        [Fact]
+        public void TranslationsTsvMatchesJsonTables()
+        {
+            string tsvPath = Path.Combine(Root, "app", "winui", "Strings", "translations.tsv");
+            var tables = Languages.ToDictionary(l => l, Load);
+            var tsvKeys = new HashSet<string>();
+            foreach (string line in File.ReadAllLines(tsvPath, Encoding.UTF8))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                string[] parts = line.Split('|');
+                Assert.Equal(4, parts.Length);
+                string en = parts[0].Replace("\\n", "\n");
+                string es = parts[1].Replace("\\n", "\n");
+                string de = parts[2].Replace("\\n", "\n");
+                string fr = parts[3].Replace("\\n", "\n");
+                Assert.True(tsvKeys.Add(en), $"Duplicate TSV key: {en}");
+                Assert.Equal(es, tables["es"][en]);
+                Assert.Equal(de, tables["de"][en]);
+                Assert.Equal(fr, tables["fr"][en]);
+            }
+            Assert.Equal(tables["es"].Keys.OrderBy(k => k), tsvKeys.OrderBy(k => k));
+        }
     }
 }

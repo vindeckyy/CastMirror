@@ -143,13 +143,15 @@ void WasapiAudioCapture::SetHostSilence(bool silence) {
 
 bool WasapiAudioCapture::Start(int sample_rate, int channels) {
   Stop();
-  output_rate_ = sample_rate > 0 ? sample_rate : 48000;
+  output_rate_ = sample_rate > 0 ? std::max(sample_rate, 100) : 48000;
   output_channels_ = channels > 0 ? channels : 2;
 
 #if !defined(_WIN32)
   LOG_ERROR << "WasapiAudioCapture is only available on Windows";
   return false;
 #else
+  stop_event_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (!stop_event_) return false;
   init_done_ = false;
   init_ok_ = false;
   running_ = true;
@@ -162,7 +164,10 @@ bool WasapiAudioCapture::Start(int sample_rate, int channels) {
   }
   if (!init_done_.load() || !init_ok_) {
     running_ = false;
+    SetEvent(stop_event_);
     if (worker_thread_.joinable()) worker_thread_.join();
+    CloseHandle(stop_event_);
+    stop_event_ = nullptr;
     return false;
   }
   LOG_INFO << "Started WASAPI Loopback Audio Capture (device " << src_rate_ << " Hz/"
@@ -174,11 +179,17 @@ bool WasapiAudioCapture::Start(int sample_rate, int channels) {
 void WasapiAudioCapture::Stop() {
   running_ = false;
 #if defined(_WIN32)
-  if (capture_event_) SetEvent(capture_event_);
+  if (stop_event_) SetEvent(stop_event_);
 #endif
   if (worker_thread_.joinable()) {
     worker_thread_.join();
   }
+#if defined(_WIN32)
+  if (stop_event_) {
+    CloseHandle(stop_event_);
+    stop_event_ = nullptr;
+  }
+#endif
 }
 
 bool WasapiAudioCapture::IsCapturing() const {
@@ -193,6 +204,12 @@ bool WasapiAudioCapture::InitProcessLoopback() {
                                       IActivateAudioInterfaceCompletionHandler*,
                                       IActivateAudioInterfaceAsyncOperation**);
   HMODULE mmdevapi = LoadLibraryW(L"Mmdevapi.dll");
+  struct ModuleGuard {
+    HMODULE mod;
+    ~ModuleGuard() {
+      if (mod) FreeLibrary(mod);
+    }
+  } mmdevapi_guard{mmdevapi};
   auto activate =
       mmdevapi
           ? reinterpret_cast<ActivateFn>(GetProcAddress(mmdevapi, "ActivateAudioInterfaceAsync"))
@@ -502,6 +519,7 @@ void WasapiAudioCapture::ConvertAndEmit(const BYTE* data, UINT32 frames, bool si
   buffers_window_++;
   if (silent) {
     // Produce the equivalent output-frame count of silence.
+    carry_ = ResamplerCarry{};
     int out_frames =
         static_cast<int>((static_cast<double>(frames) * output_rate_) / src_rate_ + 0.5);
     EmitSilenceFrames(out_frames, buffer_ts);
@@ -625,7 +643,16 @@ void WasapiAudioCapture::CleanupOnThread() {
     enumerator_.Reset();
   }
   pending_.clear();
+  pending_start_ts_ = {};
+  pending_has_start_ = false;
   carry_ = ResamplerCarry{};
+  peak_window_ = 0.0f;
+  age_sum_ms_ = 0.0;
+  age_samples_ = 0;
+  frames_window_ = 0;
+  buffers_window_ = 0;
+  last_level_log_ = {};
+  last_discontinuity_log_ = {};
 }
 
 bool WasapiAudioCapture::RestartOnThread() {
@@ -688,7 +715,9 @@ void WasapiAudioCapture::CaptureThreadMain() {
           break;
         }
       }
-      DWORD wait = WaitForSingleObject(capture_event_, kIdleWakeMs);
+      HANDLE wait_handles[2] = {stop_event_, capture_event_};
+      DWORD wait = WaitForMultipleObjects(2, wait_handles, FALSE, kIdleWakeMs);
+      if (wait == WAIT_OBJECT_0) break;  // stop_event_ signaled
       if (wait == WAIT_TIMEOUT) {
         // Endpoint idle: WASAPI delivers no packets, so emit exactly the
         // silence needed to keep the emission timeline on wall time. After a
@@ -726,7 +755,7 @@ void WasapiAudioCapture::CaptureThreadMain() {
         LogLevelWindow(now);
         continue;
       }
-      if (wait != WAIT_OBJECT_0) break;
+      if (wait != WAIT_OBJECT_0 + 1) break;
 
       UINT32 packet_length = 0;
       {
@@ -747,6 +776,10 @@ void WasapiAudioCapture::CaptureThreadMain() {
         // RTP timestamp reflect the source timeline, matching the video
         // frame's DXGI LastPresentTime.
         hr = capture_client_->GetBuffer(&data, &num_frames, &flags, nullptr, &qpc_position);
+        if (hr == AUDCLNT_E_DEVICE_INVALIDATED) {
+          device_changed_ = true;
+          break;
+        }
         if (FAILED(hr)) break;
         // TIMESTAMP_ERROR means qpc_position cannot be trusted (glitch or
         // resync); projecting the RTP timeline from it would be wrong, so fall
@@ -785,7 +818,12 @@ void WasapiAudioCapture::CaptureThreadMain() {
         }
         ConvertAndEmit(data, num_frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0, buffer_ts);
         capture_client_->ReleaseBuffer(num_frames);
-        if (FAILED(capture_client_->GetNextPacketSize(&packet_length))) break;
+        const HRESULT next_hr = capture_client_->GetNextPacketSize(&packet_length);
+        if (next_hr == AUDCLNT_E_DEVICE_INVALIDATED) {
+          device_changed_ = true;
+          break;
+        }
+        if (FAILED(next_hr)) break;
       }
     }
   }

@@ -362,6 +362,8 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
           }
           XFree(prop_data);
           if (skip) return false;
+        } else if (prop_data) {
+          XFree(prop_data);
         }
       }
     }
@@ -446,7 +448,7 @@ std::vector<WindowInfo> EnumerateX11Windows(Display* d) {
     }
 
     WindowInfo info;
-    info.id = static_cast<int>(w);
+    info.id = static_cast<int>(static_cast<uint32_t>(w));
     info.title = std::move(title);
     info.app_class = std::move(app_class);
     info.x = attrs.x;
@@ -608,8 +610,16 @@ class X11DisplayCapture : public IDisplayCapture {
       crop_y_ = sel->y;
       crop_w_ = sel->width & ~1;
       crop_h_ = sel->height & ~1;
+      active_source_ = CaptureSource{
+          CaptureSourceKind::kMonitor, sel->id, sel->name, sel->x, sel->y, crop_w_, crop_h_};
       LOG_INFO << "Capturing monitor '" << sel->name << "' " << crop_w_ << "x" << crop_h_ << " at ("
                << crop_x_ << "," << crop_y_ << ")";
+    }
+    if (crop_w_ < 2 || crop_h_ < 2) {
+      LOG_ERROR << "Display capture dimensions too small: " << crop_w_ << "x" << crop_h_;
+      XCloseDisplay(display_);
+      display_ = nullptr;
+      return false;
     }
 
     xfixes_ok_ = XFixesQueryExtension(display_, &xfixes_event_base_, &xfixes_error_base_);
@@ -651,7 +661,6 @@ class X11DisplayCapture : public IDisplayCapture {
   void SetTargetFps(int fps) override {
     if (fps > 0) {
       target_fps_.store(fps);
-      pacer_.SetTargetFps(fps);
     }
   }
 
@@ -737,7 +746,7 @@ class X11DisplayCapture : public IDisplayCapture {
     pacer_.Reset(std::chrono::steady_clock::now());
     pacer_.SetTargetFps(target_fps_.load());
     root_window_ = DefaultRootWindow(display_);
-    target_window_ = static_cast<Window>(source.id);
+    target_window_ = static_cast<Window>(static_cast<uint32_t>(source.id));
     active_source_ = source;
 
     // Query initial geometry. XGetWindowAttributes returns 0 on failure
@@ -756,8 +765,26 @@ class X11DisplayCapture : public IDisplayCapture {
     crop_y_ = 0;
     crop_w_ = attrs.width & ~1;
     crop_h_ = attrs.height & ~1;
-    window_root_x_ = attrs.x;  // root-relative position for cursor offset
-    window_root_y_ = attrs.y;
+    if (crop_w_ < 2 || crop_h_ < 2) {
+      LOG_ERROR << "Target window dimensions too small: " << crop_w_ << "x" << crop_h_;
+      XCloseDisplay(display_);
+      display_ = nullptr;
+      target_window_ = 0;
+      return false;
+    }
+    active_source_.width = crop_w_;
+    active_source_.height = crop_h_;
+    {
+      int rx = attrs.x, ry = attrs.y;
+      Window dummy = None;
+      if (XTranslateCoordinates(display_, target_window_, root_window_, 0, 0, &rx, &ry, &dummy)) {
+        window_root_x_ = rx;
+        window_root_y_ = ry;
+      } else {
+        window_root_x_ = attrs.x;
+        window_root_y_ = attrs.y;
+      }
+    }
 
     // XComposite redirect so occluded windows still capture correctly.
     SetupComposite();
@@ -812,33 +839,88 @@ class X11DisplayCapture : public IDisplayCapture {
     xcomposite_ok_ = false;
   }
 
-  // Poll lifecycle events (ConfigureNotify, DestroyNotify, UnmapNotify) for
-  // the target window. Returns false if the window was destroyed/unmapped.
-  bool PollWindowLifecycle() {
-    if (!display_ || target_window_ == 0) return true;
-    while (XPending(display_)) {
-      XEvent ev{};
-      XNextEvent(display_, &ev);
-      if (ev.type == ConfigureNotify && ev.xconfigure.window == target_window_) {
-        int new_w = ev.xconfigure.width & ~1;
-        int new_h = ev.xconfigure.height & ~1;
-        if (new_w > 0 && new_h > 0 && (new_w != crop_w_ || new_h != crop_h_)) {
-          crop_w_ = new_w;
-          crop_h_ = new_h;
-          window_root_x_ = ev.xconfigure.x;
-          window_root_y_ = ev.xconfigure.y;
-          ResizeShm(crop_w_, crop_h_);
-          LOG_INFO << "Window resized to " << crop_w_ << "x" << crop_h_;
+  // Drain all pending X events once, dispatching both window lifecycle
+  // notifications and XDamage notifications so neither starves the other.
+  void PollXEvents(bool* out_window_alive, bool* out_has_damage) {
+    bool alive = true;
+#if defined(CASTCORE_HAVE_XDAMAGE)
+    bool has_damage = damage_pending_;
+    const bool window_mode = (target_window_ != 0);
+#endif
+    if (display_) {
+      while (XPending(display_)) {
+        XEvent ev{};
+        XNextEvent(display_, &ev);
+        if (target_window_ != 0) {
+          if (ev.type == ConfigureNotify && ev.xconfigure.window == target_window_) {
+            int rx = ev.xconfigure.x, ry = ev.xconfigure.y;
+            Window dummy = None;
+            if (XTranslateCoordinates(
+                    display_, target_window_, root_window_, 0, 0, &rx, &ry, &dummy)) {
+              window_root_x_ = rx;
+              window_root_y_ = ry;
+            } else {
+              window_root_x_ = ev.xconfigure.x;
+              window_root_y_ = ev.xconfigure.y;
+            }
+            int new_w = ev.xconfigure.width & ~1;
+            int new_h = ev.xconfigure.height & ~1;
+            if (new_w >= 2 && new_h >= 2 && (new_w != crop_w_ || new_h != crop_h_)) {
+              crop_w_ = new_w;
+              crop_h_ = new_h;
+              active_source_.width = crop_w_;
+              active_source_.height = crop_h_;
+              ResizeShm(crop_w_, crop_h_);
+              LOG_INFO << "Window resized to " << crop_w_ << "x" << crop_h_;
+            }
+          } else if (ev.type == DestroyNotify && ev.xdestroywindow.window == target_window_) {
+            LOG_WARN << "Target window destroyed";
+            alive = false;
+          } else if (ev.type == UnmapNotify && ev.xunmap.window == target_window_) {
+            LOG_WARN << "Target window unmapped";
+            alive = false;
+          }
         }
-      } else if (ev.type == DestroyNotify && ev.xdestroywindow.window == target_window_) {
-        LOG_WARN << "Target window destroyed";
-        return false;
-      } else if (ev.type == UnmapNotify && ev.xunmap.window == target_window_) {
-        LOG_WARN << "Target window unmapped";
-        return false;
+#if defined(CASTCORE_HAVE_XDAMAGE)
+        if (xdamage_ok_ && damage_ && ev.type == damage_event_base_ + XDamageNotify) {
+          auto* de = reinterpret_cast<XDamageNotifyEvent*>(&ev);
+          if (window_mode) {
+            has_damage = true;
+            damage_pending_ = true;
+          } else {
+            int ax = de->area.x;
+            int ay = de->area.y;
+            int aw = de->area.width;
+            int ah = de->area.height;
+            bool intersects = true;
+            if (aw > 0 && ah > 0) {
+              intersects = !(ax + aw <= crop_x_ || ax >= crop_x_ + crop_w_ || ay + ah <= crop_y_ ||
+                             ay >= crop_y_ + crop_h_);
+            }
+            if (intersects) {
+              has_damage = true;
+              damage_pending_ = true;
+            }
+          }
+        }
+#endif
       }
     }
-    return true;
+    if (out_window_alive) *out_window_alive = alive;
+#if defined(CASTCORE_HAVE_XDAMAGE)
+    if (xdamage_ok_ && display_ && damage_) {
+      if (has_damage) {
+        XDamageSubtract(display_, damage_, None, None);
+        damage_pending_ = false;
+        undamaged_frames_ = 0;
+      }
+      if (out_has_damage) *out_has_damage = has_damage;
+    } else if (out_has_damage) {
+      *out_has_damage = true;
+    }
+#else
+    if (out_has_damage) *out_has_damage = true;
+#endif
   }
 
   void ResizeShm(int w, int h) {
@@ -946,60 +1028,10 @@ class X11DisplayCapture : public IDisplayCapture {
     undamaged_frames_ = 0;
     damage_pending_ = false;
   }
-
-  // Poll XDamage events without blocking. Returns true if damage intersected
-  // the selected monitor crop since last call. Uses per-monitor filtering:
-  // only damage rects overlapping [crop_x_,crop_y_,crop_w_,crop_h_] count.
-  bool PollDamage() {
-    if (!xdamage_ok_ || !display_ || !damage_) return true;  // fallback: assume damaged
-    bool has_damage = damage_pending_;
-    const bool window_mode = (target_window_ != 0);
-    // Drain all pending X events
-    while (XPending(display_)) {
-      XEvent ev{};
-      XNextEvent(display_, &ev);
-      if (ev.type == damage_event_base_ + XDamageNotify) {
-        auto* de = reinterpret_cast<XDamageNotifyEvent*>(&ev);
-        if (window_mode) {
-          // In window mode, all damage on the target window counts.
-          has_damage = true;
-          damage_pending_ = true;
-        } else {
-          // Monitor mode: check intersection with our monitor crop
-          int ax = de->area.x;
-          int ay = de->area.y;
-          int aw = de->area.width;
-          int ah = de->area.height;
-          // de->area is relative to drawable (root). If empty, treat as full.
-          bool intersects = true;
-          if (aw > 0 && ah > 0) {
-            intersects = !(ax + aw <= crop_x_ || ax >= crop_x_ + crop_w_ || ay + ah <= crop_y_ ||
-                           ay >= crop_y_ + crop_h_);
-          }
-          if (intersects) {
-            has_damage = true;
-            damage_pending_ = true;
-          }
-        }
-      }
-    }
-    if (has_damage) {
-      // Reset damage region so next change generates a new notify
-      XDamageSubtract(display_, damage_, None, None);
-      damage_pending_ = false;
-      undamaged_frames_ = 0;
-      return true;
-    }
-    // No damage this vsync
-    return false;
-  }
 #else
   bool SetupDamage() { return false; }
   void TeardownDamage() {}
-  bool PollDamage() { return true; }
 #endif
-
-  uint64_t GetCaptureSkippedCount() const { return capture_skipped_.load(); }
 
   // Blend the hardware cursor (XFixes) over the cropped BGRA frame.
   // In monitor mode, the cursor position is screen-relative and we offset
@@ -1074,20 +1106,21 @@ class X11DisplayCapture : public IDisplayCapture {
         }
       }
 
-      // Window mode: check lifecycle before capturing. If the window was
-      // destroyed/unmapped, emit one final source_lost frame and stop.
-      if (target_window_ != 0) {
-        if (!PollWindowLifecycle()) {
-          CapturedVideoFrame vf;
-          vf.width = crop_w_;
-          vf.height = crop_h_;
-          vf.stride = crop_w_ * 4;
-          vf.timestamp = frame_start;
-          vf.source_lost = true;
-          deliver(&vf);
-          running_ = false;
-          break;
-        }
+      // Poll X events once per tick for both window lifecycle and XDamage.
+      bool window_alive = true;
+      bool has_damage = true;
+      PollXEvents(&window_alive, &has_damage);
+
+      if (target_window_ != 0 && !window_alive) {
+        CapturedVideoFrame vf;
+        vf.width = crop_w_;
+        vf.height = crop_h_;
+        vf.stride = crop_w_ * 4;
+        vf.timestamp = frame_start;
+        vf.source_lost = true;
+        deliver(&vf);
+        running_ = false;
+        break;
       }
 
       bool skip_capture = false;
@@ -1096,18 +1129,15 @@ class X11DisplayCapture : public IDisplayCapture {
       // In window mode, the selected window may be static (not actively redrawn),
       // so damage may never fire. We must always capture to ensure frames are
       // delivered — the user explicitly chose this window to share.
-      if (xdamage_ok_ && target_window_ == 0) {
-        if (!PollDamage()) {
-          undamaged_frames_++;
-          if (undamaged_frames_ >= kDamageSkipThreshold) {
-            capture_skipped_.fetch_add(1, std::memory_order_relaxed);
-            skip_capture = true;
-          }
+      if (xdamage_ok_ && target_window_ == 0 && !has_damage) {
+        undamaged_frames_++;
+        if (undamaged_frames_ >= kDamageSkipThreshold) {
+          capture_skipped_.fetch_add(1, std::memory_order_relaxed);
+          skip_capture = true;
         }
-      } else if (xdamage_ok_ && target_window_ != 0) {
-        // Window mode: drain damage events but always capture.
-        PollDamage();
       }
+#else
+      (void)has_damage;
 #endif
 
       if (!skip_capture) {
@@ -1142,6 +1172,7 @@ class X11DisplayCapture : public IDisplayCapture {
 
         if (image) {
           CapturedVideoFrame vf;
+          vf.data = pacer_.TakeSupersededBuffer();
           vf.width = crop_w_;
           vf.height = crop_h_;
           vf.stride = image->bytes_per_line;
@@ -1149,8 +1180,9 @@ class X11DisplayCapture : public IDisplayCapture {
           // or the end of the copy. Audio carries the sink's render instant;
           // both must be the same kind of time for the receiver to align them.
           vf.timestamp = read_start + (read_end - read_start) / 2;
-          vf.data.resize(static_cast<size_t>(image->bytes_per_line) * crop_h_);
-          std::memcpy(vf.data.data(), image->data, vf.data.size());
+          const size_t needed = static_cast<size_t>(image->bytes_per_line) * crop_h_;
+          if (vf.data.size() != needed) vf.data.resize(needed);
+          std::memcpy(vf.data.data(), image->data, needed);
           if (image_owned) {
             XDestroyImage(image);
           }

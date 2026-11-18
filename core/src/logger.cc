@@ -63,12 +63,11 @@ Logger::~Logger() {
 }
 
 void Logger::SetMinLevel(LogLevel level) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  min_level_ = level;
+  min_level_.store(level);
 }
 
 LogLevel Logger::GetMinLevel() const {
-  return min_level_;
+  return min_level_.load();
 }
 
 void Logger::RotateMainLogIfNeededLocked() {
@@ -88,8 +87,10 @@ void Logger::RotateMainLogIfNeededLocked() {
   file_stream_.close();
   std::string rotated = main_log_path_ + ".old";
   std::filesystem::remove(rotated, ec);
+  ec.clear();
   std::filesystem::rename(main_log_path_, rotated, ec);
   file_stream_.open(main_log_path_, std::ios::out | std::ios::trunc);
+  log_write_count_ = 0;
 }
 
 void Logger::RotateJsonLogIfNeededLocked() {
@@ -120,7 +121,10 @@ std::string Logger::RedactIpAddresses(const std::string& input) const {
   size_t i = 0;
   const size_t n = input.size();
   while (i < n) {
-    if (std::isdigit(static_cast<unsigned char>(input[i]))) {
+    const bool clean_prefix =
+        (i == 0) ||
+        (!std::isdigit(static_cast<unsigned char>(input[i - 1])) && input[i - 1] != '.');
+    if (clean_prefix && std::isdigit(static_cast<unsigned char>(input[i]))) {
       size_t j = i;
       bool ok = true;
       int groups = 0;
@@ -187,6 +191,10 @@ bool Logger::ShouldEmitJson() const {
 }
 
 std::string Logger::GetDefaultJsonPath() {
+  const char* override_dir = std::getenv("CASTMIRROR_CONFIG_DIR");
+  if (override_dir && override_dir[0] != '\0') {
+    return (std::filesystem::path(override_dir) / "castmirror.ndjson").string();
+  }
 #if defined(_WIN32)
   const char* appdata = std::getenv("APPDATA");
   std::string base = appdata ? std::string(appdata) : "C:\\ProgramData";
@@ -213,7 +221,10 @@ void Logger::SetFileLogging(const std::string& file_path) {
       std::filesystem::remove(rotated, ec);
       std::filesystem::rename(file_path, rotated, ec);
     }
-    std::filesystem::create_directories(std::filesystem::path(file_path).parent_path());
+    const auto parent = std::filesystem::path(file_path).parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
   } catch (...) {}
   file_stream_.open(file_path, std::ios::out | std::ios::app);
 }
@@ -224,7 +235,10 @@ void Logger::SetSessionFileLogging(const std::string& file_path) {
     session_stream_.close();
   }
   try {
-    std::filesystem::create_directories(std::filesystem::path(file_path).parent_path());
+    const auto parent = std::filesystem::path(file_path).parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
   } catch (...) {}
   session_stream_.open(file_path, std::ios::out | std::ios::trunc);
 }
@@ -249,7 +263,10 @@ void Logger::SetJsonLogging(const std::string& file_path) {
   json_log_path_ = file_path;
   json_write_count_ = 0;
   try {
-    std::filesystem::create_directories(std::filesystem::path(file_path).parent_path());
+    const auto parent = std::filesystem::path(file_path).parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
     if (std::filesystem::exists(file_path) &&
         std::filesystem::file_size(file_path) >= kMaxJsonLogBytes) {
       std::string rotated = file_path + ".old";
@@ -308,7 +325,10 @@ void Logger::LogJson(const std::string& json_line) {
     std::string path = json_log_path_.empty() ? GetDefaultJsonPath() : json_log_path_;
     json_log_path_ = path;
     try {
-      std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+      const auto parent = std::filesystem::path(path).parent_path();
+      if (!parent.empty()) {
+        std::filesystem::create_directories(parent);
+      }
       if (std::filesystem::exists(path) && std::filesystem::file_size(path) >= kMaxJsonLogBytes) {
         std::string rotated = path + ".old";
         std::error_code ec;
@@ -355,50 +375,60 @@ void Logger::LogBreadcrumbEx(uint32_t frame_id, int64_t encode_ms, uint32_t udp_
 }
 
 void Logger::Log(LogLevel level, const char* file, int line, const std::string& message) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  const bool to_console = level >= min_level_;
-  const bool to_main = file_stream_.is_open() && level >= LogLevel::kInfo;
-  const bool to_session = session_stream_.is_open();
-  const bool to_cb = static_cast<bool>(callback_) && level >= min_level_;
-  if (!to_console && !to_main && !to_session && !to_cb) {
-    return;
-  }
+  LogCallback cb_copy;
+  std::string formatted;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const LogLevel min_lvl = min_level_.load();
+    const bool to_console = level >= min_lvl;
+    const bool to_main = file_stream_.is_open() && level >= LogLevel::kInfo;
+    const bool to_session = session_stream_.is_open();
+    const bool to_cb = static_cast<bool>(callback_) && level >= min_lvl;
+    if (!to_console && !to_main && !to_session && !to_cb) {
+      return;
+    }
 
-  auto now = std::chrono::system_clock::now();
-  auto in_time_t = std::chrono::system_clock::to_time_t(now);
-  auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    auto now = std::chrono::system_clock::now();
+    auto in_time_t = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
-  std::tm tm_buf{};
+    std::tm tm_buf{};
 #if defined(_WIN32)
-  localtime_s(&tm_buf, &in_time_t);
+    localtime_s(&tm_buf, &in_time_t);
 #else
-  localtime_r(&in_time_t, &tm_buf);
+    localtime_r(&in_time_t, &tm_buf);
 #endif
 
-  std::ostringstream ss;
-  ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S.") << std::setfill('0') << std::setw(3)
-     << ms.count() << " "
-     << "[" << LevelToString(level) << "] "
-     << "[" << BaseName(file) << ":" << line << "] " << message;
+    std::ostringstream ss;
+    ss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S.") << std::setfill('0') << std::setw(3)
+       << ms.count() << " "
+       << "[" << LevelToString(level) << "] "
+       << "[" << BaseName(file) << ":" << line << "] " << message;
 
-  std::string formatted = ss.str();
-  std::string redacted = RedactIpAddresses(formatted);
+    formatted = ss.str();
 
-  if (to_console) {
-    std::cout << LevelColor(level) << formatted << "\033[0m" << std::endl;
+    if (to_console) {
+      std::cout << LevelColor(level) << formatted << "\033[0m" << std::endl;
+    }
+
+    if (to_main) {
+      file_stream_ << RedactIpAddresses(formatted) << std::endl;
+      RotateMainLogIfNeededLocked();
+    }
+
+    if (to_session) {
+      session_stream_ << formatted << std::endl;
+    }
+
+    if (to_cb) {
+      cb_copy = callback_;
+    }
   }
 
-  if (to_main) {
-    file_stream_ << redacted << std::endl;
-    RotateMainLogIfNeededLocked();
-  }
-
-  if (to_session) {
-    session_stream_ << formatted << std::endl;
-  }
-
-  if (to_cb) {
-    callback_(level, formatted);
+  // Invoke outside mutex_ so callbacks can safely log or update logger state
+  // without self-deadlocking.
+  if (cb_copy) {
+    cb_copy(level, formatted);
   }
 }
 

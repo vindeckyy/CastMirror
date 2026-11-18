@@ -35,7 +35,14 @@ if(CASTMIRROR_ENABLE_TRAY)
   # literally named `ayatana-appindicator-glib` (with `>=2.0` read as a version
   # constraint), which does not exist, so the tray was never detected even when
   # the dev package was installed.
+  # Distros disagree on the module name: some ship
+  # `ayatana-appindicator-glib-2.0.pc`, others (Debian/Ubuntu 26.04+) ship
+  # `ayatana-appindicator-glib.pc` for the same 2.x library. Try the
+  # versioned name first, then the unversioned one.
   pkg_check_modules(AYATANA ayatana-appindicator-glib-2.0)
+  if(NOT AYATANA_FOUND)
+    pkg_check_modules(AYATANA ayatana-appindicator-glib)
+  endif()
   if(AYATANA_FOUND)
     set(CASTMIRROR_HAVE_TRAY_LIB ON)
     message(STATUS "Found ayatana-appindicator-glib ${AYATANA_VERSION} - enabling system tray")

@@ -885,4 +885,75 @@ TEST(RedactSecretsTest, HidesAesKeyAndIvMask) {
   EXPECT_EQ(out.find("fedcba9876543210"), std::string::npos);
   EXPECT_NE(out.find("\"ssrc\":2"), std::string::npos);
   EXPECT_EQ(castcore::RedactSecrets("no secrets here"), "no secrets here");
+
+  // Non-string values after a secret key must not cause redaction to jump to
+  // the next JSON key/value pair.
+  const std::string non_string = R"({"aesKey":null,"ssrc":2,"other":"keepme"})";
+  const std::string out_ns = castcore::RedactSecrets(non_string);
+  EXPECT_NE(out_ns.find("keepme"), std::string::npos);
+  EXPECT_NE(out_ns.find("\"other\""), std::string::npos);
+}
+
+TEST(CastChannelTest, ReconnectAfterFailedConnectAndDisconnectDoesNotCrash) {
+  CastChannel channel;
+  EXPECT_FALSE(channel.Connect("127.0.0.1", 1, 100));
+  EXPECT_FALSE(channel.IsConnected());
+  // Calling Connect again without explicit Disconnect must clean up cleanly.
+  EXPECT_FALSE(channel.Connect("127.0.0.1", 1, 100));
+  channel.Disconnect();
+}
+
+TEST(CastTransportTest, CheckpointNearUint32MaxEvictsCorrectFrames) {
+  int recv_fd = BindLoopbackReceiver();
+  ASSERT_GE(recv_fd, 0);
+
+  CastTransport transport;
+  ASSERT_TRUE(transport.Start("127.0.0.1", SocketPort(recv_fd)));
+
+  const uint32_t ssrc = 2;
+  const uint32_t fids[] = {0xFFFFFFFAu, 0xFFFFFFFBu, 0xFFFFFFFCu, 0xFFFFFFFDu, 0xFFFFFFFEu};
+  for (uint32_t fid : fids) {
+    RtpPacket pkt;
+    pkt.frame_id = fid;
+    pkt.packet_id = 0;
+    pkt.max_packet_id = 0;
+    pkt.data.resize(32, 0);
+    pkt.data[1] = 96;
+    pkt.data[8] = static_cast<uint8_t>((ssrc >> 24) & 0xFF);
+    pkt.data[9] = static_cast<uint8_t>((ssrc >> 16) & 0xFF);
+    pkt.data[10] = static_cast<uint8_t>((ssrc >> 8) & 0xFF);
+    pkt.data[11] = static_cast<uint8_t>(ssrc & 0xFF);
+    ASSERT_TRUE(transport.SendPackets({pkt}));
+  }
+  ASSERT_EQ(transport.GetCachedFrameCount(ssrc), 5u);
+
+  uint8_t buf[256];
+  struct sockaddr_in sender_addr{};
+  socklen_t sender_len = sizeof(sender_addr);
+  ASSERT_GT(recvfrom(recv_fd,
+                     reinterpret_cast<char*>(buf),
+                     sizeof(buf),
+                     0,
+                     reinterpret_cast<struct sockaddr*>(&sender_addr),
+                     &sender_len),
+            0);
+
+  // Checkpoint 0xFC (expands to 0xFFFFFFFC against last_sent=0xFFFFFFFE):
+  // must drop FA, FB, FC while keeping FD, FE (2 frames).
+  auto fb = BuildCastCheckpointPacket(10001, ssrc, /*checkpoint_id_8=*/0xFC, 200);
+  ASSERT_EQ(sendto(recv_fd,
+                   reinterpret_cast<const char*>(fb.data()),
+                   fb.size(),
+                   0,
+                   reinterpret_cast<struct sockaddr*>(&sender_addr),
+                   sizeof(sender_addr)),
+            static_cast<ssize_t>(fb.size()));
+
+  for (int i = 0; i < 50 && transport.GetCachedFrameCount(ssrc) == 5u; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_EQ(transport.GetCachedFrameCount(ssrc), 2u);
+
+  transport.Stop();
+  close(recv_fd);
 }

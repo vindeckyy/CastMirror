@@ -36,8 +36,6 @@ class LiveTab {
   void UpdateLadderVisualization(int active_rung, int total_rungs, bool enabled);
   void SetHealthState(const std::string& text, const char* state_class, const char* icon_name);
 
-  void OnGoToCastClicked();
-  void OnBackToCastClicked();
   void OnGameModeClicked();
   void OnCinemaModeClicked();
 

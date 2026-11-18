@@ -34,7 +34,7 @@ class SyntheticAudioCapture : public IAudioCapture {
 
   bool Start(int sample_rate, int channels) override {
     Stop();
-    sample_rate_ = sample_rate > 0 ? sample_rate : 48000;
+    sample_rate_ = sample_rate > 0 ? std::max(sample_rate, 100) : 48000;
     channels_ = channels > 0 ? channels : 2;
     running_ = true;
     capture_thread_ = std::thread(&SyntheticAudioCapture::CaptureLoop, this);
@@ -151,8 +151,10 @@ struct PulseSession {
       phase = -1;
       return false;
     }
-    while (phase == 0) {
-      if (pa_mainloop_iterate(ml, 1, nullptr) < 0) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (phase == 0 && std::chrono::steady_clock::now() < deadline) {
+      if (pa_mainloop_prepare(ml, 50000) < 0 || pa_mainloop_poll(ml) < 0 ||
+          pa_mainloop_dispatch(ml) < 0) {
         phase = -1;
         break;
       }
@@ -161,8 +163,12 @@ struct PulseSession {
   }
 
   void Wait(int* done) {
-    while (*done == 0 && phase == 1) {
-      if (pa_mainloop_iterate(ml, 1, nullptr) < 0) break;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (*done == 0 && phase == 1 && std::chrono::steady_clock::now() < deadline) {
+      if (pa_mainloop_prepare(ml, 50000) < 0 || pa_mainloop_poll(ml) < 0 ||
+          pa_mainloop_dispatch(ml) < 0) {
+        break;
+      }
     }
   }
 
@@ -294,7 +300,7 @@ class PulseAudioCapture : public IAudioCapture {
 
   bool Start(int sample_rate, int channels) override {
     Stop();
-    sample_rate_ = sample_rate > 0 ? sample_rate : 48000;
+    sample_rate_ = sample_rate > 0 ? std::max(sample_rate, 100) : 48000;
     channels_ = channels > 0 ? channels : 2;
     timeline_.Invalidate();
     last_anchor_log_us_ = 0;
@@ -544,7 +550,9 @@ class PulseAudioCapture : public IAudioCapture {
     auto last_cork_warn = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 
     while (running_.load()) {
-      if (pa_mainloop_prepare(ml_, 20) < 0) {
+      // pa_mainloop_prepare takes microseconds (-1 = block). 5 ms wakes promptly
+      // on idle/corked streams for 10 ms silence emission without CPU spin.
+      if (pa_mainloop_prepare(ml_, 5000) < 0) {
         break;
       }
       if (pa_mainloop_poll(ml_) < 0) {
@@ -560,16 +568,17 @@ class PulseAudioCapture : public IAudioCapture {
             last_cork_warn = now;
           }
         }
-        const void* data = nullptr;
-        size_t nbytes = 0;
-        if (pa_stream_peek(stream_, &data, &nbytes) >= 0) {
-          if (nbytes > 0) {
-            if (data) {
-              const auto* bytes = static_cast<const uint8_t*>(data);
-              pending.insert(pending.end(), bytes, bytes + nbytes);
-            }
-            pa_stream_drop(stream_);
+        for (int chunks = 0; chunks < 32; ++chunks) {
+          const void* data = nullptr;
+          size_t nbytes = 0;
+          if (pa_stream_peek(stream_, &data, &nbytes) < 0 || nbytes == 0) {
+            break;
           }
+          if (data) {
+            const auto* bytes = static_cast<const uint8_t*>(data);
+            pending.insert(pending.end(), bytes, bytes + nbytes);
+          }
+          pa_stream_drop(stream_);
         }
       }
 

@@ -6,9 +6,12 @@
 #endif
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
+#include <string>
+#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -42,6 +45,7 @@ extern "C" {
 #endif
 #include <unistd.h>
 #include <sys/mman.h>
+#include <dirent.h>
 #endif
 
 namespace castcore {
@@ -54,6 +58,41 @@ bool SoftwareEncodeForced() {
   }
   return ConfigStore::Instance().Get().force_software_encode;
 }
+
+#if !defined(_WIN32)
+// Hybrid-graphics machines expose several render nodes, and libva's autodetect
+// may pick a decode-only node. A common case is an NVIDIA dGPU (which only has
+// VLD entrypoints) sitting alongside an AMD or Intel iGPU that can encode.
+// Probing that node can succeed at device creation and only fail when the
+// encoder is opened, so the caller must try every candidate through a full
+// encoder initialisation. An empty string means "let libva autodetect".
+std::vector<std::string> VaapiDeviceCandidates() {
+  std::vector<std::string> candidates;
+  // Explicit override wins over everything else.
+  const char* forced = std::getenv("CASTMIRROR_VAAPI_DEVICE");
+  if (forced != nullptr && forced[0] != '\0') {
+    candidates.emplace_back(forced);
+    return candidates;
+  }
+  // Autodetect first, to preserve the single-GPU path, then every render node.
+  candidates.emplace_back();
+  if (DIR* dir = opendir("/dev/dri")) {
+    std::vector<std::string> nodes;
+    while (struct dirent* entry = readdir(dir)) {
+      if (std::strncmp(entry->d_name, "renderD", 7) == 0) {
+        nodes.emplace_back(std::string("/dev/dri/") + entry->d_name);
+      }
+    }
+    closedir(dir);
+    // readdir order is arbitrary.
+    std::sort(nodes.begin(), nodes.end());
+    for (std::string& node : nodes) {
+      candidates.push_back(std::move(node));
+    }
+  }
+  return candidates;
+}
+#endif
 }  // namespace
 
 class FFmpegVideoEncoder : public IVideoEncoder {
@@ -127,7 +166,8 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       // and avoid the BGRA shadow copy. This keeps 0 extra GPU copies (no
       // GpuProcessor BGRx->NV12 + av_hwframe_transfer_data). SW fallback remains
       // via the regular BGRA path below, and cursor plane is handled separately.
-      if (frame.is_dmabuf && frame.dmabuf_fd >= 0) {
+      if (frame.is_dmabuf && frame.dmabuf_fd >= 0 && frame.width > 0 && frame.height > 0 &&
+          frame.dmabuf_stride > 0) {
         bool dmabuf_mapped = false;
         AVFrame* drm_frame = nullptr;
         AVBufferRef* drm_desc_ref = nullptr;
@@ -210,6 +250,13 @@ class FFmpegVideoEncoder : public IVideoEncoder {
           // by the compositor's separate cursor plane, not burnt in).
           hw_frame_->pts = static_cast<int64_t>(rtp_ts);
           hw_frame_->pict_type = want_key ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+#if defined(AV_FRAME_FLAG_KEY)
+          if (want_key) {
+            hw_frame_->flags |= AV_FRAME_FLAG_KEY;
+          } else {
+            hw_frame_->flags &= ~AV_FRAME_FLAG_KEY;
+          }
+#endif
           int send_ret = avcodec_send_frame(codec_ctx_, hw_frame_);
           av_frame_unref(hw_frame_);
           if (send_ret < 0) {
@@ -261,6 +308,13 @@ class FFmpegVideoEncoder : public IVideoEncoder {
           }
           hw_frame_->pts = static_cast<int64_t>(rtp_ts);
           hw_frame_->pict_type = want_key ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+#if defined(AV_FRAME_FLAG_KEY)
+          if (want_key) {
+            hw_frame_->flags |= AV_FRAME_FLAG_KEY;
+          } else {
+            hw_frame_->flags &= ~AV_FRAME_FLAG_KEY;
+          }
+#endif
           int send_ret = avcodec_send_frame(codec_ctx_, hw_frame_);
           av_frame_unref(hw_frame_);
           if (send_ret < 0) {
@@ -297,6 +351,13 @@ class FFmpegVideoEncoder : public IVideoEncoder {
         }
         hw_frame_->pts = static_cast<int64_t>(rtp_ts);
         hw_frame_->pict_type = want_key ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+#if defined(AV_FRAME_FLAG_KEY)
+        if (want_key) {
+          hw_frame_->flags |= AV_FRAME_FLAG_KEY;
+        } else {
+          hw_frame_->flags &= ~AV_FRAME_FLAG_KEY;
+        }
+#endif
         int send_ret = avcodec_send_frame(codec_ctx_, hw_frame_);
         av_frame_unref(hw_frame_);
         if (send_ret < 0) {
@@ -344,8 +405,9 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       char err_buf[256];
       av_strerror(ret, err_buf, sizeof(err_buf));
       LOG_WARN << "avcodec_receive_packet returned " << ret << " (" << err_buf << ")";
+      // Do not advance next_frame_id_ when no packet was emitted: leaving a gap
+      // makes the next dependent frame reference a non-existent frame_id.
       force_keyframe_ = true;
-      ++next_frame_id_;
       return false;
     }
     ++next_frame_id_;
@@ -361,7 +423,8 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     out_encoded_frame.dependency =
         is_key ? FrameDependency::kKeyFrame : FrameDependency::kDependent;
     out_encoded_frame.frame_id = current_fid;
-    out_encoded_frame.referenced_frame_id = is_key ? current_fid : (current_fid - 1);
+    out_encoded_frame.referenced_frame_id =
+        (is_key || current_fid == 0) ? current_fid : (current_fid - 1);
     out_encoded_frame.rtp_timestamp = rtp_ts;
     out_encoded_frame.capture_time = frame.timestamp;
     int delay_ms = config_.playout_delay_ms > 0 ? config_.playout_delay_ms : 200;
@@ -379,21 +442,20 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     config_.bitrate_kbps = bitrate_kbps;
     if (codec_ctx_) {
       int fps = std::max(config_.framerate, 1);
-      codec_ctx_->bit_rate = static_cast<int64_t>(bitrate_kbps) * 1000;
-      codec_ctx_->rc_max_rate = static_cast<int64_t>(bitrate_kbps) * 1000;
-      codec_ctx_->rc_buffer_size = bitrate_kbps * 1000 * 8 / fps;
+      int64_t bps = static_cast<int64_t>(bitrate_kbps) * 1000;
+      codec_ctx_->bit_rate = bps;
+      codec_ctx_->rc_max_rate = bps;
+      codec_ctx_->rc_buffer_size = static_cast<int>(std::min<int64_t>(bps * 8 / fps, INT_MAX));
       if (use_vaapi_) {
         // h264_vaapi honors the generic bit_rate above; "b" exists on some
         // FFmpeg builds — an AVERROR_OPTION_NOT_FOUND here is expected.
-        av_opt_set_int(codec_ctx_->priv_data,
-                       "b",
-                       static_cast<int64_t>(bitrate_kbps) * 1000,
-                       AV_OPT_SEARCH_CHILDREN);
+        av_opt_set_int(codec_ctx_->priv_data, "b", bps, AV_OPT_SEARCH_CHILDREN);
       }
     }
   }
 
   void SetFramerate(int fps) override {
+    if (fps <= 0) return;
     config_.framerate = fps;
     if (codec_ctx_) {
       codec_ctx_->framerate = {fps, 1};
@@ -408,6 +470,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
   const VideoEncoderConfig& GetConfig() const override { return config_; }
 
   std::string EncoderName() const override {
+    if (!encoder_name_.empty()) return encoder_name_;
     if (use_vaapi_) return "h264_vaapi";
     if (config_.codec == VideoCodec::kVP8) return "libvpx";
     return "libx264";
@@ -424,9 +487,12 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       // Half-built VAAPI state must not leak into the software path.
       Cleanup();
       config_ = config;
-      if (allow_vaapi) {
-        LOG_INFO << "VAAPI H.264 unavailable, using software encoder";
-      }
+    }
+    // Log whenever hardware encoding was allowed, even if TryInitVaapi() bailed
+    // out before setting use_vaapi_. Otherwise a failed probe looks identical to
+    // a deliberate software session and there is nothing in the log to act on.
+    if (allow_vaapi && config_.codec == VideoCodec::kH264) {
+      LOG_INFO << "VAAPI H.264 unavailable, using software encoder";
     }
     return InitSoftware();
   }
@@ -437,7 +503,29 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     // Windows hardware encode is handled by MediaFoundationVideoEncoder.
     return false;
 #else
-    if (av_hwdevice_ctx_create(&hw_device_ctx_, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0) < 0) {
+    // A device can open successfully yet still have no H.264 encoder (the
+    // NVIDIA VAAPI driver is decode-only). Try every candidate through a full
+    // encoder open, and only then fall back to software.
+    int attempted = 0;
+    for (const std::string& device : VaapiDeviceCandidates()) {
+      ++attempted;
+      if (TryInitVaapiDevice(device.empty() ? nullptr : device.c_str())) {
+        if (!device.empty()) {
+          LOG_INFO << "VAAPI using render node " << device;
+        }
+        return true;
+      }
+      Cleanup();
+    }
+    LOG_WARN << "VAAPI: no usable encoder among " << attempted
+             << " candidate device(s); falling back to software encoder";
+    return false;
+#endif
+  }
+
+#if !defined(_WIN32)
+  bool TryInitVaapiDevice(const char* device) {
+    if (av_hwdevice_ctx_create(&hw_device_ctx_, AV_HWDEVICE_TYPE_VAAPI, device, nullptr, 0) < 0) {
       hw_device_ctx_ = nullptr;
       return false;
     }
@@ -525,6 +613,10 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     }
 
     sw_frame_ = av_frame_alloc();
+    if (!sw_frame_) {
+      Cleanup();
+      return false;
+    }
     sw_frame_->format = AV_PIX_FMT_NV12;
     sw_frame_->width = codec_ctx_->width;
     sw_frame_->height = codec_ctx_->height;
@@ -545,6 +637,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     }
 
     use_vaapi_ = true;
+    encoder_name_ = codec->name ? codec->name : codec_name;
     LOG_INFO << "Initialized Video Encoder: " << codec_name << " (" << config_.width << "x"
              << config_.height << " @ " << config_.framerate << "fps, " << config_.bitrate_kbps
              << " kbps)";
@@ -641,16 +734,31 @@ class FFmpegVideoEncoder : public IVideoEncoder {
     }
 
     av_frame_ = av_frame_alloc();
+    if (!av_frame_) {
+      Cleanup();
+      return false;
+    }
     av_frame_->format = codec_ctx_->pix_fmt;
     av_frame_->width = codec_ctx_->width;
     av_frame_->height = codec_ctx_->height;
-    av_frame_get_buffer(av_frame_, 32);
+    if (av_frame_get_buffer(av_frame_, 32) < 0) {
+      Cleanup();
+      return false;
+    }
 
     av_packet_ = av_packet_alloc();
+    if (!av_packet_) {
+      Cleanup();
+      return false;
+    }
 
-    gpu_processor_.Initialize(config_.width, config_.height, config_.width, config_.height);
+    if (!gpu_processor_.Initialize(config_.width, config_.height, config_.width, config_.height)) {
+      Cleanup();
+      return false;
+    }
 
     use_vaapi_ = false;
+    encoder_name_ = codec->name ? codec->name : "";
     LOG_INFO << "Initialized Video Encoder: " << codec->name << " (" << config_.width << "x"
              << config_.height << " @ " << config_.framerate << "fps, " << config_.bitrate_kbps
              << " kbps, vbv=" << (codec_ctx_->rc_buffer_size / 1000) << " kb)";
@@ -688,6 +796,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
       hw_device_ctx_ = nullptr;
     }
     use_vaapi_ = false;
+    encoder_name_.clear();
   }
 
   VideoEncoderConfig config_;
@@ -699,6 +808,7 @@ class FFmpegVideoEncoder : public IVideoEncoder {
   AVBufferRef* hw_device_ctx_ = nullptr;
   AVBufferRef* hw_frames_ctx_ = nullptr;
   bool use_vaapi_ = false;
+  std::string encoder_name_;
   GpuProcessor gpu_processor_;
 
   uint32_t next_frame_id_ = 0;
@@ -718,6 +828,11 @@ class WindowsVideoEncoder : public IVideoEncoder {
   bool Initialize(const VideoEncoderConfig& config) override {
     config_ = config;
     mf_failures_ = 0;
+    mf_produced_ = false;
+    clock_origin_set_ = false;
+    frame_id_offset_ = 0;
+    last_emitted_frame_id_ = 0;
+    have_emitted_frame_ = false;
     if (config.codec == VideoCodec::kH264 && !SoftwareEncodeForced()) {
       auto mf = std::make_unique<MediaFoundationVideoEncoder>();
       if (mf->Initialize(config)) {
@@ -739,20 +854,38 @@ class WindowsVideoEncoder : public IVideoEncoder {
     config_ = config;
     mf_failures_ = 0;
     if (active_->Reconfigure(config)) return true;
-    // Backend can't reopen at the new config (e.g. MF MFT vanished) — retry
-    // the full MF->FFmpeg selection before giving up.
-    return Initialize(config);
+    // Backend can't reopen at the new config (e.g. MF MFT vanished) — preserve
+    // monotonic frame_id space and clock origin across a backend switch.
+    const uint32_t saved_offset = have_emitted_frame_ ? (last_emitted_frame_id_ + 1) : 0;
+    const auto saved_origin = clock_origin_;
+    const bool saved_origin_set = clock_origin_set_;
+    if (!Initialize(config)) return false;
+    frame_id_offset_ = saved_offset;
+    if (saved_origin_set) {
+      SetClockOrigin(saved_origin);
+    }
+    return true;
   }
 
   bool Encode(const CapturedVideoFrame& frame, EncodedFrame& out) override {
     if (!active_) return false;
     const bool ok = active_->Encode(frame, out);
-    if (!using_mf_) return ok;
     if (ok) {
-      mf_failures_ = 0;
-      mf_produced_ = true;
+      out.frame_id += frame_id_offset_;
+      if (out.dependency != FrameDependency::kKeyFrame) {
+        out.referenced_frame_id += frame_id_offset_;
+      } else {
+        out.referenced_frame_id = out.frame_id;
+      }
+      last_emitted_frame_id_ = out.frame_id;
+      have_emitted_frame_ = true;
+      if (using_mf_) {
+        mf_failures_ = 0;
+        mf_produced_ = true;
+      }
       return true;
     }
+    if (!using_mf_) return false;
     // A hardware MFT that opened but never yields a frame (driver quirk, a
     // transform that stays locked) would otherwise leave the TV on a black
     // screen with no error. Give it a generous warm-up, then move to libx264.
@@ -762,8 +895,13 @@ class WindowsVideoEncoder : public IVideoEncoder {
                << " consecutive frames; switching to the software encoder";
       auto ff = std::make_unique<FFmpegVideoEncoder>();
       if (ff->Initialize(config_)) {
-        ff->SetClockOrigin(clock_origin_);
+        if (clock_origin_set_) {
+          ff->SetClockOrigin(clock_origin_);
+        }
         ff->ForceKeyFrame();
+        if (have_emitted_frame_) {
+          frame_id_offset_ = last_emitted_frame_id_ + 1;
+        }
         active_ = std::move(ff);
         using_mf_ = false;
       }
@@ -775,13 +913,16 @@ class WindowsVideoEncoder : public IVideoEncoder {
     if (active_) active_->ForceKeyFrame();
   }
   void SetBitrate(uint32_t kbps) override {
+    config_.bitrate_kbps = kbps;
     if (active_) active_->SetBitrate(kbps);
   }
   void SetFramerate(int fps) override {
+    if (fps > 0) config_.framerate = fps;
     if (active_) active_->SetFramerate(fps);
   }
   void SetClockOrigin(std::chrono::steady_clock::time_point o) override {
     clock_origin_ = o;
+    clock_origin_set_ = true;
     if (active_) active_->SetClockOrigin(o);
   }
   std::string EncoderName() const override { return active_ ? active_->EncoderName() : "none"; }
@@ -797,9 +938,13 @@ class WindowsVideoEncoder : public IVideoEncoder {
   VideoEncoderConfig empty_config_{};
   VideoEncoderConfig config_{};
   std::chrono::steady_clock::time_point clock_origin_{};
+  bool clock_origin_set_ = false;
   bool using_mf_ = false;
   bool mf_produced_ = false;
   int mf_failures_ = 0;
+  uint32_t frame_id_offset_ = 0;
+  uint32_t last_emitted_frame_id_ = 0;
+  bool have_emitted_frame_ = false;
 };
 #endif
 

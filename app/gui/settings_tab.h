@@ -18,6 +18,7 @@ class SettingsTab {
 
   void UpdateSessionState(SessionState state);
   void SyncBitrateSlider(uint32_t kbps);
+  void SyncDelaySlider(int delay_ms);
 
  private:
   void BuildUi();

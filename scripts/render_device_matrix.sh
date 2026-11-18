@@ -40,8 +40,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --stdout) EXTRA_ARGS+=( --stdout ); shift ;;
     --check) EXTRA_ARGS+=( --check ); shift ;;
-    --runs-dir) RUNS_DIR="$2"; shift 2 ;;
-    --out) OUT_FILE="$2"; shift 2 ;;
+    --runs-dir)
+      [[ $# -ge 2 ]] || { echo "Error: --runs-dir requires a value." >&2; exit 2; }
+      RUNS_DIR="$2"; shift 2 ;;
+    --out)
+      [[ $# -ge 2 ]] || { echo "Error: --out requires a value." >&2; exit 2; }
+      OUT_FILE="$2"; shift 2 ;;
     --help|-h)
       sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -51,8 +55,8 @@ done
 
 if [[ ${#EXTRA_ARGS[@]} -gt 0 && " ${EXTRA_ARGS[*]} " == *" --stdout "* ]]; then
   "${PYTHON[@]}" "${SCRIPT_DIR}/render_device_matrix.py" \
-      --runs-dir "${RUNS_DIR}" "${EXTRA_ARGS[@]}"
+      --runs-dir "${RUNS_DIR}" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 else
   "${PYTHON[@]}" "${SCRIPT_DIR}/render_device_matrix.py" \
-      --runs-dir "${RUNS_DIR}" --out "${OUT_FILE}" "${EXTRA_ARGS[@]}"
+      --runs-dir "${RUNS_DIR}" --out "${OUT_FILE}" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 fi

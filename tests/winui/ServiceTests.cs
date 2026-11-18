@@ -2,7 +2,9 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using CastMirror.Services;
@@ -167,6 +169,115 @@ namespace CastMirror.Tests
             {
                 Directory.Delete(dir, true);
             }
+        }
+    }
+
+    public class CastCoreBridgeTests
+    {
+        [Fact]
+        public void NativeStructLayoutMatchesCAbiContract()
+        {
+            RuntimeHelpers.RunClassConstructor(typeof(CastCoreBridge).TypeHandle);
+            Assert.Equal(3u, CastCoreBridge.ExpectedAbiVersion);
+        }
+
+        [Fact]
+        public void NativeTextRoundTripsUtf8WithNulTerminator()
+        {
+            const string sample = "Кухня TV — Café";
+            byte[] encoded = NativeText.EncodeZ(sample);
+            Assert.Equal((byte)0, encoded[^1]);
+            Assert.Equal(sample, NativeText.Decode(encoded));
+
+            byte[] noNul = Encoding.UTF8.GetBytes("Living Room");
+            Assert.Equal("Living Room", NativeText.Decode(noNul));
+            Assert.Equal(string.Empty, NativeText.Decode(new byte[] { 0, 65, 66 }));
+        }
+    }
+
+    public class SettingsServiceTests
+    {
+        [Fact]
+        public void PresetNamesParseCaseInsensitivelyAndEmitCanonicalCasing()
+        {
+            Assert.Equal("Auto", new CastMirrorSettings().QualityPreset);
+            Assert.True(CastMirrorSettings.TryParsePresetName("cinema", out int idx));
+            Assert.Equal((int)CastMirrorQualityPreset.Cinema, idx);
+            Assert.Equal("Cinema", CastMirrorSettings.PresetName(idx));
+            Assert.False(CastMirrorSettings.TryParsePresetName("unknown", out _));
+        }
+
+        [Fact]
+        public void EffectiveBitrateCapUsesPresetDefaultUntilOverridden()
+        {
+            var settings = new CastMirrorSettings { QualityPreset = "Cinema" };
+            Assert.Equal(16000u, settings.EffectiveBitrateCapKbps());
+
+            settings.SetBitrateCapKbps(14000u);
+            Assert.Equal(14000u, settings.BitrateKbpsCinema);
+            Assert.Equal(14000u, settings.MaxBitrateKbps);
+            Assert.Equal(14000u, settings.EffectiveBitrateCapKbps());
+        }
+
+        [Fact]
+        public void JsonRoundTripPreservesEngineSchemaKeys()
+        {
+            const string json = """
+                {
+                  "quality_preset": "Game",
+                  "max_bitrate_kbps": 9500,
+                  "bitrate_kbps_game": 9500,
+                  "capture_fps": 60,
+                  "audio_enabled": false,
+                  "audio_bitrate_bps": 128000,
+                  "target_delay_ms": 150,
+                  "latency_hud_enabled": true,
+                  "show_cursor": false,
+                  "audio_process_name": "spotify.exe",
+                  "global_hotkeys": true,
+                  "reconnect_window_s": 120,
+                  "adaptive_resolution_enabled": false,
+                  "subnet_scan_enabled": true,
+                  "force_software_encode": true,
+                  "enable_tray_on_startup": true,
+                  "close_to_tray": false,
+                  "notify_on_events": false,
+                  "verify_device_cert": false,
+                  "first_run_complete": true,
+                  "ui_theme": "dark",
+                  "window_width": 1280,
+                  "window_height": 800,
+                  "last_device_id": "tv-1",
+                  "last_source_kind": "window",
+                  "last_source_id": 42
+                }
+                """;
+            var settings = JsonSerializer.Deserialize<CastMirrorSettings>(json)!;
+            Assert.Equal("Game", settings.QualityPreset);
+            Assert.Equal(9500u, settings.BitrateKbpsGame);
+            Assert.Equal(60, settings.CaptureFps);
+            Assert.False(settings.AudioEnabled);
+            Assert.Equal(128000u, settings.AudioBitrateBps);
+            Assert.Equal(150, settings.TargetDelayMs);
+            Assert.True(settings.LatencyHudEnabled);
+            Assert.False(settings.ShowCursor);
+            Assert.Equal("spotify.exe", settings.AudioProcessName);
+            Assert.True(settings.GlobalHotkeys);
+            Assert.Equal(120, settings.ReconnectWindowSeconds);
+            Assert.False(settings.AdaptiveResolutionEnabled);
+            Assert.True(settings.SubnetScanEnabled);
+            Assert.True(settings.ForceSoftwareEncode);
+            Assert.True(settings.EnableTrayOnStartup);
+            Assert.False(settings.CloseToTray);
+            Assert.False(settings.NotifyOnEvents);
+            Assert.False(settings.VerifyDeviceCert);
+            Assert.True(settings.FirstRunComplete);
+            Assert.Equal("dark", settings.UiTheme);
+            Assert.Equal(1280, settings.WindowWidth);
+            Assert.Equal(800, settings.WindowHeight);
+            Assert.Equal("tv-1", settings.LastDeviceId);
+            Assert.Equal("window", settings.LastSourceKind);
+            Assert.Equal(42, settings.LastSourceId);
         }
     }
 }

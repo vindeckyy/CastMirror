@@ -315,3 +315,74 @@ TEST(RtcpParserTest, ExtendedReportBlockTypeIsReadFromTheRightOffset) {
   EXPECT_FALSE(RtcpParser::ParseCompoundPacket(xr_bogus.data(), xr_bogus.size(), 20, fb2))
       << "A report author SSRC of 4 must not be mistaken for the block type";
 }
+
+TEST(RtpPacketizerTest, ClampsTinyMtuAndLargePlayoutDelay) {
+  RtpPacketizer packetizer(96, 2, 10);  // below header size -> must clamp safely
+  EXPECT_GE(packetizer.GetMaxPacketSize(), 64);
+
+  EncodedFrame frame;
+  frame.dependency = FrameDependency::kKeyFrame;
+  frame.frame_id = 3;
+  frame.referenced_frame_id = 3;
+  frame.rtp_timestamp = 9000;
+  frame.playout_delay = std::chrono::milliseconds(100000);  // > uint16_t max
+  frame.data.resize(200, 0xAB);
+
+  auto packets = packetizer.PacketizeFrame(frame);
+  ASSERT_GE(packets.size(), 2u);
+  ASSERT_GE(packets[0].data.size(), 23u);
+  const uint16_t encoded_delay =
+      (static_cast<uint16_t>(packets[0].data[21]) << 8) | packets[0].data[22];
+  EXPECT_EQ(encoded_delay, 65535u);
+}
+
+TEST(RtcpParserTest, ResetsOutputFeedbackBetweenCalls) {
+  std::vector<uint8_t> pli(12, 0);
+  pli[0] = 0x81;
+  pli[1] = 206;
+  pli[2] = 0x00;
+  pli[3] = 0x02;
+  WriteBe32(pli, 4, 10002);
+  WriteBe32(pli, 8, 2);
+
+  RtcpFeedback fb;
+  ASSERT_TRUE(RtcpParser::ParseCompoundPacket(pli.data(), pli.size(), 20, fb));
+  EXPECT_TRUE(fb.picture_loss_indicator);
+
+  // Reusing the same RtcpFeedback on an RR-only packet must clear PLI.
+  std::vector<uint8_t> rr(32, 0);
+  rr[0] = 0x81;
+  rr[1] = 201;
+  rr[2] = 0x00;
+  rr[3] = 0x07;
+  WriteBe32(rr, 4, 10002);
+  WriteBe32(rr, 8, 2);
+  ASSERT_TRUE(RtcpParser::ParseCompoundPacket(rr.data(), rr.size(), 20, fb));
+  EXPECT_FALSE(fb.picture_loss_indicator);
+  EXPECT_TRUE(fb.nacks.empty());
+  EXPECT_TRUE(fb.has_report_block);
+}
+
+TEST(RtcpParserTest, ExpandsFrameIdNearUint32MaxWithoutOverflow) {
+  std::vector<uint8_t> rtcp(20, 0);
+  rtcp[0] = 0x8F;
+  rtcp[1] = 206;
+  rtcp[2] = 0x00;
+  rtcp[3] = 0x04;
+  WriteBe32(rtcp, 4, 10002);
+  WriteBe32(rtcp, 8, 2);
+  rtcp[12] = 'C';
+  rtcp[13] = 'A';
+  rtcp[14] = 'S';
+  rtcp[15] = 'T';
+  rtcp[16] = 0xFD;
+  rtcp[17] = 0;
+  rtcp[18] = 0x00;
+  rtcp[19] = 0xC8;
+
+  std::map<uint32_t, uint32_t> last_by_ssrc;
+  last_by_ssrc[2] = 0xFFFFFFFEu;
+  RtcpFeedback fb;
+  ASSERT_TRUE(RtcpParser::ParseCompoundPacket(rtcp.data(), rtcp.size(), last_by_ssrc, fb));
+  EXPECT_EQ(fb.checkpoint_frame_id, 0xFFFFFFFDu);
+}

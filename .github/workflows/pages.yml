@@ -18,6 +18,9 @@ on:
       - "core/src/adaptive_controller.cc"
       - "core/include/castcore/types.h"
       - "README.md"
+      - "scripts/count_tests.py"
+      - "scripts/render_device_matrix.sh"
+      - "scripts/render_device_matrix.py"
   workflow_dispatch:
 
 permissions:
@@ -38,9 +41,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Fail loudly instead of deploying an empty or half-populated site.
-      - name: Verify site entry point
+      # Fail loudly instead of deploying an empty, half-populated, or stale site.
+      - name: Verify generated docs and site entry point
         run: |
+          python3 scripts/count_tests.py --check
+          ./scripts/render_device_matrix.sh --check
           test -f docs/index.html || { echo "docs/index.html is missing"; exit 1; }
           test -s docs/index.html || { echo "docs/index.html is empty"; exit 1; }
           for f in docs/styles.css docs/site.js; do

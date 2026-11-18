@@ -68,6 +68,7 @@ namespace CastMirror.Services
             {
                 Directory.CreateDirectory(CrashDirectory);
                 string path = Path.Combine(CrashDirectory, $"crash-{DateTime.Now:yyyyMMdd-HHmmss}.dmp");
+                bool wrote = false;
                 using (var file = new FileStream(path, FileMode.Create, FileAccess.Write))
                 {
                     var info = new MiniDumpExceptionInformation
@@ -77,11 +78,18 @@ namespace CastMirror.Services
                         ClientPointers = false
                     };
                     using Process process = Process.GetCurrentProcess();
-                    MiniDumpWriteDump(process.Handle, (uint)process.Id, file.SafeFileHandle.DangerousGetHandle(),
-                                      DumpType, ref info, IntPtr.Zero, IntPtr.Zero);
+                    wrote = MiniDumpWriteDump(process.Handle, (uint)process.Id, file.SafeFileHandle.DangerousGetHandle(),
+                                              DumpType, ref info, IntPtr.Zero, IntPtr.Zero);
                 }
-                File.WriteAllText(Path.Combine(LogService.DirectoryPath, MarkerName), path);
-                PruneOldDumps(CrashDirectory, KeepDumps);
+                if (wrote)
+                {
+                    File.WriteAllText(Path.Combine(LogService.DirectoryPath, MarkerName), path);
+                    PruneOldDumps(CrashDirectory, KeepDumps);
+                }
+                else
+                {
+                    File.Delete(path);
+                }
             }
             catch
             {

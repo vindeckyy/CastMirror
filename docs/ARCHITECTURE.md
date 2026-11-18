@@ -157,7 +157,7 @@ flowchart LR
 Linux-native architecture built around `castcore`. Interfaces are decoupled for modular capture backends and platform abstraction.
 
 **UI: GTK 4 (>= 4.12) + libadwaita (>= 1.5).**  
-Modern GNOME desktop visual standards with `AdwViewSwitcherTitle`, `AdwViewSwitcherBar`, `AdwBreakpoint` responsive adaptation, and dark/light/system theme switching via `AdwStyleManager`. System tray integration uses Ayatana AppIndicator (`libayatana-appindicator-glib-2.0`). Desktop notifications use `org.freedesktop.Notifications`. The Windows WinUI client `app/winui/` is a real client on the same `castcore`, not a blueprint.
+Modern GNOME desktop visual standards with `AdwViewSwitcherTitle`, `AdwViewSwitcherBar`, `AdwBreakpoint` responsive adaptation, and dark/light/system theme switching via `AdwStyleManager`. System tray integration uses Ayatana AppIndicator (`libayatana-appindicator-glib`). Desktop notifications use `org.freedesktop.Notifications`. The Windows WinUI client `app/winui/` is a real client on the same `castcore`, not a blueprint.
 
 **Capture:**
 - **X11:** XRandR per-monitor crop + MIT-SHM (`XShmGetImage`) for displays; XComposite (`CompositeRedirectManual`) + XDamage + XFixes for window capture.
@@ -328,7 +328,7 @@ Heartbeat miss → reconnect. Never leave a zombie capture.
 
 ## 14. Testing strategy
 
-- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->230<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(` macros by `python3 scripts/count_tests.py`.
+- **Unit & Integration:** Google Test (`castmirror_tests`, <!-- testcount -->271<!-- /testcount --> test cases) and CTest. The number is generated from the `TEST(`/`TEST_F(`/`TEST_P(` macros by `python3 scripts/count_tests.py`.
 - **Network Simulation:** Linux Traffic Control (`scripts/simulate_network.sh` using `tc qdisc netem`) for packet loss, latency jitter, and packet reordering.
 - **Benchmarks:** `tools/poc-encode`, `tools/poc-join`, and `scripts/bench_baseline.sh` recording CSV baselines in `docs/bench/baseline.csv`.
 - **Simulated Receiver:** `tools/fake-receiver` for zero-hardware automated E2E testing of the TLS handshake, OFFER/ANSWER negotiation, Cast RTP packet handling, and clean session teardown.

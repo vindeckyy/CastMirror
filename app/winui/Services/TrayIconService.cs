@@ -90,6 +90,9 @@ namespace CastMirror.Services
         private static extern ushort RegisterClassExW(ref WNDCLASSEX lpwcx);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool UnregisterClassW(string lpClassName, IntPtr hInstance);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateWindowExW(uint dwExStyle, string lpClassName, string lpWindowName,
             uint dwStyle, int x, int y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu,
             IntPtr hInstance, IntPtr lpParam);
@@ -175,7 +178,8 @@ namespace CastMirror.Services
         private volatile bool _disposed;
         private bool _ownsIcon;
 
-        private string _tooltip = "CastMirror";
+        private readonly string _className = $"CastMirrorTrayWindow_{Guid.NewGuid():N}";
+        private volatile string _tooltip = "CastMirror";
         private WndProcDelegate? _wndProc;  // kept alive for the window's lifetime
 
         public bool IsActive => _iconAdded;
@@ -208,7 +212,8 @@ namespace CastMirror.Services
                     // Already starting or started: wait on the same signal the
                     // original Start() waits on, so the caller still gets a
                     // truthful answer.
-                    _ready.Wait(TimeSpan.FromSeconds(5));
+                    try { _ready.Wait(TimeSpan.FromSeconds(5)); }
+                    catch (ObjectDisposedException) { return false; }
                     return _iconAdded;
                 }
                 _thread = new Thread(MessageLoop)
@@ -225,7 +230,8 @@ namespace CastMirror.Services
             // sections disposes _ready, so the flag is rechecked before waiting
             // on it — a disposed ManualResetEventSlim would throw.
             if (_disposed) return false;
-            _ready.Wait(TimeSpan.FromSeconds(5));
+            try { _ready.Wait(TimeSpan.FromSeconds(5)); }
+            catch (ObjectDisposedException) { return false; }
             return _iconAdded;
         }
 
@@ -238,6 +244,8 @@ namespace CastMirror.Services
 
         private void MessageLoop()
         {
+            IntPtr hInstance = GetModuleHandleW(null);
+            bool classRegistered = false;
             try
             {
                 _wndProc = WindowProc;
@@ -245,17 +253,28 @@ namespace CastMirror.Services
                 {
                     cbSize = Marshal.SizeOf<WNDCLASSEX>(),
                     lpfnWndProc = Marshal.GetFunctionPointerForDelegate(_wndProc),
-                    hInstance = GetModuleHandleW(null),
-                    lpszClassName = "CastMirrorTrayWindow"
+                    hInstance = hInstance,
+                    lpszClassName = _className
                 };
-                RegisterClassExW(ref wc);
+                classRegistered = RegisterClassExW(ref wc) != 0;
+                if (!classRegistered)
+                {
+                    LogService.Log($"RegisterClassExW failed ({Marshal.GetLastWin32Error()}); tray icon unavailable");
+                    _ready.Set();
+                    return;
+                }
 
                 // WS_EX_TOOLWINDOW + never shown: no taskbar button, but still a
                 // real top-level window so the context menu behaves.
                 _hwnd = CreateWindowExW(0x00000080, wc.lpszClassName, "CastMirror", 0x80000000,
                     0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, wc.hInstance, IntPtr.Zero);
-                if (_hwnd == IntPtr.Zero)
+                if (_hwnd == IntPtr.Zero || _disposed)
                 {
+                    if (_hwnd != IntPtr.Zero)
+                    {
+                        DestroyWindow(_hwnd);
+                        _hwnd = IntPtr.Zero;
+                    }
                     _ready.Set();
                     return;
                 }
@@ -263,7 +282,7 @@ namespace CastMirror.Services
                 _icon = LoadAppIcon();
                 AddIcon();
 
-                while (GetMessageW(out MSG msg, IntPtr.Zero, 0, 0) > 0)
+                while (!_disposed && GetMessageW(out MSG msg, IntPtr.Zero, 0, 0) > 0)
                 {
                     TranslateMessage(ref msg);
                     DispatchMessageW(ref msg);
@@ -277,6 +296,15 @@ namespace CastMirror.Services
             {
                 _ready.Set();
                 RemoveIcon();
+                if (_hwnd != IntPtr.Zero)
+                {
+                    DestroyWindow(_hwnd);
+                    _hwnd = IntPtr.Zero;
+                }
+                if (classRegistered)
+                {
+                    UnregisterClassW(_className, hInstance);
+                }
             }
         }
 
@@ -389,12 +417,13 @@ namespace CastMirror.Services
                 AddIcon();
                 return IntPtr.Zero;
             }
-            if (msg == WM_CLOSE)
-            {
-                RemoveIcon();
-                DestroyWindow(hWnd);
-                return IntPtr.Zero;
-            }
+                if (msg == WM_CLOSE)
+                {
+                    RemoveIcon();
+                    _hwnd = IntPtr.Zero;
+                    DestroyWindow(hWnd);
+                    return IntPtr.Zero;
+                }
             if (msg == WM_DESTROY)
             {
                 PostQuitMessage(0);
@@ -438,11 +467,11 @@ namespace CastMirror.Services
                 FollowSystemMenuTheme();
                 IntPtr menu = CreatePopupMenu();
                 if (menu == IntPtr.Zero) return;
-                AppendMenuW(menu, MF_STRING, (IntPtr)CMD_OPEN, "Open CastMirror");
+                AppendMenuW(menu, MF_STRING, (IntPtr)CMD_OPEN, Localizer.T("Open CastMirror"));
                 AppendMenuW(menu, _isStreaming() ? MF_STRING : MF_STRING | MF_GRAYED, (IntPtr)CMD_STOP,
-                    "Stop casting");
+                    Localizer.T("Stop casting"));
                 AppendMenuW(menu, MF_SEPARATOR, IntPtr.Zero, string.Empty);
-                AppendMenuW(menu, MF_STRING, (IntPtr)CMD_EXIT, "Exit");
+                AppendMenuW(menu, MF_STRING, (IntPtr)CMD_EXIT, Localizer.T("Exit"));
 
                 GetCursorPos(out POINT cursor);
                 // Required so the menu closes when the user clicks elsewhere.

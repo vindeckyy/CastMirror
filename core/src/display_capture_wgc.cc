@@ -143,6 +143,9 @@ bool DisplayCaptureWgc::Start(const CaptureSource& source, int target_fps) {
   // the pixels, crop and dimensions are unrelated to what is cached.
   overlay_cache_ = CapturedVideoFrame{};
   overlay_cursor_pos_ = POINT{};
+  overlay_cursor_handle_ = nullptr;
+  overlay_crop_x_ = 0;
+  overlay_crop_y_ = 0;
   overlay_cache_valid_ = false;
 
   if (source.IsWindow()) {
@@ -584,9 +587,14 @@ void DisplayCaptureWgc::EmitPacedFrame(const FramePacer::Decision& emit) {
       draw_overlays && !cfg.latency_hud_enabled && !emit.fresh && overlay_cache_valid_ &&
       cursor_visible && overlay_cursor_pos_.x == cursor_state.ptScreenPos.x &&
       overlay_cursor_pos_.y == cursor_state.ptScreenPos.y &&
-      overlay_cache_.width == emit.frame->width && overlay_cache_.height == emit.frame->height;
+      overlay_cursor_handle_ == cursor_state.hCursor && overlay_crop_x_ == emit.crop_x &&
+      overlay_crop_y_ == emit.crop_y && overlay_cache_.width == emit.frame->width &&
+      overlay_cache_.height == emit.frame->height;
 
   if (can_reuse) {
+    // Advance the cached composite's timestamp to this tick's paced timestamp
+    // so re-sends keep the video RTP clock moving.
+    overlay_cache_.timestamp = emit.frame->timestamp;
     frame = &overlay_cache_;
   } else if (draw_overlays) {
     overlay_copy = *emit.frame;
@@ -595,6 +603,9 @@ void DisplayCaptureWgc::EmitPacedFrame(const FramePacer::Decision& emit) {
           &overlay_copy.data, overlay_copy.width, overlay_copy.height, emit.crop_x, emit.crop_y);
       if (cursor_visible) {
         overlay_cursor_pos_ = cursor_state.ptScreenPos;
+        overlay_cursor_handle_ = cursor_state.hCursor;
+        overlay_crop_x_ = emit.crop_x;
+        overlay_crop_y_ = emit.crop_y;
         // Keep this composite for the next unchanged re-send. Only the
         // cursor is drawn, so the bytes stay valid for identical pixels.
         overlay_cache_ = overlay_copy;

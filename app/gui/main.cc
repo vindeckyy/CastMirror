@@ -23,16 +23,23 @@ struct ApplicationContext {
 };
 
 void OnStartup(AdwApplication* app, gpointer) {
+  auto& engine = castcore::CastEngine::Instance();
+  engine.Initialize();
+  engine.StartDiscovery();
+
+  const std::string& theme = castcore::ConfigStore::Instance().Get().ui_theme;
   AdwStyleManager* style = adw_style_manager_get_default();
-  adw_style_manager_set_color_scheme(style, ADW_COLOR_SCHEME_FORCE_DARK);
+  if (theme == "light") {
+    adw_style_manager_set_color_scheme(style, ADW_COLOR_SCHEME_FORCE_LIGHT);
+  } else if (theme == "dark") {
+    adw_style_manager_set_color_scheme(style, ADW_COLOR_SCHEME_FORCE_DARK);
+  } else {
+    adw_style_manager_set_color_scheme(style, ADW_COLOR_SCHEME_DEFAULT);
+  }
 
   GdkDisplay* display = gdk_display_get_default();
   castcore::gui::ApplyApplicationTheme(display);
   castcore::gui::NotificationManager::Initialize(G_APPLICATION(app));
-
-  auto& engine = castcore::CastEngine::Instance();
-  engine.Initialize();
-  engine.StartDiscovery();
 }
 
 void OnActivate(AdwApplication* app, gpointer user_data) {

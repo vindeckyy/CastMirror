@@ -77,11 +77,11 @@ class DisplayCaptureWgc : public IDisplayCapture {
   // worker on every frame it composites.
   std::atomic<bool> show_cursor_{false};
   std::atomic<int> target_fps_{60};
-  // Last surface format logged, so a switch to HDR is reported once, not per frame.
-  SourcePixelFormat last_logged_format_ = SourcePixelFormat::kBgra8;
   CaptureSource active_source_{CaptureSourceKind::kMonitor, 0, ""};
 
 #if defined(_WIN32)
+  // Last surface format logged, so a switch to HDR is reported once, not per frame.
+  SourcePixelFormat last_logged_format_ = SourcePixelFormat::kBgra8;
   Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
   Microsoft::WRL::ComPtr<IDXGIOutputDuplication> desk_dupl_;
@@ -117,6 +117,9 @@ class DisplayCaptureWgc : public IDisplayCapture {
   // redraws a live millisecond counter every frame, so it never caches.
   CapturedVideoFrame overlay_cache_;
   POINT overlay_cursor_pos_{};
+  HCURSOR overlay_cursor_handle_ = nullptr;
+  int overlay_crop_x_ = 0;
+  int overlay_crop_y_ = 0;
   bool overlay_cache_valid_ = false;
 
   HDC cursor_dc_ = nullptr;

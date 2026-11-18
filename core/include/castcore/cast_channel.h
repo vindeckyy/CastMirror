@@ -98,7 +98,7 @@ class CastChannel {
   void ReleaseConnection();
 
   std::atomic<int> next_request_id_{1};
-  std::mutex send_mutex_;
+  mutable std::mutex send_mutex_;
   std::mutex callback_mutex_;
 
   MessageCallback message_callback_;

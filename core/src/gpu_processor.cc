@@ -8,13 +8,6 @@ extern "C" {
 
 #include <algorithm>
 #include <cstring>
-#if !defined(_WIN32)
-#include <sys/mman.h>
-#include <unistd.h>
-#if defined(__linux__)
-#include <libdrm/drm_fourcc.h>
-#endif
-#endif
 
 namespace castcore {
 
@@ -63,7 +56,7 @@ GpuProcessor::~GpuProcessor() {
 }
 
 bool GpuProcessor::Initialize(int src_width, int src_height, int dst_width, int dst_height) {
-  if (src_width <= 0 || src_height <= 0 || dst_width <= 0 || dst_height <= 0) {
+  if (src_width <= 0 || src_height <= 0 || dst_width < 2 || dst_height < 2) {
     LOG_ERROR << "Invalid dimensions for GpuProcessor::Initialize";
     return false;
   }
@@ -170,14 +163,30 @@ bool GpuProcessor::ConvertBgraToYuv420p(const CapturedVideoFrame& src, uint8_t* 
   if (!EnsureSource(src) || !sws_ctx_) {
     return false;
   }
+  if (y_stride < dst_width_ || u_stride < dst_width_ / 2 || v_stride < dst_width_ / 2) {
+    return false;
+  }
+  const int src_row_stride = src.stride > 0 ? src.stride : src.width * 4;
+  if (src_row_stride < src.width * 4) {
+    return false;
+  }
+  const size_t min_src_bytes =
+      static_cast<size_t>(src.height - 1) * static_cast<size_t>(src_row_stride) +
+      static_cast<size_t>(src.width) * 4;
+  if (src.data.size() < min_src_bytes) {
+    return false;
+  }
 
-  // Black background for the letterbox bars, then scale into the fit rect.
-  std::memset(dst_y, 16, static_cast<size_t>(y_stride) * dst_height_);
-  std::memset(dst_u, 128, static_cast<size_t>(u_stride) * (dst_height_ / 2));
-  std::memset(dst_v, 128, static_cast<size_t>(v_stride) * (dst_height_ / 2));
+  // Black background for the letterbox bars when the content does not cover
+  // the full destination frame, then scale into the fit rect.
+  if (fit_x_ > 0 || fit_y_ > 0 || fit_w_ < dst_width_ || fit_h_ < dst_height_) {
+    std::memset(dst_y, 16, static_cast<size_t>(y_stride) * dst_height_);
+    std::memset(dst_u, 128, static_cast<size_t>(u_stride) * (dst_height_ / 2));
+    std::memset(dst_v, 128, static_cast<size_t>(v_stride) * (dst_height_ / 2));
+  }
 
   const uint8_t* src_slice[4] = {src.data.data(), nullptr, nullptr, nullptr};
-  int src_stride[4] = {src.stride > 0 ? src.stride : src.width * 4, 0, 0, 0};
+  int src_stride[4] = {src_row_stride, 0, 0, 0};
 
   uint8_t* dst_slice[4] = {
       dst_y + static_cast<size_t>(fit_y_) * y_stride + fit_x_,
@@ -199,6 +208,12 @@ bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src, uint8_t* dst
   if (!EnsureSource(src) || !sws_ctx_nv12_) {
     return false;
   }
+  if (y_stride < dst_width_ || uv_stride < dst_width_) {
+    return false;
+  }
+
+  const bool need_letterbox =
+      (fit_x_ > 0 || fit_y_ > 0 || fit_w_ < dst_width_ || fit_h_ < dst_height_);
 
   // Phase 1.2: If source is already DMA-BUF NV12 (PipeWire zero-copy), avoid
   // the BGRA shadow copy entirely. Keep SW fallback when is_dmabuf but the
@@ -207,30 +222,34 @@ bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src, uint8_t* dst
   // memcpy) or where the PipeWire MemFd path gave us BGRA.
   if (src.is_dmabuf) {
     // is_dmabuf with data empty means hardware import – caller should have used
-    // the VAAPI hw_frames_ctx_ path (0 extra GPU copies). Fall back to black.
-    if (src.data.empty() && src.dmabuf_fd >= 0) {
-      // No BGRA shadow copy; this conversion is not needed – signal caller to use HW path.
-      // For SW fallback we could mmap and convert, but we return false to let
-      // video_encoder try SW BGRA path or direct DMA-BUF mapping.
+    // the VAAPI hw_frames_ctx_ path (0 extra GPU copies).
+    if (src.data.empty()) {
       return false;
     }
-    // If is_dmabuf but data contains already-NV12 CPU copy (via dmabuf mmap
+    // If is_dmabuf and data contains already-NV12 CPU copy (via dmabuf mmap
     // fallback), use NV12->NV12 direct scaling with 0 extra copies.
-    if (!src.data.empty() && src.dmabuf_stride > 0) {
-      std::memset(dst_y, 16, static_cast<size_t>(y_stride) * dst_height_);
-      std::memset(dst_uv, 128, static_cast<size_t>(uv_stride) * (dst_height_ / 2));
-      const uint8_t* src_y = src.data.data() + src.dmabuf_offset_y;
-      const uint8_t* src_uv = src.data.data() + src.dmabuf_offset_uv;
-      const uint8_t* src_slice_nv12[4] = {src_y, src_uv, nullptr, nullptr};
-      int src_stride_nv12[4] = {src.dmabuf_stride, src.dmabuf_stride, 0, 0};
-      uint8_t* dst_slice[4] = {
-          dst_y + static_cast<size_t>(fit_y_) * y_stride + fit_x_,
-          dst_uv + static_cast<size_t>(fit_y_ / 2) * uv_stride + fit_x_,
-          nullptr,
-          nullptr,
-      };
-      int dst_strides[4] = {y_stride, uv_stride, 0, 0};
-      if (sws_nv12_direct_) {
+    if (src.dmabuf_stride >= src.width && src.dmabuf_offset_y >= 0 && src.dmabuf_offset_uv >= 0) {
+      const size_t y_end = static_cast<size_t>(src.dmabuf_offset_y) +
+                           static_cast<size_t>(src.height - 1) * src.dmabuf_stride + src.width;
+      const size_t uv_rows = static_cast<size_t>((src.height + 1) / 2);
+      const size_t uv_end = static_cast<size_t>(src.dmabuf_offset_uv) +
+                            (uv_rows > 0 ? (uv_rows - 1) * src.dmabuf_stride + src.width : 0);
+      if (src.data.size() >= y_end && src.data.size() >= uv_end && sws_nv12_direct_) {
+        if (need_letterbox) {
+          std::memset(dst_y, 16, static_cast<size_t>(y_stride) * dst_height_);
+          std::memset(dst_uv, 128, static_cast<size_t>(uv_stride) * (dst_height_ / 2));
+        }
+        const uint8_t* src_y = src.data.data() + src.dmabuf_offset_y;
+        const uint8_t* src_uv = src.data.data() + src.dmabuf_offset_uv;
+        const uint8_t* src_slice_nv12[4] = {src_y, src_uv, nullptr, nullptr};
+        int src_stride_nv12[4] = {src.dmabuf_stride, src.dmabuf_stride, 0, 0};
+        uint8_t* dst_slice[4] = {
+            dst_y + static_cast<size_t>(fit_y_) * y_stride + fit_x_,
+            dst_uv + static_cast<size_t>(fit_y_ / 2) * uv_stride + fit_x_,
+            nullptr,
+            nullptr,
+        };
+        int dst_strides[4] = {y_stride, uv_stride, 0, 0};
         sws_scale(sws_nv12_direct_,
                   src_slice_nv12,
                   src_stride_nv12,
@@ -240,17 +259,31 @@ bool GpuProcessor::ConvertBgraToNv12(const CapturedVideoFrame& src, uint8_t* dst
                   dst_strides);
         return true;
       }
+      return false;
     }
-    // Fall through to BGRA path if dmabuf handling not applicable
+    // Fall through to BGRA path only if dmabuf NV12 layout wasn't set
   }
 
-  std::memset(dst_y, 16, static_cast<size_t>(y_stride) * dst_height_);
-  // Interleaved UV: both chroma components are neutral at 128, so one memset
-  // covers the whole plane.
-  std::memset(dst_uv, 128, static_cast<size_t>(uv_stride) * (dst_height_ / 2));
+  const int src_row_stride = src.stride > 0 ? src.stride : src.width * 4;
+  if (src_row_stride < src.width * 4) {
+    return false;
+  }
+  const size_t min_src_bytes =
+      static_cast<size_t>(src.height - 1) * static_cast<size_t>(src_row_stride) +
+      static_cast<size_t>(src.width) * 4;
+  if (src.data.size() < min_src_bytes) {
+    return false;
+  }
+
+  if (need_letterbox) {
+    std::memset(dst_y, 16, static_cast<size_t>(y_stride) * dst_height_);
+    // Interleaved UV: both chroma components are neutral at 128, so one memset
+    // covers the whole plane.
+    std::memset(dst_uv, 128, static_cast<size_t>(uv_stride) * (dst_height_ / 2));
+  }
 
   const uint8_t* src_slice[4] = {src.data.data(), nullptr, nullptr, nullptr};
-  int src_stride[4] = {src.stride > 0 ? src.stride : src.width * 4, 0, 0, 0};
+  int src_stride[4] = {src_row_stride, 0, 0, 0};
 
   // NV12 UV plane is one byte per chroma sample horizontally, two per pixel
   // pair: the byte offset equals the pixel offset x.

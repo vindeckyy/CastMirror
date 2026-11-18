@@ -33,6 +33,7 @@ import sys
 
 BEGIN = "<!-- BEGIN GENERATED:DEVICE_MATRIX -->"
 END = "<!-- END GENERATED:DEVICE_MATRIX -->"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Devices we know exist in the field but which have NO recorded run yet. They are
 # listed so the "not measured" state is explicit rather than a silently absent
@@ -74,7 +75,8 @@ def load_runs(runs_dir):
             sys.stderr.write("[render_device_matrix] WARN: skipping %s (unknown schema %r)\n"
                              % (path, rec.get("schema")))
             continue
-        rec["_path"] = os.path.relpath(path).replace("\\", "/")
+        rel = os.path.relpath(os.path.abspath(path), REPO_ROOT).replace("\\", "/")
+        rec["_path"] = os.path.abspath(path).replace("\\", "/") if rel.startswith("..") else rel
         runs.append(rec)
     return runs
 
@@ -90,12 +92,6 @@ def row_for(rec):
         g2g += " +/- %s ms" % fmt(lat["uncertainty_ms"])
     if lat["method"]:
         g2g += " (%s)" % lat["method"]
-    status = rec.get("notes") or ""
-    if rec.get("synthetic"):
-        status = ("**SYNTHETIC -- NOT REAL HARDWARE**" + ("; " + status if status else ""))
-    else:
-        status = ("recorded run; app-ID preflight passed"
-                  + ("; " + status if status else ""))
     return "| %s | `%s` | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
         fmt(d["model"], dash="_not measured_"),
         d["md"] or "?",
@@ -203,6 +199,8 @@ def render_run_detail(rec):
             r["t_ms"], r["kind"], r["recovered"], r["reason"]))
     if rec["not_measured"]:
         w("- not measured: %s" % ", ".join(rec["not_measured"]))
+    if rec.get("notes"):
+        w("- notes: %s" % rec["notes"])
     w("")
     return "\n".join(out)
 
@@ -210,9 +208,9 @@ def render_run_detail(rec):
 def apply_to_file(out_path, block):
     with open(out_path, "r", encoding="utf-8") as fh:
         text = fh.read()
-    if BEGIN not in text or END not in text:
+    if BEGIN not in text or END not in text or text.index(BEGIN) > text.index(END):
         raise SystemExit(
-            "ERROR: %s does not contain the markers\n  %s\n  %s\n"
+            "ERROR: %s does not contain valid markers in order:\n  %s\n  %s\n"
             "Add them once by hand, then this generator owns everything between "
             "them." % (out_path, BEGIN, END))
     pre, rest = text.split(BEGIN, 1)
@@ -245,8 +243,8 @@ def main(argv):
     if args.check:
         with open(args.out, "r", encoding="utf-8") as fh:
             text = fh.read()
-        if BEGIN not in text or END not in text:
-            sys.stderr.write("[render_device_matrix] %s has no markers\n" % args.out)
+        if BEGIN not in text or END not in text or text.index(BEGIN) > text.index(END):
+            sys.stderr.write("[render_device_matrix] %s has no valid markers\n" % args.out)
             return 1
         current = text.split(BEGIN, 1)[1].split(END, 1)[0]
         if current.strip() != block.strip():
